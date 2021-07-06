@@ -1,0 +1,13 @@
+[package]
+name = "exe"
+description = "A PE (Portabl Executable) library!"
+repository = "https://github.com/frank2/exe-rs"
+version = "0.1.0"
+authors = ["frank2@dc949.org"]
+edition = "2018"
+exclude = ["test/*.exe", "test/*.dll", "test/*.sys"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bitflags = "1.2.1"
