@@ -1,16 +1,15 @@
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::fs;
 use std::mem;
-use std::path::Path;
 use std::ptr;
 use std::slice;
 
 use crate::types::Offset;
 
-pub struct PEBuffer {
+pub struct Buffer {
     data: Vec<u8>
 }
-impl PEBuffer {
+impl Buffer {
     pub fn new() -> Self {
         Self {
             data: Vec::<u8>::new()

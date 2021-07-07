@@ -1,6 +1,9 @@
+use std::ffi::OsStr;
+use std::mem::transmute;
+
 use bitflags::bitflags;
 
-use crate::{PEFile, Error};
+use crate::Error;
 
 pub const DOS_SIGNATURE: u16    = 0x5A4D;
 pub const OS2_SIGNATURE: u16    = 0x454E;
@@ -22,10 +25,22 @@ pub enum Arch {
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct CChar(pub u8);
 
-pub trait ConvertAddress {
-    fn to_offset(&self, image: &PEFile) -> Result<Offset, Error>;
-    fn to_rva(&self, image: &PEFile) -> Result<RVA, Error>;
-    fn to_va(&self, image: &PEFile) -> Result<VA, Error>;
+pub trait CCharString {
+    fn zero_terminated(&self) -> Option<&Self>;
+    fn as_os_str(&self) -> &OsStr;
+}
+/* borrowed from pe-rs */
+impl CCharString for [CChar] {
+    fn zero_terminated(&self) -> Option<&Self> {
+        self.iter()
+            .position(|&CChar(x)| x == 0)
+            .map(|p| &self[..p])
+    }
+    fn as_os_str(&self) -> &OsStr {
+        let cstr = self.zero_terminated().unwrap_or(&self);
+
+        unsafe { transmute::<&[CChar],&str>(cstr).as_ref() }
+    }
 }
 
 #[repr(packed)]
@@ -50,15 +65,8 @@ pub enum VA {
     VA64(VA64),
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum Address {
-    Offset(Offset),
-    RVA(RVA),
-    VA(VA),
-}
-
 #[repr(packed)]
-pub struct DOSHeader {
+pub struct ImageDOSHeader {
     pub e_magic: u16,
     pub e_cblp: u16,
     pub e_cp: u16,
@@ -137,8 +145,8 @@ bitflags! {
 }
 
 #[repr(packed)]
-pub struct FileHeader {
-    pub machine: Machine,
+pub struct ImageFileHeader {
+    pub machine: u16,
     pub number_of_sections: u16,
     pub time_date_stamp: u32,
     pub pointer_to_symbol_table: Offset,
@@ -188,13 +196,13 @@ bitflags! {
 }
 
 #[repr(packed)]
-pub struct DataDirectoryHeader {
+pub struct ImageDataDirectory {
     pub virtual_address: RVA,
     pub size: u32,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum DirectoryEntry {
+pub enum ImageDirectoryEntry {
     Export         = 0,
     Import         = 1,
     Resource       = 2,
@@ -210,10 +218,11 @@ pub enum DirectoryEntry {
     IAT            = 12,
     DelayImport    = 13,
     COMDescriptor  = 14,
+    Reserved       = 15,
 }
 
 #[repr(packed)]
-pub struct OptionalHeader32 {
+pub struct ImageOptionalHeader32 {
     pub magic: u16,
     pub major_linker_version: u8,
     pub minor_linker_version: u8,
@@ -236,7 +245,7 @@ pub struct OptionalHeader32 {
     pub size_of_image: u32,
     pub size_of_headers: u32,
     pub checksum: u32,
-    pub subsystem: Subsystem,
+    pub subsystem: u16,
     pub dll_characteristics: DLLCharacteristics,
     pub size_of_stack_reserve: u32,
     pub size_of_stack_commit: u32,
@@ -244,11 +253,11 @@ pub struct OptionalHeader32 {
     pub size_of_heap_commit: u32,
     pub loader_flags: u32,
     pub number_of_rva_and_sizes: u32,
-    pub data_directory: [DataDirectoryHeader; 16],
+    pub data_directory: [ImageDataDirectory; 16],
 }
 
 #[repr(packed)]
-pub struct OptionalHeader64 {
+pub struct ImageOptionalHeader64 {
     pub magic: u16,
     pub major_linker_version: u8,
     pub minor_linker_version: u8,
@@ -270,7 +279,7 @@ pub struct OptionalHeader64 {
     pub size_of_image: u32,
     pub size_of_headers: u32,
     pub checksum: u32,
-    pub subsystem: Subsystem,
+    pub subsystem: u16,
     pub dll_characteristics: DLLCharacteristics,
     pub size_of_stack_reserve: u64,
     pub size_of_stack_commit: u64,
@@ -278,31 +287,21 @@ pub struct OptionalHeader64 {
     pub size_of_heap_commit: u64,
     pub loader_flags: u32,
     pub number_of_rva_and_sizes: u32,
-    pub data_directory: [DataDirectoryHeader; 16],
+    pub data_directory: [ImageDataDirectory; 16],
 }
 
 #[repr(packed)]
-pub struct NTHeaders32 {
+pub struct ImageNTHeaders32 {
     pub signature: u32,
-    pub file_header: FileHeader,
-    pub optional_header: OptionalHeader32,
+    pub file_header: ImageFileHeader,
+    pub optional_header: ImageOptionalHeader32,
 }
 
 #[repr(packed)]
-pub struct NTHeaders64 {
+pub struct ImageNTHeaders64 {
     pub signature: u32,
-    pub file_header: FileHeader,
-    pub optional_header: OptionalHeader64,
-}
-
-pub enum NTHeaders<'data> {
-    NTHeaders32(&'data NTHeaders32),
-    NTHeaders64(&'data NTHeaders64),
-}
-
-pub enum NTHeadersMut<'data> {
-    NTHeaders32(&'data mut NTHeaders32),
-    NTHeaders64(&'data mut NTHeaders64),
+    pub file_header: ImageFileHeader,
+    pub optional_header: ImageOptionalHeader64,
 }
 
 bitflags! {
@@ -358,7 +357,7 @@ bitflags! {
 }
 
 #[repr(packed)]
-pub struct SectionHeader {
+pub struct ImageSectionHeader {
     pub name: [CChar; 8],
     pub virtual_size: u32,
     pub virtual_address: RVA,
@@ -369,4 +368,19 @@ pub struct SectionHeader {
     pub number_of_relocations: u16,
     pub number_of_linenumbers: u16,
     pub characteristics: SectionCharacteristics,
+}
+
+#[repr(packed)]
+pub struct ImageExportDirectory {
+    characteristics: u32,
+    time_date_stamp: u32,
+    major_version: u16,
+    minor_version: u16,
+    name: RVA,
+    base: u32,
+    number_of_functions: u32,
+    number_of_names: u32,
+    address_of_functions: RVA,
+    address_of_names: RVA,
+    address_of_name_ordinals: RVA,
 }
