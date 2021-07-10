@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::*;
 use super::types::*;
 use super::buffer::*;
@@ -45,6 +47,34 @@ fn test_dll() {
         let name = export_table.get_name(&pefile);
         assert!(name.is_ok());
         assert_eq!(name.unwrap().as_str(), "dll.dll");
+
+        let exports = export_table.get_export_map(&pefile);
+        let expected: HashMap<&str, ThunkData> = [("export", ThunkData::Function(RVA(0x1024)))].iter().map(|&x| x).collect();
+
+        assert!(exports.is_ok());
+        assert_eq!(exports.unwrap(), expected);
+    }
+    else {
+        panic!("couldn't get export directory");
+    }
+}
+
+#[test]
+fn test_dll_fw() {
+    let dll_fw = PE::from_file("test/dllfw.dll");
+    assert!(dll_fw.is_ok());
+
+    let pefile = dll_fw.unwrap();
+
+    let directory = pefile.resolve_data_directory(ImageDirectoryEntry::Export);
+    assert!(directory.is_ok());
+
+    if let DataDirectory::Export(export_table) = directory.unwrap() {
+        let exports = export_table.get_export_map(&pefile);
+        let expected: HashMap<&str, ThunkData> = [("ExitProcess", ThunkData::ForwarderString(RVA(0x1060)))].iter().map(|&x| x).collect();
+
+        assert!(exports.is_ok());
+        assert_eq!(exports.unwrap(), expected);
     }
     else {
         panic!("couldn't get export directory");

@@ -696,13 +696,13 @@ pub enum ImageDirectoryEntry {
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum ThunkData {
     Ordinal(u32),
-    RVA(RVA),
+    Function(RVA),
     ForwarderString(RVA),
 }
 
 pub trait Thunk {
     fn is_ordinal(&self) -> bool;
-    fn parse(&self) -> ThunkData;
+    fn parse(&self, start: Option<RVA>, end: Option<RVA>) -> ThunkData;
 }
 
 #[repr(packed)]
@@ -712,12 +712,24 @@ impl Thunk for Thunk32 {
     fn is_ordinal(&self) -> bool {
         (self.0 & 0x80000000) != 0
     }
-    fn parse(&self) -> ThunkData {
+    fn parse(&self, start: Option<RVA>, end: Option<RVA>) -> ThunkData {
         if self.is_ordinal() {
             ThunkData::Ordinal((self.0 & 0xFFFF) as u32)
         }
+        else if start.is_none() || end.is_none() {
+            ThunkData::Function(RVA(self.0 as u32))
+        }
         else {
-            ThunkData::RVA(RVA(self.0 as u32))
+            let rva_start = start.unwrap();
+            let rva_end = end.unwrap();
+            let value = self.0 as u32;
+
+            if rva_start.0 <= value && value < rva_end.0 {
+                ThunkData::ForwarderString(RVA(value))
+            }
+            else {
+                ThunkData::Function(RVA(value))
+            }
         }
     }
 }
@@ -729,12 +741,24 @@ impl Thunk for Thunk64 {
     fn is_ordinal(&self) -> bool {
         (self.0 & 0x8000000000000000) != 0
     }
-    fn parse(&self) -> ThunkData {
+    fn parse(&self, start: Option<RVA>, end: Option<RVA>) -> ThunkData {
         if self.is_ordinal() {
             ThunkData::Ordinal((self.0 & 0xFFFFFFFF) as u32)
         }
+        else if start.is_none() || end.is_none() {
+            ThunkData::Function(RVA(self.0 as u32))
+        }
         else {
-            ThunkData::RVA(RVA(self.0 as u32))
+            let rva_start = start.unwrap();
+            let rva_end = end.unwrap();
+            let value = self.0;
+
+            if (rva_start.0 as u64) <= value && value < (rva_end.0 as u64) {
+                ThunkData::ForwarderString(RVA(value as u32))
+            }
+            else {
+                ThunkData::Function(RVA(value as u32))
+            }
         }
     }
 }
@@ -875,16 +899,7 @@ impl ImageExportDirectory {
             };
 
             let ordinal = ordinals[index as usize];
-            let function = match functions[ordinal as usize].parse() {
-                ThunkData::Ordinal(o) => ThunkData::Ordinal(o),
-                ThunkData::RVA(rva) => {
-                    if start.0 <= rva.0 && rva.0 < end.0 {
-                        ThunkData::ForwarderString(rva)
-                    }
-                    else { ThunkData::RVA(rva) }
-                }
-                ThunkData::ForwarderString(s) => ThunkData::ForwarderString(s),
-            };
+            let function = functions[ordinal as usize].parse(Some(start), Some(end));
 
             result.insert(name.as_str(), function);
         }
