@@ -11,3 +11,6 @@ exclude = ["test/*.exe", "test/*.dll", "test/*.sys"]
 
 [dependencies]
 bitflags = "1.2.1"
+byteorder = "1.1.0"
+chrono = "0.4"
+widestring = "0.4.3"

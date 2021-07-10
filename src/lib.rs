@@ -1,16 +1,20 @@
+extern crate chrono;
+
 pub mod buffer;
 pub mod types;
 
 #[cfg(test)]
 mod tests;
 
+use std::convert::AsRef;
 use std::io::{Error as IoError};
 use std::mem::size_of;
+use std::path::Path;
 
 use crate::buffer::Buffer;
 use crate::types::*;
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(PartialEq, Debug)]
 pub enum Error {
     BufferTooSmall,
     InvalidDOSSignature,
@@ -20,18 +24,11 @@ pub enum Error {
     InvalidRVA,
     InvalidVA,
     SectionNotFound,
+    BadPointer,
+    UnsupportedDirectory,
 }
 
-pub enum NTHeaders<'data> {
-    NTHeaders32(&'data ImageNTHeaders32),
-    NTHeaders64(&'data ImageNTHeaders64),
-}
-
-pub enum NTHeadersMut<'data> {
-    NTHeaders32(&'data mut ImageNTHeaders32),
-    NTHeaders64(&'data mut ImageNTHeaders64),
-}
-
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct PE {
     pub buffer: Buffer,
     /* pub virtual: Option<Buffer> */
@@ -50,30 +47,18 @@ impl PE {
             filename: None,
         }
     }
-    pub fn from_file(filename: &str) -> Result<Self, IoError> {
-        match Buffer::from_file(filename) {
-            Ok(buffer) => Ok(Self { buffer: buffer, filename: Some(String::from(filename)) }),
+    pub fn from_file<P: AsRef<Path>>(filename: P) -> Result<Self, IoError> {
+        match Buffer::from_file(&filename) {
+            Ok(buffer) => Ok(Self { buffer: buffer, filename: Some(String::from(filename.as_ref().to_str().unwrap())) }),
             Err(e) => Err(e),
         }
     }
 
     pub fn get_dos_header(&self) -> Result<&ImageDOSHeader, Error> {
-        let dos_header = self.buffer.get_ref::<ImageDOSHeader>(Offset(0));
-
-        if dos_header.is_err() {
-            return Err(Error::BufferTooSmall);
-        }
-
-        Ok(dos_header.unwrap())
+        self.buffer.get_ref::<ImageDOSHeader>(Offset(0))
     }
     pub fn get_mut_dos_header(&mut self) -> Result<&mut ImageDOSHeader, Error> {
-        let dos_header = self.buffer.get_mut_ref::<ImageDOSHeader>(Offset(0));
-
-        if dos_header.is_err() {
-            return Err(Error::BufferTooSmall);
-        }
-
-        Ok(dos_header.unwrap())
+        self.buffer.get_mut_ref::<ImageDOSHeader>(Offset(0))
     }
     pub fn get_valid_dos_header(&self) -> Result<&ImageDOSHeader, Error> {
         let dos_header = match self.get_dos_header() {
@@ -87,7 +72,7 @@ impl PE {
 
         Ok(dos_header)
     }
-    pub fn get_valid_mut_dos_header(&mut self) -> Result<&ImageDOSHeader, Error> {
+    pub fn get_valid_mut_dos_header(&mut self) -> Result<&mut ImageDOSHeader, Error> {
         let dos_header = match self.get_mut_dos_header() {
             Ok(h) => h,
             Err(e) => return Err(e),
@@ -112,12 +97,7 @@ impl PE {
             Err(e) => return Err(e),
         };
 
-        let nt_headers = self.buffer.get_ref::<ImageNTHeaders32>(e_lfanew);
-
-        match nt_headers {
-            Ok(h) => Ok(h),
-            Err(_) => Err(Error::BufferTooSmall),
-        }
+        self.buffer.get_ref::<ImageNTHeaders32>(e_lfanew)
     }
     pub fn get_mut_nt_headers_32(&mut self) -> Result<&mut ImageNTHeaders32, Error> {
         let e_lfanew = match self.e_lfanew() {
@@ -125,12 +105,7 @@ impl PE {
             Err(e) => return Err(e),
         };
 
-        let nt_headers = self.buffer.get_mut_ref::<ImageNTHeaders32>(e_lfanew);
-
-        match nt_headers {
-            Ok(h) => Ok(h),
-            Err(_) => Err(Error::BufferTooSmall),
-        }
+        self.buffer.get_mut_ref::<ImageNTHeaders32>(e_lfanew)
     }
     pub fn get_valid_nt_headers_32(&self) -> Result<&ImageNTHeaders32, Error> {
         let nt_headers = match self.get_nt_headers_32() {
@@ -170,12 +145,7 @@ impl PE {
             Err(e) => return Err(e),
         };
 
-        let nt_headers = self.buffer.get_ref::<ImageNTHeaders64>(e_lfanew);
-
-        match nt_headers {
-            Ok(h) => Ok(h),
-            Err(_) => Err(Error::BufferTooSmall),
-        }
+        self.buffer.get_ref::<ImageNTHeaders64>(e_lfanew)
     }
     pub fn get_mut_nt_headers_64(&mut self) -> Result<&mut ImageNTHeaders64, Error> {
         let e_lfanew = match self.e_lfanew() {
@@ -183,12 +153,7 @@ impl PE {
             Err(e) => return Err(e),
         };
 
-        let nt_headers = self.buffer.get_mut_ref::<ImageNTHeaders64>(e_lfanew);
-
-        match nt_headers {
-            Ok(h) => Ok(h),
-            Err(_) => Err(Error::BufferTooSmall),
-        }
+        self.buffer.get_mut_ref::<ImageNTHeaders64>(e_lfanew)
     }
     pub fn get_valid_nt_headers_64(&self) -> Result<&ImageNTHeaders64, Error> {
         let nt_headers = match self.get_nt_headers_64() {
@@ -305,7 +270,7 @@ impl PE {
         offset += size_of::<ImageFileHeader>() as u32;
         offset += size_of_optional as u32;
 
-        if offset as usize > self.buffer.len() {
+        if !self.validate_offset(Offset(offset)) {
             return Err(Error::BufferTooSmall);
         }
 
@@ -327,10 +292,7 @@ impl PE {
             NTHeaders::NTHeaders64(h) => h.file_header.number_of_sections,
         };
 
-        match self.buffer.get_slice_ref::<ImageSectionHeader>(offset, sections as usize) {
-            Ok(s) => Ok(s),
-            Err(_) => Err(Error::BufferTooSmall),
-        }
+        self.buffer.get_slice_ref::<ImageSectionHeader>(offset, sections as usize)
     }
     pub fn get_mut_section_table(&mut self) -> Result<&mut [ImageSectionHeader], Error> {
         let offset = match self.get_section_table_offset() {
@@ -348,10 +310,7 @@ impl PE {
             NTHeaders::NTHeaders64(h) => h.file_header.number_of_sections,
         };
 
-        match self.buffer.get_mut_slice_ref::<ImageSectionHeader>(offset, sections as usize) {
-            Ok(s) => Ok(s),
-            Err(_) => Err(Error::BufferTooSmall),
-        }
+        self.buffer.get_mut_slice_ref::<ImageSectionHeader>(offset, sections as usize)
     }
     
     pub fn get_section_by_offset(&self, offset: Offset) -> Result<&ImageSectionHeader, Error> {
@@ -405,7 +364,7 @@ impl PE {
 
         Err(Error::SectionNotFound)
     }
-    pub fn get_mut_section_by_rva(&mut self, rva: RVA) -> Result<&ImageSectionHeader, Error> {
+    pub fn get_mut_section_by_rva(&mut self, rva: RVA) -> Result<&mut ImageSectionHeader, Error> {
         let section_table = match self.get_mut_section_table() {
             Ok(s) => s,
             Err(e) => return Err(e),
@@ -430,7 +389,7 @@ impl PE {
         let s = name.as_str();
 
         for section in sections {
-            if section.name.as_os_str() == s {
+            if section.name.as_str() == s {
                 return Ok(section);
             }
         }
@@ -445,7 +404,7 @@ impl PE {
         let s = name.as_str();
         
         for section in sections {
-            if section.name.as_os_str() == s {
+            if section.name.as_str() == s {
                 return Ok(section);
             }
         }
@@ -473,13 +432,11 @@ impl PE {
             Ok(h) => h,
             Err(_) => return false,
         };
-        let image_size = match headers {
-            NTHeaders::NTHeaders32(h32) => h32.optional_header.size_of_image as usize,
-            NTHeaders::NTHeaders64(h64) => h64.optional_header.size_of_image as usize,
-        };
-        let image_base = match headers {
-            NTHeaders::NTHeaders32(h32) => h32.optional_header.image_base as usize,
-            NTHeaders::NTHeaders64(h64) => h64.optional_header.image_base as usize,
+        let (image_size, image_base) = match headers {
+            NTHeaders::NTHeaders32(h32) => (h32.optional_header.size_of_image as usize,
+                                            h32.optional_header.image_base as usize),
+            NTHeaders::NTHeaders64(h64) => (h64.optional_header.size_of_image as usize,
+                                            h64.optional_header.image_base as usize)
         };
 
         let start = image_base;
@@ -601,5 +558,33 @@ impl PE {
         };
 
         self.rva_to_offset(rva)
+    }
+
+    pub fn get_data_directory(&self, dir: ImageDirectoryEntry) -> Result<&ImageDataDirectory, Error> {
+        match self.get_valid_nt_headers() {
+            Err(e) => return Err(e),
+            Ok(h) => match h {
+                NTHeaders::NTHeaders32(h32) => Ok(&h32.optional_header.data_directory[dir as usize]),
+                NTHeaders::NTHeaders64(h64) => Ok(&h64.optional_header.data_directory[dir as usize]),
+            }
+        }
+    }
+    pub fn get_mut_data_directory(&mut self, dir: ImageDirectoryEntry) -> Result<&mut ImageDataDirectory, Error> {
+        match self.get_valid_mut_nt_headers() {
+            Err(e) => return Err(e),
+            Ok(h) => match h {
+                NTHeadersMut::NTHeaders32(h32) => Ok(&mut h32.optional_header.data_directory[dir as usize]),
+                NTHeadersMut::NTHeaders64(h64) => Ok(&mut h64.optional_header.data_directory[dir as usize]),
+            }
+        }
+    }
+    pub fn resolve_data_directory(&self, dir: ImageDirectoryEntry) -> Result<DataDirectory, Error> {
+        match self.get_valid_nt_headers() {
+            Err(e) => return Err(e),
+            Ok(h) => match h {
+                NTHeaders::NTHeaders32(h32) => h32.optional_header.data_directory[dir as usize].resolve(self, dir),
+                NTHeaders::NTHeaders64(h64) => h64.optional_header.data_directory[dir as usize].resolve(self, dir),
+            }
+        }
     }
 }

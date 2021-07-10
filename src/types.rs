@@ -1,9 +1,16 @@
-use std::ffi::OsStr;
-use std::mem::transmute;
-
 use bitflags::bitflags;
 
-use crate::Error;
+use chrono::offset::{Offset as ChronoOffset};
+use chrono::offset::TimeZone;
+use chrono::{Local as LocalTime};
+
+use std::collections::HashMap;
+use std::default::Default;
+use std::mem;
+
+use widestring::U16Str;
+
+use crate::{PE, Error};
 
 pub const DOS_SIGNATURE: u16    = 0x5A4D;
 pub const OS2_SIGNATURE: u16    = 0x454E;
@@ -22,47 +29,129 @@ pub enum Arch {
 }
 
 #[repr(packed)]
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct CChar(pub u8);
 
+/* borrowed from pe-rs */
 pub trait CCharString {
     fn zero_terminated(&self) -> Option<&Self>;
-    fn as_os_str(&self) -> &OsStr;
+    fn as_str(&self) -> &str;
 }
-/* borrowed from pe-rs */
 impl CCharString for [CChar] {
     fn zero_terminated(&self) -> Option<&Self> {
         self.iter()
             .position(|&CChar(x)| x == 0)
             .map(|p| &self[..p])
     }
-    fn as_os_str(&self) -> &OsStr {
+    fn as_str(&self) -> &str {
         let cstr = self.zero_terminated().unwrap_or(&self);
 
-        unsafe { transmute::<&[CChar],&str>(cstr).as_ref() }
+        unsafe { mem::transmute::<&[CChar],&str>(cstr) }
     }
 }
 
 #[repr(packed)]
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub struct RVA(pub u32);
+#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
+pub struct WChar(pub u16);
+
+pub trait WCharString {
+    fn zero_terminated(&self) -> Option<&Self>;
+    fn as_u16_str(&self) -> &U16Str;
+}
+impl WCharString for [WChar] {
+    fn zero_terminated(&self) -> Option<&Self> {
+        self.iter()
+            .position(|&WChar(x)| x == 0)
+            .map(|p| &self[..p])
+    }
+    fn as_u16_str(&self) -> &U16Str {
+        let u16str = self.zero_terminated().unwrap_or(&self);
+
+        unsafe { mem::transmute::<&[WChar],&U16Str>(u16str) }
+    }
+}
+
+pub trait Address {
+    fn as_offset(&self, pe: &PE) -> Result<Offset, Error>;
+    fn as_rva(&self, pe: &PE) -> Result<RVA, Error>;
+    fn as_va(&self, pe: &PE) -> Result<VA, Error>;
+}
 
 #[repr(packed)]
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct Offset(pub u32);
+impl Address for Offset {
+    fn as_offset(&self, _: &PE) -> Result<Offset, Error> {
+        Ok(self.clone())
+    }
+    fn as_rva(&self, pe: &PE) -> Result<RVA, Error> {
+        pe.offset_to_rva(*self)
+    }
+    fn as_va(&self, pe: &PE) -> Result<VA, Error> {
+        pe.offset_to_va(*self)
+    }
+}
 
 #[repr(packed)]
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
+pub struct RVA(pub u32);
+impl Address for RVA {
+    fn as_offset(&self, pe: &PE) -> Result<Offset, Error> {
+        pe.rva_to_offset(*self)
+    }
+    fn as_rva(&self, _: &PE) -> Result<RVA, Error> {
+        Ok(self.clone())
+    }
+    fn as_va(&self, pe: &PE) -> Result<VA, Error> {
+        pe.rva_to_va(*self)
+    }
+}
+
+#[repr(packed)]
+#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct VA32(pub u32);
+impl Address for VA32 {
+    fn as_offset(&self, pe: &PE) -> Result<Offset, Error> {
+        pe.va_to_offset(VA::VA32(*self))
+    }
+    fn as_rva(&self, pe: &PE) -> Result<RVA, Error> {
+        pe.va_to_rva(VA::VA32(*self))
+    }
+    fn as_va(&self, _: &PE) -> Result<VA, Error> {
+        Ok(VA::VA32(self.clone()))
+    }
+}
 
 #[repr(packed)]
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct VA64(pub u64);
+impl Address for VA64 {
+    fn as_offset(&self, pe: &PE) -> Result<Offset, Error> {
+        pe.va_to_offset(VA::VA64(*self))
+    }
+    fn as_rva(&self, pe: &PE) -> Result<RVA, Error> {
+        pe.va_to_rva(VA::VA64(*self))
+    }
+    fn as_va(&self, _: &PE) -> Result<VA, Error> {
+        Ok(VA::VA64(self.clone()))
+    }
+}
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum VA {
     VA32(VA32),
     VA64(VA64),
+}
+impl Address for VA {
+    fn as_offset(&self, pe: &PE) -> Result<Offset, Error> {
+        pe.va_to_offset(*self)
+    }
+    fn as_rva(&self, pe: &PE) -> Result<RVA, Error> {
+        pe.va_to_rva(*self)
+    }
+    fn as_va(&self, _: &PE) -> Result<VA, Error> {
+        Ok(self.clone())
+    }
 }
 
 #[repr(packed)]
@@ -87,8 +176,32 @@ pub struct ImageDOSHeader {
     pub e_res2: [u16; 10],
     pub e_lfanew: Offset,
 }
+impl Default for ImageDOSHeader {
+    fn default() -> Self {
+        Self {
+            e_magic: DOS_SIGNATURE,
+            e_cblp: 0x90,
+            e_cp: 0x03,
+            e_crlc: 0x0,
+            e_cparhdr: 0x04,
+            e_minalloc: 0x0,
+            e_maxalloc: 0xFFFF,
+            e_ss: 0x0,
+            e_sp: 0xB8,
+            e_csum: 0x0,
+            e_ip: 0x0,
+            e_cs: 0x0,
+            e_lfarlc: 0x40,
+            e_ovno: 0x0,
+            e_res: [0u16; 4],
+            e_oemid: 0x0,
+            e_oeminfo: 0x0,
+            e_res2: [0u16; 10],
+            e_lfanew: Offset(0xE0),
+        }
+    }
+}
 
-#[repr(u16)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Machine {
     Unknown     = 0x0000,
@@ -154,8 +267,36 @@ pub struct ImageFileHeader {
     pub size_of_optional_header: u16,
     pub characteristics: FileCharacteristics,
 }
+impl ImageFileHeader {
+    fn default_x86() -> Self {
+        ImageFileHeader::default()
+    }
+    fn default_x64() -> Self {
+        Self {
+            machine: Machine::AMD64 as u16,
+            number_of_sections: 0,
+            time_date_stamp: LocalTime.timestamp(0, 0).timestamp() as u32,
+            pointer_to_symbol_table: Offset(0),
+            number_of_symbols: 0,
+            size_of_optional_header: mem::size_of::<ImageOptionalHeader32>() as u16,
+            characteristics: FileCharacteristics::EXECUTABLE_IMAGE | FileCharacteristics::MACHINE_32BIT,
+        }
+    }
+}
+impl Default for ImageFileHeader {
+    fn default() -> Self {
+        Self {
+            machine: Machine::I386 as u16,
+            number_of_sections: 0,
+            time_date_stamp: LocalTime.timestamp(0, 0).timestamp() as u32,
+            pointer_to_symbol_table: Offset(0),
+            number_of_symbols: 0,
+            size_of_optional_header: mem::size_of::<ImageOptionalHeader32>() as u16,
+            characteristics: FileCharacteristics::EXECUTABLE_IMAGE | FileCharacteristics::MACHINE_32BIT,
+        }
+    }
+}
 
-#[repr(u16)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Subsystem {
     Unknown                  = 0,
@@ -196,32 +337,6 @@ bitflags! {
 }
 
 #[repr(packed)]
-pub struct ImageDataDirectory {
-    pub virtual_address: RVA,
-    pub size: u32,
-}
-
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum ImageDirectoryEntry {
-    Export         = 0,
-    Import         = 1,
-    Resource       = 2,
-    Exception      = 3,
-    Security       = 4,
-    BaseReloc      = 5,
-    Debug          = 6,
-    Architecture   = 7,
-    GlobalPTR      = 8,
-    TLS            = 9,
-    LoadConfig     = 10,
-    BoundImport    = 11,
-    IAT            = 12,
-    DelayImport    = 13,
-    COMDescriptor  = 14,
-    Reserved       = 15,
-}
-
-#[repr(packed)]
 pub struct ImageOptionalHeader32 {
     pub magic: u16,
     pub major_linker_version: u8,
@@ -254,6 +369,62 @@ pub struct ImageOptionalHeader32 {
     pub loader_flags: u32,
     pub number_of_rva_and_sizes: u32,
     pub data_directory: [ImageDataDirectory; 16],
+}
+impl Default for ImageOptionalHeader32 {
+    fn default() -> Self {
+        Self {
+            magic: HDR32_MAGIC,
+            major_linker_version: 0xE,
+            minor_linker_version: 0x0,
+            size_of_code: 0x0,
+            size_of_initialized_data: 0x0,
+            size_of_uninitialized_data: 0x0,
+            address_of_entry_point: RVA(0x1000),
+            base_of_code: RVA(0x1000),
+            base_of_data: RVA(0),
+            image_base: 0x400000,
+            section_alignment: 0x1000,
+            file_alignment: 0x400,
+            major_operating_system_version: 4,
+            minor_operating_system_version: 0,
+            major_image_version: 4,
+            minor_image_version: 0,
+            major_subsystem_version: 4,
+            minor_subsystem_version: 0,
+            win32_version_value: 0,
+            size_of_image: 0,
+            size_of_headers: 0,
+            checksum: 0,
+            subsystem: Subsystem::WindowsGUI as u16,
+            dll_characteristics: DLLCharacteristics::DYNAMIC_BASE | DLLCharacteristics::NX_COMPAT | DLLCharacteristics::TERMINAL_SERVER_AWARE,
+            size_of_stack_reserve: 0x40000,
+            size_of_stack_commit: 0x2000,
+            size_of_heap_reserve: 0x100000,
+            size_of_heap_commit: 0x1000,
+            loader_flags: 0,
+            number_of_rva_and_sizes: 0x10,
+            /* I really don't want to give ImageDataDirectory the copy trait,
+               so this is ugly copypasta */
+            data_directory: [
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+            ],
+        }
+    }
 }
 
 #[repr(packed)]
@@ -289,6 +460,59 @@ pub struct ImageOptionalHeader64 {
     pub number_of_rva_and_sizes: u32,
     pub data_directory: [ImageDataDirectory; 16],
 }
+impl Default for ImageOptionalHeader64 {
+    fn default() -> Self {
+        Self {
+            magic: HDR64_MAGIC,
+            major_linker_version: 0xE,
+            minor_linker_version: 0x0,
+            size_of_code: 0x0,
+            size_of_initialized_data: 0x0,
+            size_of_uninitialized_data: 0x0,
+            address_of_entry_point: RVA(0x1000),
+            base_of_code: RVA(0x1000),
+            image_base: 0x140000000,
+            section_alignment: 0x1000,
+            file_alignment: 0x400,
+            major_operating_system_version: 6,
+            minor_operating_system_version: 0,
+            major_image_version: 0,
+            minor_image_version: 0,
+            major_subsystem_version: 6,
+            minor_subsystem_version: 0,
+            win32_version_value: 0,
+            size_of_image: 0,
+            size_of_headers: 0,
+            checksum: 0,
+            subsystem: Subsystem::WindowsGUI as u16,
+            dll_characteristics: DLLCharacteristics::DYNAMIC_BASE | DLLCharacteristics::NX_COMPAT | DLLCharacteristics::TERMINAL_SERVER_AWARE,
+            size_of_stack_reserve: 0x100000,
+            size_of_stack_commit: 0x1000,
+            size_of_heap_reserve: 0x100000,
+            size_of_heap_commit: 0x1000,
+            loader_flags: 0,
+            number_of_rva_and_sizes: 0x10,
+            data_directory: [
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
+            ],
+        }
+    }
+}
 
 #[repr(packed)]
 pub struct ImageNTHeaders32 {
@@ -296,12 +520,40 @@ pub struct ImageNTHeaders32 {
     pub file_header: ImageFileHeader,
     pub optional_header: ImageOptionalHeader32,
 }
+impl Default for ImageNTHeaders32 {
+    fn default() -> Self {
+        Self {
+            signature: NT_SIGNATURE,
+            file_header: ImageFileHeader::default_x86(),
+            optional_header: ImageOptionalHeader32::default(),
+        }
+    }
+}
 
 #[repr(packed)]
 pub struct ImageNTHeaders64 {
     pub signature: u32,
     pub file_header: ImageFileHeader,
     pub optional_header: ImageOptionalHeader64,
+}
+impl Default for ImageNTHeaders64 {
+    fn default() -> Self {
+        Self {
+            signature: NT_SIGNATURE,
+            file_header: ImageFileHeader::default_x64(),
+            optional_header: ImageOptionalHeader64::default(),
+        }
+    }
+}
+
+pub enum NTHeaders<'data> {
+    NTHeaders32(&'data ImageNTHeaders32),
+    NTHeaders64(&'data ImageNTHeaders64),
+}
+
+pub enum NTHeadersMut<'data> {
+    NTHeaders32(&'data mut ImageNTHeaders32),
+    NTHeaders64(&'data mut ImageNTHeaders64),
 }
 
 bitflags! {
@@ -371,6 +623,123 @@ pub struct ImageSectionHeader {
 }
 
 #[repr(packed)]
+#[derive(Default)]
+pub struct ImageDataDirectory {
+    pub virtual_address: RVA,
+    pub size: u32,
+}
+impl ImageDataDirectory {
+    pub fn resolve<'data>(&self, pe: &'data PE, entry: ImageDirectoryEntry) -> Result<DataDirectory<'data>, Error> {
+        if self.virtual_address.0 == 0 {
+            return Err(Error::InvalidRVA);
+        }
+        
+        let address = match self.virtual_address.as_offset(pe) {
+            Ok(a) => a,
+            Err(e) => return Err(e),
+        };
+
+        /* we use an if/else statement instead of a match block for readability */
+        if entry == ImageDirectoryEntry::Export {
+            match pe.buffer.get_ref::<ImageExportDirectory>(address) {
+                Ok(d) => Ok(DataDirectory::Export(d)),
+                Err(e) => Err(e),
+            }
+        }
+        else {
+            Err(Error::UnsupportedDirectory)
+        }
+    }
+    pub fn resolve_mut<'data>(&self, pe: &'data mut PE, entry: ImageDirectoryEntry) -> Result<DataDirectoryMut<'data>, Error> {
+        if self.virtual_address.0 == 0 {
+            return Err(Error::InvalidRVA);
+        }
+        
+        let address = match self.virtual_address.as_offset(pe) {
+            Ok(a) => a,
+            Err(e) => return Err(e),
+        };
+
+        /* we use an if/else statement instead of a match block for readability */
+        if entry == ImageDirectoryEntry::Export {
+            match pe.buffer.get_mut_ref::<ImageExportDirectory>(address) {
+                Ok(d) => Ok(DataDirectoryMut::Export(d)),
+                Err(e) => Err(e),
+            }
+        }
+        else {
+            Err(Error::UnsupportedDirectory)
+        }
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum ImageDirectoryEntry {
+    Export         = 0,
+    Import         = 1,
+    Resource       = 2,
+    Exception      = 3,
+    Security       = 4,
+    BaseReloc      = 5,
+    Debug          = 6,
+    Architecture   = 7,
+    GlobalPTR      = 8,
+    TLS            = 9,
+    LoadConfig     = 10,
+    BoundImport    = 11,
+    IAT            = 12,
+    DelayImport    = 13,
+    COMDescriptor  = 14,
+    Reserved       = 15,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum ThunkData {
+    Ordinal(u32),
+    RVA(RVA),
+    ForwarderString(RVA),
+}
+
+pub trait Thunk {
+    fn is_ordinal(&self) -> bool;
+    fn parse(&self) -> ThunkData;
+}
+
+#[repr(packed)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct Thunk32(pub u32);
+impl Thunk for Thunk32 {
+    fn is_ordinal(&self) -> bool {
+        (self.0 & 0x80000000) != 0
+    }
+    fn parse(&self) -> ThunkData {
+        if self.is_ordinal() {
+            ThunkData::Ordinal((self.0 & 0xFFFF) as u32)
+        }
+        else {
+            ThunkData::RVA(RVA(self.0 as u32))
+        }
+    }
+}
+
+#[repr(packed)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct Thunk64(pub u64);
+impl Thunk for Thunk64 {
+    fn is_ordinal(&self) -> bool {
+        (self.0 & 0x8000000000000000) != 0
+    }
+    fn parse(&self) -> ThunkData {
+        if self.is_ordinal() {
+            ThunkData::Ordinal((self.0 & 0xFFFFFFFF) as u32)
+        }
+        else {
+            ThunkData::RVA(RVA(self.0 as u32))
+        }
+    }
+}
+
+#[repr(packed)]
 pub struct ImageExportDirectory {
     characteristics: u32,
     time_date_stamp: u32,
@@ -380,7 +749,156 @@ pub struct ImageExportDirectory {
     base: u32,
     number_of_functions: u32,
     number_of_names: u32,
-    address_of_functions: RVA,
-    address_of_names: RVA,
-    address_of_name_ordinals: RVA,
+    address_of_functions: RVA, // [RVA; number_of_functions]
+    address_of_names: RVA, // [RVA; number_of_names]
+    address_of_name_ordinals: RVA, // [RVA; number_of_names]
+}
+impl ImageExportDirectory {
+    pub fn get_name<'data>(&self, pe: &'data PE) -> Result<&'data [CChar], Error> {
+        if self.name.0 == 0 {
+            return Err(Error::InvalidRVA);
+        }
+        
+        match self.name.as_offset(pe) {
+            Err(e) => return Err(e),
+            Ok(a) => pe.buffer.get_cstring(a, false, None),
+        }
+    }
+    pub fn get_mut_name<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [CChar], Error> {
+        if self.name.0 == 0 {
+            return Err(Error::InvalidRVA);
+        }
+
+        match self.name.as_offset(pe) {
+            Err(e) => return Err(e),
+            Ok(a) => pe.buffer.get_mut_cstring(a, false, None),
+        }
+    }
+    pub fn get_functions<'data>(&self, pe: &'data PE) -> Result<&'data [Thunk32], Error> {
+        if self.address_of_functions.0 == 0 {
+            return Err(Error::InvalidRVA);
+        }
+
+        match self.address_of_functions.as_offset(pe) {
+            Err(e) => return Err(e),
+            Ok(a) => pe.buffer.get_slice_ref::<Thunk32>(a, self.number_of_functions as usize),
+        }
+    }
+    pub fn get_mut_functions<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [Thunk32], Error> {
+        if self.address_of_functions.0 == 0 {
+            return Err(Error::InvalidRVA);
+        }
+
+        match self.address_of_functions.as_offset(pe) {
+            Err(e) => return Err(e),
+            Ok(a) => pe.buffer.get_mut_slice_ref::<Thunk32>(a, self.number_of_functions as usize),
+        }
+    }
+    pub fn get_names<'data>(&self, pe: &'data PE) -> Result<&'data [RVA], Error> {
+        if self.address_of_names.0 == 0 {
+            return Err(Error::InvalidRVA);
+        }
+
+        match self.address_of_names.as_offset(pe) {
+            Err(e) => return Err(e),
+            Ok(a) => pe.buffer.get_slice_ref::<RVA>(a, self.number_of_names as usize),
+        }
+    }
+    pub fn get_mut_names<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [RVA], Error> {
+        if self.address_of_names.0 == 0 {
+            return Err(Error::InvalidRVA);
+        }
+
+        match self.address_of_names.as_offset(pe) {
+            Err(e) => return Err(e),
+            Ok(a) => pe.buffer.get_mut_slice_ref::<RVA>(a, self.number_of_names as usize),
+        }
+    }
+    pub fn get_name_ordinals<'data>(&self, pe: &'data PE) -> Result<&'data [u16], Error> {
+        if self.address_of_name_ordinals.0 == 0 {
+            return Err(Error::InvalidRVA);
+        }
+
+        match self.address_of_name_ordinals.as_offset(pe) {
+            Err(e) => return Err(e),
+            Ok(a) => pe.buffer.get_slice_ref::<u16>(a, self.number_of_names as usize),
+        }
+    }
+    pub fn get_mut_name_ordinals<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [u16], Error> {
+        if self.address_of_name_ordinals.0 == 0 {
+            return Err(Error::InvalidRVA);
+        }
+
+        match self.address_of_name_ordinals.as_offset(pe) {
+            Err(e) => return Err(e),
+            Ok(a) => pe.buffer.get_mut_slice_ref::<u16>(a, self.number_of_names as usize),
+        }
+    }
+    pub fn get_export_map<'data>(&self, pe: &'data PE) -> Result<HashMap<&'data str, ThunkData>, Error> {
+        let mut result: HashMap<&'data str, ThunkData> = HashMap::<&'data str, ThunkData>::new();
+
+        let directory = match pe.get_data_directory(ImageDirectoryEntry::Export) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+
+        let start = directory.virtual_address.clone();
+        let end = RVA(start.0 + directory.size);
+
+        let functions = match self.get_functions(pe) {
+            Ok(f) => f,
+            Err(e) => return Err(e),
+        };
+
+        let names = match self.get_names(pe) {
+            Ok(n) => n,
+            Err(e) => return Err(e),
+        };
+
+        let ordinals = match self.get_name_ordinals(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        for index in 0u32..self.number_of_names {
+            let name_rva = names[index as usize];
+            if name_rva.0 == 0 { continue; }
+
+            let name_offset = match name_rva.as_offset(pe) {
+                Ok(o) => o,
+                Err(_) => continue, /* we continue instead of returning the error to be greedy with parsing */
+            };
+
+            let name = match pe.buffer.get_cstring(name_offset, false, None) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+
+            let ordinal = ordinals[index as usize];
+            let function = match functions[ordinal as usize].parse() {
+                ThunkData::Ordinal(o) => ThunkData::Ordinal(o),
+                ThunkData::RVA(rva) => {
+                    if start.0 <= rva.0 && rva.0 < end.0 {
+                        ThunkData::ForwarderString(rva)
+                    }
+                    else { ThunkData::RVA(rva) }
+                }
+                ThunkData::ForwarderString(s) => ThunkData::ForwarderString(s),
+            };
+
+            result.insert(name.as_str(), function);
+        }
+
+        Ok(result)
+    }
+}
+
+pub enum DataDirectory<'data> {
+    Export(&'data ImageExportDirectory),
+    Unsupported,
+}
+
+pub enum DataDirectoryMut<'data> {
+    Export(&'data mut ImageExportDirectory),
+    Unsupported,
 }
