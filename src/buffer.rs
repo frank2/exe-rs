@@ -170,8 +170,6 @@ impl Buffer {
             }
         }
 
-        println!("[DEBUG] index ended at {:?}", index);
-
         if thunk {
             let delta = index - (offset.0 as usize);
 
