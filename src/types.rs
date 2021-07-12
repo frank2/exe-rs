@@ -629,6 +629,30 @@ pub struct ImageDataDirectory {
     pub size: u32,
 }
 impl ImageDataDirectory {
+    fn get_import_descriptor_size(&self, pe: &PE) -> Result<usize, Error> {
+        let mut address = match self.virtual_address.as_offset(pe) {
+            Ok(a) => a,
+            Err(e) => return Err(e),
+        };
+
+        let mut imports = 0usize;
+
+        loop {
+            if !pe.validate_offset(address) {
+                return Err(Error::InvalidOffset);
+            }
+
+            match pe.buffer.get_ref::<u32>(address) {
+                Ok(&x) => { if x == 0 { break; } },
+                Err(e) => return Err(e),
+            }
+
+            imports += 1;
+            address.0 += mem::size_of::<ImageImportDescriptor>() as u32;
+        }
+
+        Ok(imports)
+    }
     pub fn resolve<'data>(&self, pe: &'data PE, entry: ImageDirectoryEntry) -> Result<DataDirectory<'data>, Error> {
         if self.virtual_address.0 == 0 {
             return Err(Error::InvalidRVA);
@@ -643,6 +667,17 @@ impl ImageDataDirectory {
         if entry == ImageDirectoryEntry::Export {
             match pe.buffer.get_ref::<ImageExportDirectory>(address) {
                 Ok(d) => Ok(DataDirectory::Export(d)),
+                Err(e) => Err(e),
+            }
+        }
+        else if entry == ImageDirectoryEntry::Import {
+            let size = match self.get_import_descriptor_size(pe) {
+                Ok(s) => s,
+                Err(e) => return Err(e),
+            };
+
+            match pe.buffer.get_slice_ref::<ImageImportDescriptor>(address, size) {
+                Ok(d) => Ok(DataDirectory::Import(d)),
                 Err(e) => Err(e),
             }
         }
@@ -664,6 +699,17 @@ impl ImageDataDirectory {
         if entry == ImageDirectoryEntry::Export {
             match pe.buffer.get_mut_ref::<ImageExportDirectory>(address) {
                 Ok(d) => Ok(DataDirectoryMut::Export(d)),
+                Err(e) => Err(e),
+            }
+        }
+        else if entry == ImageDirectoryEntry::Import {
+            let size = match self.get_import_descriptor_size(pe) {
+                Ok(s) => s,
+                Err(e) => return Err(e),
+            };
+
+            match pe.buffer.get_mut_slice_ref::<ImageImportDescriptor>(address, size) {
+                Ok(d) => Ok(DataDirectoryMut::Import(d)),
                 Err(e) => Err(e),
             }
         }
@@ -695,36 +741,33 @@ pub enum ImageDirectoryEntry {
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum ThunkData {
-    Ordinal(u32),
-    Function(RVA),
     ForwarderString(RVA),
+    Function(RVA),
+    ImportByName(RVA),
+    Ordinal(u32),
 }
 
-pub trait Thunk {
+pub trait ThunkFunctions {
     fn is_ordinal(&self) -> bool;
-    fn parse(&self, start: Option<RVA>, end: Option<RVA>) -> ThunkData;
+    fn parse_export(&self, start: RVA, end: RVA) -> ThunkData;
+    fn parse_import(&self) -> ThunkData;
 }
 
 #[repr(packed)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct Thunk32(pub u32);
-impl Thunk for Thunk32 {
+impl ThunkFunctions for Thunk32 {
     fn is_ordinal(&self) -> bool {
         (self.0 & 0x80000000) != 0
     }
-    fn parse(&self, start: Option<RVA>, end: Option<RVA>) -> ThunkData {
+    fn parse_export(&self, start: RVA, end: RVA) -> ThunkData {
         if self.is_ordinal() {
             ThunkData::Ordinal((self.0 & 0xFFFF) as u32)
         }
-        else if start.is_none() || end.is_none() {
-            ThunkData::Function(RVA(self.0 as u32))
-        }
         else {
-            let rva_start = start.unwrap();
-            let rva_end = end.unwrap();
             let value = self.0 as u32;
 
-            if rva_start.0 <= value && value < rva_end.0 {
+            if start.0 <= value && value < end.0 {
                 ThunkData::ForwarderString(RVA(value))
             }
             else {
@@ -732,35 +775,56 @@ impl Thunk for Thunk32 {
             }
         }
     }
+    fn parse_import(&self) -> ThunkData {
+        if self.is_ordinal() {
+            ThunkData::Ordinal((self.0 & 0xFFFF) as u32)
+        }
+        else {
+            ThunkData::ImportByName(RVA(self.0 as u32))
+        }
+    }
 }
 
 #[repr(packed)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct Thunk64(pub u64);
-impl Thunk for Thunk64 {
+impl ThunkFunctions for Thunk64 {
     fn is_ordinal(&self) -> bool {
         (self.0 & 0x8000000000000000) != 0
     }
-    fn parse(&self, start: Option<RVA>, end: Option<RVA>) -> ThunkData {
+    fn parse_export(&self, start: RVA, end: RVA) -> ThunkData {
         if self.is_ordinal() {
             ThunkData::Ordinal((self.0 & 0xFFFFFFFF) as u32)
         }
-        else if start.is_none() || end.is_none() {
-            ThunkData::Function(RVA(self.0 as u32))
-        }
         else {
-            let rva_start = start.unwrap();
-            let rva_end = end.unwrap();
-            let value = self.0;
+            let value = self.0 as u32;
 
-            if (rva_start.0 as u64) <= value && value < (rva_end.0 as u64) {
-                ThunkData::ForwarderString(RVA(value as u32))
+            if start.0 <= value && value < end.0 {
+                ThunkData::ForwarderString(RVA(value))
             }
             else {
-                ThunkData::Function(RVA(value as u32))
+                ThunkData::Function(RVA(value))
             }
         }
     }
+    fn parse_import(&self) -> ThunkData {
+        if self.is_ordinal() {
+            ThunkData::Ordinal((self.0 & 0xFFFFFFFF) as u32)
+        }
+        else {
+            ThunkData::ImportByName(RVA(self.0 as u32))
+        }
+    }
+}
+
+pub enum Thunk<'data> {
+    Thunk32(&'data Thunk32),
+    Thunk64(&'data Thunk64),
+}
+
+pub enum ThunkMut<'data> {
+    Thunk32(&'data mut Thunk32),
+    Thunk64(&'data mut Thunk64),
 }
 
 #[repr(packed)]
@@ -899,7 +963,7 @@ impl ImageExportDirectory {
             };
 
             let ordinal = ordinals[index as usize];
-            let function = functions[ordinal as usize].parse(Some(start), Some(end));
+            let function = functions[ordinal as usize].parse_export(start, end);
 
             result.insert(name.as_str(), function);
         }
@@ -908,12 +972,201 @@ impl ImageExportDirectory {
     }
 }
 
+#[repr(packed)]
+pub struct ImageImportDescriptor {
+    pub original_first_thunk: RVA,
+    pub time_date_stamp: u32,
+    pub forwarder_chain: u32,
+    pub name: RVA,
+    pub first_thunk: RVA,
+}
+impl ImageImportDescriptor {
+    fn parse_thunk_array_size(&self, pe: &PE, rva: RVA) -> Result<usize, Error> {
+        if rva.0 == 0 {
+            return Err(Error::InvalidRVA);
+        }
+
+        let arch = match pe.get_arch() {
+            Ok(a) => a,
+            Err(e) => return Err(e),
+        };
+        
+        let mut thunks = 0usize;
+        let mut indexer = match rva.as_offset(pe) {
+            Ok(i) => i,
+            Err(e) => return Err(e),
+        };
+
+        loop {
+            if !pe.validate_offset(indexer) {
+                return Err(Error::InvalidOffset);
+            }
+
+            match arch {
+                Arch::X86 => match pe.buffer.get_ref::<Thunk32>(indexer) {
+                    Ok(r) => { if r.0 == 0 { break; } },
+                    Err(e) => return Err(e),
+                },
+                Arch::X64 => match pe.buffer.get_ref::<Thunk64>(indexer) {
+                    Ok(r) => { if r.0 == 0 { break; } },
+                    Err(e) => return Err(e),
+                },
+            };
+
+            thunks += 1;
+            indexer.0 += match arch {
+                Arch::X86 => mem::size_of::<Thunk32>() as u32,
+                Arch::X64 => mem::size_of::<Thunk64>() as u32,
+            };
+        }
+
+        Ok(thunks)
+    }
+    fn parse_thunk_array<'data>(&self, pe: &'data PE, rva: RVA) -> Result<Vec<Thunk<'data>>, Error> {
+        if rva.0 == 0 {
+            return Err(Error::InvalidRVA);
+        }
+
+        let arch = match pe.get_arch() {
+            Ok(a) => a,
+            Err(e) => return Err(e),
+        };
+
+        let thunks = match self.parse_thunk_array_size(pe, rva) {
+            Ok(t) => t,
+            Err(e) => return Err(e),
+        };
+
+        let offset = match rva.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        match arch {
+            Arch::X86 => match pe.buffer.get_slice_ref::<Thunk32>(offset, thunks) {
+                Ok(s) => Ok(s.iter().map(|x| Thunk::Thunk32(x)).collect()),
+                Err(e) => Err(e),
+            },
+            Arch::X64 => match pe.buffer.get_slice_ref::<Thunk64>(offset, thunks) {
+                Ok(s) => Ok(s.iter().map(|x| Thunk::Thunk64(x)).collect()),
+                Err(e) => Err(e),
+            },
+        }
+    }
+    fn parse_mut_thunk_array<'data>(&self, pe: &'data mut PE, rva: RVA) -> Result<Vec<ThunkMut<'data>>, Error> {
+        if rva.0 == 0 {
+            return Err(Error::InvalidRVA);
+        }
+
+        let arch = match pe.get_arch() {
+            Ok(a) => a,
+            Err(e) => return Err(e),
+        };
+
+        let thunks = match self.parse_thunk_array_size(pe, rva) {
+            Ok(t) => t,
+            Err(e) => return Err(e),
+        };
+
+        let offset = match rva.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        match arch {
+            Arch::X86 => match pe.buffer.get_mut_slice_ref::<Thunk32>(offset, thunks) {
+                Ok(s) => Ok(s.iter_mut().map(|x| ThunkMut::Thunk32(x)).collect()),
+                Err(e) => Err(e),
+            },
+            Arch::X64 => match pe.buffer.get_mut_slice_ref::<Thunk64>(offset, thunks) {
+                Ok(s) => Ok(s.iter_mut().map(|x| ThunkMut::Thunk64(x)).collect()),
+                Err(e) => Err(e),
+            },
+        }
+    }
+
+    pub fn get_original_first_thunk<'data>(&self, pe: &'data PE) -> Result<Vec<Thunk<'data>>, Error> {
+        self.parse_thunk_array(pe, self.original_first_thunk)
+    }
+    pub fn get_mut_original_first_thunk<'data>(&self, pe: &'data mut PE) -> Result<Vec<ThunkMut<'data>>, Error> {
+        self.parse_mut_thunk_array(pe, self.original_first_thunk)
+    }
+
+    pub fn get_name<'data>(&self, pe: &'data PE) -> Result<&'data [CChar], Error> {
+        let offset = match self.name.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        pe.buffer.get_cstring(offset, false, None)
+    }
+    pub fn get_mut_name<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [CChar], Error> {
+        let offset = match self.name.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        pe.buffer.get_mut_cstring(offset, false, None)
+    }
+
+    pub fn get_first_thunk<'data>(&self, pe: &'data PE) -> Result<Vec<Thunk<'data>>, Error> {
+        self.parse_thunk_array(pe, self.first_thunk)
+    }
+    pub fn get_mut_first_thunk<'data>(&self, pe: &'data mut PE) -> Result<Vec<ThunkMut<'data>>, Error> {
+        self.parse_mut_thunk_array(pe, self.first_thunk)
+    }
+
+    pub fn get_imports(&self, pe: &PE) -> Result<Vec<String>, Error> {
+        let mut results = Vec::<String>::new();
+
+        let thunks = match self.get_original_first_thunk(pe) {
+            Ok(t) => t,
+            Err(e) => return Err(e),
+        };
+
+        for thunk in thunks {
+            let thunk_data = match thunk {
+                Thunk::Thunk32(t32) => t32.parse_import(),
+                Thunk::Thunk64(t64) => t64.parse_import(),
+            };
+
+            match thunk_data {
+                ThunkData::Ordinal(x) => results.push(String::from(format!("#{}", x))),
+                ThunkData::ImportByName(rva) => {
+                    let offset = match rva.as_offset(pe) {
+                        Ok(o) => o,
+                        Err(_) => continue,
+                    };
+                    
+                    match pe.buffer.get_import_by_name(offset) {
+                        Ok(i) => results.push(String::from(i.name.as_str())),
+                        Err(_) => continue,
+                    };
+                }
+                _ => (),
+            }
+        }
+
+        Ok(results)
+    }
+}
+
+/* IMAGE_IMPORT_BY_NAME is a variable-sized C structure, which is unsupported in Rust. so, we make
+a special case for imports by name to try and still retain consistent functionality */
+#[derive(Copy, Clone, Debug)]
+pub struct ImageImportByName<'data> {
+    pub hint: &'data u16,
+    pub name: &'data [CChar],
+}
+
 pub enum DataDirectory<'data> {
     Export(&'data ImageExportDirectory),
+    Import(&'data [ImageImportDescriptor]),
     Unsupported,
 }
 
 pub enum DataDirectoryMut<'data> {
     Export(&'data mut ImageExportDirectory),
+    Import(&'data mut [ImageImportDescriptor]),
     Unsupported,
 }

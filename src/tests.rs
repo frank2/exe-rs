@@ -31,6 +31,50 @@ fn test_compiled() {
     assert_eq!(section_table[0].name.as_str(), ".text");
     assert_eq!(section_table[1].name.as_str(), ".rdata");
     assert_eq!(section_table[2].name.as_str(), ".data");
+
+    let data_directory = pefile.resolve_data_directory(ImageDirectoryEntry::Import);
+    assert!(data_directory.is_ok());
+
+    if let DataDirectory::Import(import_table) = data_directory.unwrap() {
+        assert_eq!(import_table.len(), 2);
+        assert_eq!(import_table[0].original_first_thunk, RVA(0x2040));
+        assert_eq!(import_table[0].name, RVA(0x20A0));
+        assert_eq!(import_table[0].first_thunk, RVA(0x2080));
+
+        let name_0 = import_table[0].get_name(&pefile);
+        assert!(name_0.is_ok());
+        assert_eq!(name_0.unwrap().as_str(), "kernel32.dll");
+
+        let kernel32_thunks_result = import_table[0].get_original_first_thunk(&pefile);
+        assert!(kernel32_thunks_result.is_ok());
+
+        let kernel32_thunks = kernel32_thunks_result.unwrap();
+        
+        if let Thunk::Thunk32(kernel32_thunk) = kernel32_thunks[0] {
+            assert_eq!(*kernel32_thunk, Thunk32(0x2060));
+        }
+        else {
+            panic!("bad thunk");
+        }
+        
+        let kernel32_imports = import_table[0].get_imports(&pefile);
+        let kernel32_expected = vec!["ExitProcess".to_string()];
+        assert!(kernel32_imports.is_ok());
+        assert_eq!(kernel32_imports.unwrap(), kernel32_expected);
+
+        let name_1 = import_table[1].get_name(&pefile);
+        assert!(name_1.is_ok());
+        assert_eq!(name_1.unwrap().as_str(), "msvcrt.dll");
+
+        let msvcrt_imports = import_table[1].get_imports(&pefile);
+        let msvcrt_expected = vec!["printf".to_string()];
+        assert!(msvcrt_imports.is_ok());
+        assert_eq!(msvcrt_imports.unwrap(), msvcrt_expected);
+    }
+    else
+    {
+        panic!("couldn't get import table");
+    }
 }
 
 #[test]
@@ -74,7 +118,22 @@ fn test_dll_fw() {
         let expected: HashMap<&str, ThunkData> = [("ExitProcess", ThunkData::ForwarderString(RVA(0x1060)))].iter().map(|&x| x).collect();
 
         assert!(exports.is_ok());
-        assert_eq!(exports.unwrap(), expected);
+
+        let export_map = exports.unwrap();
+        assert_eq!(export_map, expected);
+
+        if let ThunkData::ForwarderString(forwarder_rva) = export_map["ExitProcess"] {
+            let forwarder_offset = forwarder_rva.as_offset(&pefile);
+            assert!(forwarder_offset.is_ok());
+
+            let offset = forwarder_offset.unwrap();
+            let string_data = pefile.buffer.get_cstring(offset, false, None);
+            assert!(string_data.is_ok());
+            assert_eq!(string_data.unwrap().as_str(), "msvcrt.printf");
+        }
+        else {
+            panic!("couldn't get forwarder string");
+        }
     }
     else {
         panic!("couldn't get export directory");

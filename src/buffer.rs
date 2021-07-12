@@ -8,7 +8,7 @@ use std::path::Path;
 use std::ptr;
 use std::slice;
 
-use crate::types::{Offset, CChar, WChar};
+use crate::types::{Offset, CChar, WChar, ImageImportByName};
 use crate::Error;
 
 #[derive(Clone, Eq, PartialEq, Debug)]
@@ -170,15 +170,14 @@ impl Buffer {
             }
         }
 
-        if thunk {
-            let delta = index - (offset.0 as usize);
+        index += 1; // include null byte
+        let mut size = index - (offset.0 as usize);
 
-            if delta % 2 != 0 {
-                index += 1;
-            }
+        if thunk {
+            size += size % 2;
         }
 
-        Ok((index+1) - (offset.0 as usize))
+        Ok(size)
     }
     pub fn get_widestring_size(&self, offset: Offset, max_size: Option<usize>) -> Result<usize, Error> {
         let end = match max_size {
@@ -194,7 +193,7 @@ impl Buffer {
         let mut index = offset.0 as usize;
 
         for i in (index..end).step_by(2) {
-            cursor.set_position(index as u64);
+            cursor.set_position(i as u64);
 
             let val = cursor.read_u16::<LittleEndian>();
 
@@ -240,6 +239,18 @@ impl Buffer {
         };
 
         self.get_mut_slice_ref::<WChar>(offset, found_size)
+    }
+    pub fn get_import_by_name(&self, offset: Offset) -> Result<ImageImportByName, Error> {
+        let hint = match self.get_ref::<u16>(offset) {
+            Ok(h) => h,
+            Err(e) => return Err(e),
+        };
+        let name = match self.get_cstring(Offset(offset.0 + (mem::size_of::<u16>() as u32)), true, None) {
+            Ok(n) => n,
+            Err(e) => return Err(e),
+        };
+
+        Ok(ImageImportByName { hint, name })
     }
     pub fn read(&self, offset: Offset, size: usize) -> Result<&[u8], Error> {
         self.get_slice_ref::<u8>(offset, size)
