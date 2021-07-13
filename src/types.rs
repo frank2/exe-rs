@@ -1,3 +1,9 @@
+//! This module contains all the headers necessary to parse various aspects of a PE file.
+//! Objects taken directly from C are typically prefixed with "Image" and will closely
+//! resemble the names of their C counterparts, but named to conform to Rust standards.
+//! For example, ```IMAGE_DIRECTORY_ENTRY``` is known as ```ImageDirectoryEntry``` in
+//! this library.
+
 use bitflags::bitflags;
 
 use chrono::offset::{Offset as ChronoOffset};
@@ -22,19 +28,24 @@ pub const HDR32_MAGIC: u16 = 0x010B;
 pub const HDR64_MAGIC: u16 = 0x020B;
 pub const ROM_MAGIC: u16   = 0x0107;
 
+/// Represents the architecture of the PE image.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Arch {
     X86,
     X64,
 }
 
+/// Represents a C-style character unit. Basically a wrapper for ```u8```.
 #[repr(packed)]
 #[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct CChar(pub u8);
 
 /* borrowed from pe-rs */
+/// Syntactic sugar to get functionality out of C-char referenced slices.
 pub trait CCharString {
+    /// Get the zero-terminated representation of this string.
     fn zero_terminated(&self) -> Option<&Self>;
+    /// Get the string slice as a ```&str```.
     fn as_str(&self) -> &str;
 }
 impl CCharString for [CChar] {
@@ -50,12 +61,16 @@ impl CCharString for [CChar] {
     }
 }
 
+/// Represents a UTF16 character unit. Basically a wrapper for ```u16```.
 #[repr(packed)]
 #[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct WChar(pub u16);
 
+/// Syntactic sugar for dealing with UTF16 referenced slices.
 pub trait WCharString {
+    /// Get the zero-terminated representation of this string.
     fn zero_terminated(&self) -> Option<&Self>;
+    /// Get the string slice as a ```&U16Str```.
     fn as_u16_str(&self) -> &U16Str;
 }
 impl WCharString for [WChar] {
@@ -70,13 +85,17 @@ impl WCharString for [WChar] {
         unsafe { mem::transmute::<&[WChar],&U16Str>(u16str) }
     }
 }
-
+/// Represents an object which could be considered an address in a PE file.
 pub trait Address {
+    /// Convert the address to an offset value.
     fn as_offset(&self, pe: &PE) -> Result<Offset, Error>;
+    /// Convert the address to an RVA value.
     fn as_rva(&self, pe: &PE) -> Result<RVA, Error>;
+    /// Convert the address to a VA value.
     fn as_va(&self, pe: &PE) -> Result<VA, Error>;
 }
 
+/// Represents a file offset in the image. This typically represents an address of the file on disk versus the file in memory.
 #[repr(packed)]
 #[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct Offset(pub u32);
@@ -92,6 +111,7 @@ impl Address for Offset {
     }
 }
 
+/// Represents a relative virtual address (i.e., RVA). This address typically points to data in memory versus data on disk.
 #[repr(packed)]
 #[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct RVA(pub u32);
@@ -107,6 +127,7 @@ impl Address for RVA {
     }
 }
 
+/// Represents a 32-bit virtual address (i.e., VA). This address typically points directly to active memory.
 #[repr(packed)]
 #[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct VA32(pub u32);
@@ -122,6 +143,7 @@ impl Address for VA32 {
     }
 }
 
+/// Represents a 64-bit virtual address (i.e., VA). This address typically points directly to active memory.
 #[repr(packed)]
 #[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct VA64(pub u64);
@@ -137,6 +159,7 @@ impl Address for VA64 {
     }
 }
 
+/// Represents either a 32-bit or a 64-bit virtual address.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum VA {
     VA32(VA32),
@@ -202,6 +225,7 @@ impl Default for ImageDOSHeader {
     }
 }
 
+/// An enum representing the machine values accepted by PE files.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Machine {
     Unknown     = 0x0000,
@@ -297,6 +321,7 @@ impl Default for ImageFileHeader {
     }
 }
 
+/// An enum representing the various subsystems possible in a PE file.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Subsystem {
     Unknown                  = 0,
@@ -653,6 +678,7 @@ impl ImageDataDirectory {
 
         Ok(imports)
     }
+    /// Get the data directory object pointed to by this data directory entry.
     pub fn resolve<'data>(&self, pe: &'data PE, entry: ImageDirectoryEntry) -> Result<DataDirectory<'data>, Error> {
         if self.virtual_address.0 == 0 {
             return Err(Error::InvalidRVA);
@@ -685,6 +711,7 @@ impl ImageDataDirectory {
             Err(Error::UnsupportedDirectory)
         }
     }
+    /// Get the mutable data directory object pointed to by this data directory entry.
     pub fn resolve_mut<'data>(&self, pe: &'data mut PE, entry: ImageDirectoryEntry) -> Result<DataDirectoryMut<'data>, Error> {
         if self.virtual_address.0 == 0 {
             return Err(Error::InvalidRVA);
@@ -746,13 +773,17 @@ pub enum ThunkData {
     ImportByName(RVA),
     Ordinal(u32),
 }
-
+/// Functions to help with thunks in import/export data.
 pub trait ThunkFunctions {
+    /// Check whether this thunk is an ordinal or not.
     fn is_ordinal(&self) -> bool;
+    /// Parse this thunk as an export thunk.
     fn parse_export(&self, start: RVA, end: RVA) -> ThunkData;
+    /// Parse this thunk as an import thunk.
     fn parse_import(&self) -> ThunkData;
 }
 
+/// Represents a 32-bit thunk entry.
 #[repr(packed)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct Thunk32(pub u32);
@@ -785,6 +816,7 @@ impl ThunkFunctions for Thunk32 {
     }
 }
 
+/// Represents a 64-bit thunk entry.
 #[repr(packed)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct Thunk64(pub u64);
@@ -817,11 +849,13 @@ impl ThunkFunctions for Thunk64 {
     }
 }
 
+/// Abstractly represents a thunk object.
 pub enum Thunk<'data> {
     Thunk32(&'data Thunk32),
     Thunk64(&'data Thunk64),
 }
 
+/// Abstractly represents a mutable thunk object.
 pub enum ThunkMut<'data> {
     Thunk32(&'data mut Thunk32),
     Thunk64(&'data mut Thunk64),
@@ -829,19 +863,20 @@ pub enum ThunkMut<'data> {
 
 #[repr(packed)]
 pub struct ImageExportDirectory {
-    characteristics: u32,
-    time_date_stamp: u32,
-    major_version: u16,
-    minor_version: u16,
-    name: RVA,
-    base: u32,
-    number_of_functions: u32,
-    number_of_names: u32,
-    address_of_functions: RVA, // [RVA; number_of_functions]
-    address_of_names: RVA, // [RVA; number_of_names]
-    address_of_name_ordinals: RVA, // [RVA; number_of_names]
+    pub characteristics: u32,
+    pub time_date_stamp: u32,
+    pub major_version: u16,
+    pub minor_version: u16,
+    pub name: RVA,
+    pub base: u32,
+    pub number_of_functions: u32,
+    pub number_of_names: u32,
+    pub address_of_functions: RVA, // [Thunk32; number_of_functions]
+    pub address_of_names: RVA, // [RVA; number_of_names]
+    pub address_of_name_ordinals: RVA, // [u16; number_of_names]
 }
 impl ImageExportDirectory {
+    /// Get the name of this export module.
     pub fn get_name<'data>(&self, pe: &'data PE) -> Result<&'data [CChar], Error> {
         if self.name.0 == 0 {
             return Err(Error::InvalidRVA);
@@ -852,6 +887,7 @@ impl ImageExportDirectory {
             Ok(a) => pe.buffer.get_cstring(a, false, None),
         }
     }
+    /// Get the mutable name of this export module.
     pub fn get_mut_name<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [CChar], Error> {
         if self.name.0 == 0 {
             return Err(Error::InvalidRVA);
@@ -862,6 +898,9 @@ impl ImageExportDirectory {
             Ok(a) => pe.buffer.get_mut_cstring(a, false, None),
         }
     }
+    /// Get the function array of this export entry. This array represents thunk data pointing to either
+    /// ordinals (```ThunkData::Ordinal```), forwarder strings (```ThunkData::ForwarderString```) or
+    /// function data (```ThunkData::Function```).
     pub fn get_functions<'data>(&self, pe: &'data PE) -> Result<&'data [Thunk32], Error> {
         if self.address_of_functions.0 == 0 {
             return Err(Error::InvalidRVA);
@@ -872,6 +911,7 @@ impl ImageExportDirectory {
             Ok(a) => pe.buffer.get_slice_ref::<Thunk32>(a, self.number_of_functions as usize),
         }
     }
+    /// Get the mutable function array of this export entry.
     pub fn get_mut_functions<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [Thunk32], Error> {
         if self.address_of_functions.0 == 0 {
             return Err(Error::InvalidRVA);
@@ -882,6 +922,8 @@ impl ImageExportDirectory {
             Ok(a) => pe.buffer.get_mut_slice_ref::<Thunk32>(a, self.number_of_functions as usize),
         }
     }
+    /// Get the name array of this export entry. This array represents RVA values pointing to zero-terminated
+    /// C-style strings.
     pub fn get_names<'data>(&self, pe: &'data PE) -> Result<&'data [RVA], Error> {
         if self.address_of_names.0 == 0 {
             return Err(Error::InvalidRVA);
@@ -892,6 +934,7 @@ impl ImageExportDirectory {
             Ok(a) => pe.buffer.get_slice_ref::<RVA>(a, self.number_of_names as usize),
         }
     }
+    /// Get the mutable name array of this export entry.
     pub fn get_mut_names<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [RVA], Error> {
         if self.address_of_names.0 == 0 {
             return Err(Error::InvalidRVA);
@@ -902,6 +945,8 @@ impl ImageExportDirectory {
             Ok(a) => pe.buffer.get_mut_slice_ref::<RVA>(a, self.number_of_names as usize),
         }
     }
+    /// Get the name ordinal array of this export entry. This array mirrors the names array. Values in this
+    /// array are indexes into the functions array, representing a name-to-function mapping.
     pub fn get_name_ordinals<'data>(&self, pe: &'data PE) -> Result<&'data [u16], Error> {
         if self.address_of_name_ordinals.0 == 0 {
             return Err(Error::InvalidRVA);
@@ -912,6 +957,7 @@ impl ImageExportDirectory {
             Ok(a) => pe.buffer.get_slice_ref::<u16>(a, self.number_of_names as usize),
         }
     }
+    /// Get the mutable name ordinal array of this export entry.
     pub fn get_mut_name_ordinals<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [u16], Error> {
         if self.address_of_name_ordinals.0 == 0 {
             return Err(Error::InvalidRVA);
@@ -922,6 +968,9 @@ impl ImageExportDirectory {
             Ok(a) => pe.buffer.get_mut_slice_ref::<u16>(a, self.number_of_names as usize),
         }
     }
+    /// Get a mapping of exports to thunk data for this export entry. This maps exported names to thunk data, which can
+    /// be an ordinal (```ThunkData::Ordinal```), a function (```ThunkData::Function```) or a forwarder string
+    /// (```ThunkData::ForwarderString```).
     pub fn get_export_map<'data>(&self, pe: &'data PE) -> Result<HashMap<&'data str, ThunkData>, Error> {
         let mut result: HashMap<&'data str, ThunkData> = HashMap::<&'data str, ThunkData>::new();
 
@@ -1085,13 +1134,16 @@ impl ImageImportDescriptor {
         }
     }
 
+    /// Get the thunk array pointed to by the ```original_first_thunk``` field.
     pub fn get_original_first_thunk<'data>(&self, pe: &'data PE) -> Result<Vec<Thunk<'data>>, Error> {
         self.parse_thunk_array(pe, self.original_first_thunk)
     }
+    /// Get the mutable thunk array pointed to by the ```original_first_thunk``` field.
     pub fn get_mut_original_first_thunk<'data>(&self, pe: &'data mut PE) -> Result<Vec<ThunkMut<'data>>, Error> {
         self.parse_mut_thunk_array(pe, self.original_first_thunk)
     }
 
+    /// Get the name of the module represented by this import descriptor entry.
     pub fn get_name<'data>(&self, pe: &'data PE) -> Result<&'data [CChar], Error> {
         let offset = match self.name.as_offset(pe) {
             Ok(o) => o,
@@ -1100,6 +1152,7 @@ impl ImageImportDescriptor {
 
         pe.buffer.get_cstring(offset, false, None)
     }
+    /// Get the mutable name of the module represented by this import descriptor entry.
     pub fn get_mut_name<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [CChar], Error> {
         let offset = match self.name.as_offset(pe) {
             Ok(o) => o,
@@ -1109,13 +1162,17 @@ impl ImageImportDescriptor {
         pe.buffer.get_mut_cstring(offset, false, None)
     }
 
+    /// Get the first thunk array. This array typically represents where in memory imports get resolved to.
     pub fn get_first_thunk<'data>(&self, pe: &'data PE) -> Result<Vec<Thunk<'data>>, Error> {
         self.parse_thunk_array(pe, self.first_thunk)
     }
+    /// Get the mutable first thunk array.
     pub fn get_mut_first_thunk<'data>(&self, pe: &'data mut PE) -> Result<Vec<ThunkMut<'data>>, Error> {
         self.parse_mut_thunk_array(pe, self.first_thunk)
     }
 
+    /// Get the imports represented by this import descriptor. This resolves the import table and returns a series of strings
+    /// representing both ```ImageImportByName``` structures as well as import ordinals.
     pub fn get_imports(&self, pe: &PE) -> Result<Vec<String>, Error> {
         let mut results = Vec::<String>::new();
 
@@ -1151,20 +1208,30 @@ impl ImageImportDescriptor {
     }
 }
 
-/* IMAGE_IMPORT_BY_NAME is a variable-sized C structure, which is unsupported in Rust. so, we make
-a special case for imports by name to try and still retain consistent functionality */
+/// Represents an ```IMAGE_IMPORT_BY_NAME``` structure.
+///
+/// IMAGE_IMPORT_BY_NAME is a variable-sized C structure, which is unsupported in Rust. so, we make
+/// a special case for imports by name to try and still retain consistent functionality. This is why
+/// this struct is a series of references instead of itself being a raw reference into data.
 #[derive(Copy, Clone, Debug)]
 pub struct ImageImportByName<'data> {
     pub hint: &'data u16,
     pub name: &'data [CChar],
 }
 
+/// An enum representing a data directory object.
+///
+/// Currently, the following data directories are supported:
+/// * ```ImageDirectoryEntry::Export```
+/// * ```ImageDirectoryEntry::Import```
+///
 pub enum DataDirectory<'data> {
     Export(&'data ImageExportDirectory),
     Import(&'data [ImageImportDescriptor]),
     Unsupported,
 }
 
+/// An enum representing a mutable data directory object.
 pub enum DataDirectoryMut<'data> {
     Export(&'data mut ImageExportDirectory),
     Import(&'data mut [ImageImportDescriptor]),
