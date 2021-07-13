@@ -5,6 +5,9 @@ repository = "https://github.com/frank2/exe-rs"
 version = "0.1.0"
 authors = ["frank2@dc949.org"]
 edition = "2018"
+license = "GPL-3.0"
+keywords = ["pe", "exe"]
+readme = "README.md"
 exclude = ["test/*.exe", "test/*.dll", "test/*.sys"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
