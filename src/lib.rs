@@ -2,13 +2,16 @@
 //!
 //! Getting started is easy:
 //! ```rust
+//! use exe::PE;
+//! use exe::types::{ImageDirectoryEntry, DataDirectory, CCharString};
+//!
 //! let pefile = PE::from_file("test/compiled.exe").unwrap();
 //! let import_directory = pefile.resolve_data_directory(ImageDirectoryEntry::Import).unwrap();
 //!
 //! if let DataDirectory::Import(import_table) = import_directory {
 //!    for import in import_table {
-//!       println!("Module: {}", import.get_name(pefile).unwrap().as_str());
-//!       println!("Imports: {:?}", import.get_imports(pefile).unwrap());
+//!       println!("Module: {}", import.get_name(&pefile).unwrap().as_str());
+//!       println!("Imports: {:?}", import.get_imports(&pefile).unwrap());
 //!    }
 //! }
 //! ```
@@ -260,13 +263,18 @@ impl PE {
     /// validating the headers.
     ///
     /// ```rust
+    /// use exe::PE;
+    /// use exe::types::{NTHeaders, HDR64_MAGIC};
+    ///
     /// let pefile = PE::from_file("test/normal64.exe").unwrap();
     /// let headers = pefile.get_valid_nt_headers().unwrap();
     ///
-    /// match headers {
-    ///    NTHeaders::NTHeaders32(_) => println!("this won't print..."),
-    ///    NTHeaders::NTHeaders64(_) => println!("...but this will!"),
-    /// }
+    /// let magic = match headers {
+    ///    NTHeaders::NTHeaders32(hdr32) => hdr32.optional_header.magic,
+    ///    NTHeaders::NTHeaders64(hdr64) => hdr64.optional_header.magic,
+    /// };
+    ///
+    /// assert_eq!(magic, HDR64_MAGIC);
     /// ```
     pub fn get_valid_nt_headers(&self) -> Result<NTHeaders, Error> {
         let magic = match self.get_nt_magic() {
@@ -687,6 +695,18 @@ impl PE {
     
     /// Resolve the data directory represented by the ```ImageDirectoryEntry``` enum. This produces a data
     /// directory variant enum object associated with the data directory type.
+    ///
+    /// ```rust
+    /// use exe::PE;
+    /// use exe::types::{ImageDirectoryEntry, DataDirectory};
+    ///
+    /// let pefile = PE::from_file("test/compiled.exe").unwrap();
+    /// let data_directory = pefile.resolve_data_directory(ImageDirectoryEntry::Import).unwrap();
+    ///
+    /// if let DataDirectory::Import(import_table) = data_directory {
+    ///    println!("Got the import table!");
+    /// }
+    /// ```
     pub fn resolve_data_directory(&self, dir: ImageDirectoryEntry) -> Result<DataDirectory, Error> {
         match self.get_valid_nt_headers() {
             Err(e) => return Err(e),

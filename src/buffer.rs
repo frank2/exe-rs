@@ -120,7 +120,19 @@ impl Buffer {
     pub fn ref_to_offset<T>(&self, data: &T) -> Result<Offset, Error> {
         self.ptr_to_offset(data as *const T as *const u8)
     }
-    /// Gets a reference to an object in the buffer data.
+    /// Gets a reference to an object in the buffer data. This is ultimately how PE objects are created from the buffer.
+    ///
+    /// ```rust
+    /// use exe::buffer::Buffer;
+    /// use exe::types::{Offset, ImageDOSHeader, ImageNTHeaders32, NT_SIGNATURE};
+    ///
+    /// let buffer = Buffer::from_file("test/compiled.exe").unwrap();
+    /// 
+    /// let dos_header = buffer.get_ref::<ImageDOSHeader>(Offset(0)).unwrap();
+    /// let nt_header = buffer.get_ref::<ImageNTHeaders32>(dos_header.e_lfanew).unwrap();
+    /// 
+    /// assert_eq!(nt_header.signature, NT_SIGNATURE);
+    /// ```
     pub fn get_ref<T>(&self, offset: Offset) -> Result<&T, Error> {
         let t_size = mem::size_of::<T>();
         let end = t_size+offset.0 as usize;
@@ -148,7 +160,17 @@ impl Buffer {
             Ok(&mut *ptr)
         }
     }
-    /// Gets a slice reference of data in the buffer.
+    /// Gets a slice reference of data in the buffer. This is how to get arrays in the buffer.
+    ///
+    /// ```rust
+    /// use exe::buffer::Buffer;
+    /// use exe::types::Offset;
+    ///
+    /// let buffer = Buffer::from_file("test/compiled.exe").unwrap();
+    /// let mz = buffer.get_slice_ref::<u8>(Offset(0), 2).unwrap();
+    /// 
+    /// assert_eq!(mz, [0x4D, 0x5A]);
+    /// ```
     pub fn get_slice_ref<T>(&self, offset: Offset, count: usize) -> Result<&[T], Error> {
         let t_size = mem::size_of::<T>() * count;
         let end = t_size+offset.0 as usize;
@@ -243,7 +265,19 @@ impl Buffer {
 
         Ok( ( (index+2) - (offset.0 as usize) ) / 2 )
     }
-    /// Get a zero-terminated C-string from the data.
+    /// Get a zero-terminated C-string from the data. The thunk option is there to handle imports by name, whose null
+    /// terminated value size is dependent on how long the string is (i.e., if it's an odd length, an extra zero is
+    /// appended).
+    ///
+    /// ```rust
+    /// use exe::buffer::Buffer;
+    /// use exe::types::{Offset, CCharString};
+    ///
+    /// let buffer = Buffer::from_file("test/dll.dll").unwrap();
+    /// let dll_name = buffer.get_cstring(Offset(0x328), false, None).unwrap();
+    ///
+    /// assert_eq!(dll_name.as_str(), "dll.dll");
+    /// ```
     pub fn get_cstring(&self, offset: Offset, thunk: bool, max_size: Option<usize>) -> Result<&[CChar], Error> {
         let found_size = match self.get_cstring_size(offset, thunk, max_size) {
             Ok(s) => s,

@@ -5,6 +5,69 @@ use super::types::*;
 use super::buffer::*;
 
 #[test]
+fn test_docs_lib_01() {
+    let pefile = PE::from_file("test/compiled.exe").unwrap();
+    let import_directory = pefile.resolve_data_directory(ImageDirectoryEntry::Import).unwrap();
+
+    if let DataDirectory::Import(import_table) = import_directory {
+        for import in import_table {
+            println!("Module: {}", import.get_name(&pefile).unwrap().as_str());
+            println!("Imports: {:?}", import.get_imports(&pefile).unwrap());
+        }
+    }
+}
+
+#[test]
+fn test_docs_lib_02() {
+    let pefile = PE::from_file("test/normal64.exe").unwrap();
+    let headers = pefile.get_valid_nt_headers().unwrap();
+    
+    match headers {
+        NTHeaders::NTHeaders32(_) => panic!("this won't print..."),
+        NTHeaders::NTHeaders64(_) => println!("...but this will!"),
+    }
+}
+
+#[test]
+fn test_docs_lib_03() {
+    let pefile = PE::from_file("test/compiled.exe").unwrap();
+    let data_directory = pefile.resolve_data_directory(ImageDirectoryEntry::Import).unwrap();
+
+    if let DataDirectory::Import(import_table) = data_directory {
+        println!("Got the import table!");
+    }
+    else {
+        panic!("Bad import table!");
+    }
+}
+
+#[test]
+fn test_docs_buffer_01() {
+    let buffer = Buffer::from_file("test/compiled.exe").unwrap();
+    
+    let dos_header = buffer.get_ref::<ImageDOSHeader>(Offset(0)).unwrap();
+    let nt_header = buffer.get_ref::<ImageNTHeaders32>(dos_header.e_lfanew).unwrap();
+
+    assert_eq!(nt_header.signature, NT_SIGNATURE);
+}
+
+#[test]
+fn test_docs_buffer_02() {
+    let buffer = Buffer::from_file("test/compiled.exe").unwrap();
+    let mz = buffer.get_slice_ref::<u8>(Offset(0), 2).unwrap();
+
+    assert_eq!(mz, [0x4D, 0x5A]);
+}
+
+#[test]
+fn test_docs_buffer_03() {
+    let buffer = Buffer::from_file("test/dll.dll").unwrap();
+    let dll_name = buffer.get_cstring(Offset(0x328), false, None).unwrap();
+
+    assert_eq!(dll_name.as_str(), "dll.dll");
+}
+
+#[test]
 fn test_compiled() {
     let compiled = PE::from_file("test/compiled.exe");
     assert!(compiled.is_ok());
@@ -49,7 +112,6 @@ fn test_compiled() {
         assert!(kernel32_thunks_result.is_ok());
 
         let kernel32_thunks = kernel32_thunks_result.unwrap();
-        
         if let Thunk::Thunk32(kernel32_thunk) = kernel32_thunks[0] {
             assert_eq!(*kernel32_thunk, Thunk32(0x2060));
         }
