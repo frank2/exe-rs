@@ -138,3 +138,32 @@ fn test_dll_fw() {
         panic!("couldn't get export directory");
     }
 }
+
+#[test]
+fn test_imports_nothunk() {
+    let imports_nothunk = PE::from_file("test/imports_nothunk.exe");
+    assert!(imports_nothunk.is_ok());
+
+    let pefile = imports_nothunk.unwrap();
+    let data_directory = pefile.resolve_data_directory(ImageDirectoryEntry::Import);
+    assert!(data_directory.is_ok());
+
+    if let DataDirectory::Import(import_table) = data_directory.unwrap() {
+        assert_eq!(import_table.len(), 3);
+
+        let kernel32_imports = import_table[0].get_imports(&pefile);
+        assert!(kernel32_imports.is_ok());
+        assert_eq!(kernel32_imports.unwrap(), [String::from("ExitProcess")]);
+
+        let blank_imports = import_table[1].get_imports(&pefile);
+        assert!(blank_imports.is_ok());
+        assert!(blank_imports.unwrap().is_empty());
+
+        let msvcrt_imports = import_table[2].get_imports(&pefile);
+        assert!(msvcrt_imports.is_ok());
+        assert_eq!(msvcrt_imports.unwrap(), [String::from("printf")]);
+    }
+    else {
+        panic!("couldn't get import table");
+    }
+}

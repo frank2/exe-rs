@@ -81,17 +81,17 @@ impl Buffer {
     /// Convert the given offset value to a pointer in the buffer. The function is marked as
     /// unsafe because the offset isn't validated.
     pub unsafe fn offset_to_ptr(&self, offset: Offset) -> *const u8 {
-        self.as_ptr().offset(offset.0 as isize)
+        self.as_ptr().add(offset.0 as usize)
     }
     /// Convert the given offset value to a mutable pointer in the buffer. The function is marked as
     /// unsafe because the offset isn't validated.
     pub unsafe fn offset_to_mut_ptr(&mut self, offset: Offset) -> *mut u8 {
-        self.as_mut_ptr().offset(offset.0 as isize)
+        self.as_mut_ptr().add(offset.0 as usize)
     }
     /// Get the pointer to the end of the file. This pointer is unsafe because it points at the end
     /// of the buffer, which doesn't contain data.
     pub unsafe fn eof(&self) -> *const u8 {
-        self.as_ptr().offset(self.len() as isize)
+        self.as_ptr().add(self.len())
     }
     /// Convert a pointer to an offset. This returns ```Error::BadPointer``` if the pointer
     /// isn't in the buffer range.

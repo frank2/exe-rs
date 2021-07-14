@@ -43,6 +43,8 @@ pub enum Error {
     BufferTooSmall,
     /// The PE file has an invalid DOS signature.
     InvalidDOSSignature,
+    /// The header is not aligned correctly.
+    BadAlignment,
     /// The PE file has an invalid PE signature.
     InvalidPESignature,
     /// The PE file has an invalid NT signature.
@@ -157,6 +159,15 @@ impl PE {
     }
     /// Get 32-bit NT headers and verify that they're 32-bit NT headers.
     pub fn get_valid_nt_headers_32(&self) -> Result<&ImageNTHeaders32, Error> {
+        let e_lfanew = match self.e_lfanew() {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+
+        if e_lfanew.0 % 4 != 0 {
+            return Err(Error::BadAlignment);
+        }
+        
         let nt_headers = match self.get_nt_headers_32() {
             Ok(h) => h,
             Err(e) => return Err(e),
@@ -174,6 +185,15 @@ impl PE {
     }
     /// Get mutable 32-bit NT headers and verify that they're 32-bit NT headers.
     pub fn get_valid_mut_nt_headers_32(&mut self) -> Result<&mut ImageNTHeaders32, Error> {
+        let e_lfanew = match self.e_lfanew() {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+
+        if e_lfanew.0 % 4 != 0 {
+            return Err(Error::BadAlignment);
+        }
+
         let nt_headers = match self.get_mut_nt_headers_32() {
             Ok(h) => h,
             Err(e) => return Err(e),
@@ -209,6 +229,15 @@ impl PE {
     }
     /// Get 64-bit NT headers and verify that they're 64-bit NT headers.
     pub fn get_valid_nt_headers_64(&self) -> Result<&ImageNTHeaders64, Error> {
+        let e_lfanew = match self.e_lfanew() {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+
+        if e_lfanew.0 % 4 != 0 {
+            return Err(Error::BadAlignment);
+        }
+
         let nt_headers = match self.get_nt_headers_64() {
             Ok(h) => h,
             Err(e) => return Err(e),
@@ -226,6 +255,15 @@ impl PE {
     }
     /// Get mutable 64-bit NT headers and verify that they're 64-bit NT headers.
     pub fn get_valid_mut_nt_headers_64(&mut self) -> Result<&mut ImageNTHeaders64, Error> {
+        let e_lfanew = match self.e_lfanew() {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+
+        if e_lfanew.0 % 4 != 0 {
+            return Err(Error::BadAlignment);
+        }
+
         let nt_headers = match self.get_mut_nt_headers_64() {
             Ok(h) => h,
             Err(e) => return Err(e),
@@ -243,6 +281,9 @@ impl PE {
     }
     /// Get the NT signature from the optional header of the NT headers.
     pub fn get_nt_magic(&self) -> Result<u16, Error> {
+        // the difference in size doesn't affect the magic header, so we
+        // simply blindly cast it to a 32-bit header to get the value
+        
         match self.get_nt_headers_32() {
             Ok(h) => Ok(h.optional_header.magic),
             Err(e) => Err(e),

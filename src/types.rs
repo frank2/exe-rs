@@ -43,7 +43,7 @@ pub struct CChar(pub u8);
 /* borrowed from pe-rs */
 /// Syntactic sugar to get functionality out of C-char referenced slices.
 pub trait CCharString {
-    /// Get the zero-terminated representation of this string.
+    /// Get the zero-terminated representation of this string, or ```None``` if it is not zero-terminatedj.
     fn zero_terminated(&self) -> Option<&Self>;
     /// Get the string slice as a ```&str```.
     fn as_str(&self) -> &str;
@@ -68,7 +68,7 @@ pub struct WChar(pub u16);
 
 /// Syntactic sugar for dealing with UTF16 referenced slices.
 pub trait WCharString {
-    /// Get the zero-terminated representation of this string.
+    /// Get the zero-terminated representation of this string, or ```None``` if it is not zero-terminated.
     fn zero_terminated(&self) -> Option<&Self>;
     /// Get the string slice as a ```&U16Str```.
     fn as_u16_str(&self) -> &U16Str;
@@ -654,32 +654,8 @@ pub struct ImageDataDirectory {
     pub size: u32,
 }
 impl ImageDataDirectory {
-    fn get_import_descriptor_size(&self, pe: &PE) -> Result<usize, Error> {
-        let mut address = match self.virtual_address.as_offset(pe) {
-            Ok(a) => a,
-            Err(e) => return Err(e),
-        };
-
-        let mut imports = 0usize;
-
-        loop {
-            if !pe.validate_offset(address) {
-                return Err(Error::InvalidOffset);
-            }
-
-            match pe.buffer.get_ref::<u32>(address) {
-                Ok(&x) => { if x == 0 { break; } },
-                Err(e) => return Err(e),
-            }
-
-            imports += 1;
-            address.0 += mem::size_of::<ImageImportDescriptor>() as u32;
-        }
-
-        Ok(imports)
-    }
     /// Get the data directory object pointed to by this data directory entry.
-    pub fn resolve<'data>(&self, pe: &'data PE, entry: ImageDirectoryEntry) -> Result<DataDirectory<'data>, Error> {
+    pub fn resolve<'data>(&'data self, pe: &'data PE, entry: ImageDirectoryEntry) -> Result<DataDirectory<'data>, Error> {
         if self.virtual_address.0 == 0 {
             return Err(Error::InvalidRVA);
         }
@@ -697,12 +673,7 @@ impl ImageDataDirectory {
             }
         }
         else if entry == ImageDirectoryEntry::Import {
-            let size = match self.get_import_descriptor_size(pe) {
-                Ok(s) => s,
-                Err(e) => return Err(e),
-            };
-
-            match pe.buffer.get_slice_ref::<ImageImportDescriptor>(address, size) {
+            match ImageImportDescriptor::parse_import_table(pe, self) {
                 Ok(d) => Ok(DataDirectory::Import(d)),
                 Err(e) => Err(e),
             }
@@ -712,7 +683,7 @@ impl ImageDataDirectory {
         }
     }
     /// Get the mutable data directory object pointed to by this data directory entry.
-    pub fn resolve_mut<'data>(&self, pe: &'data mut PE, entry: ImageDirectoryEntry) -> Result<DataDirectoryMut<'data>, Error> {
+    pub fn resolve_mut<'data>(&'data self, pe: &'data mut PE, entry: ImageDirectoryEntry) -> Result<DataDirectoryMut<'data>, Error> {
         if self.virtual_address.0 == 0 {
             return Err(Error::InvalidRVA);
         }
@@ -730,12 +701,7 @@ impl ImageDataDirectory {
             }
         }
         else if entry == ImageDirectoryEntry::Import {
-            let size = match self.get_import_descriptor_size(pe) {
-                Ok(s) => s,
-                Err(e) => return Err(e),
-            };
-
-            match pe.buffer.get_mut_slice_ref::<ImageImportDescriptor>(address, size) {
+            match ImageImportDescriptor::parse_mut_import_table(pe, self) {
                 Ok(d) => Ok(DataDirectoryMut::Import(d)),
                 Err(e) => Err(e),
             }
@@ -1134,6 +1100,68 @@ impl ImageImportDescriptor {
         }
     }
 
+    /// Parse the size of the import table pointed to by the ```ImageDataDirectory``` reference.
+    pub fn parse_import_table_size(pe: &PE, dir: &ImageDataDirectory) -> Result<usize, Error> {
+        if dir.virtual_address.0 == 0 {
+            return Err(Error::InvalidRVA);
+        }
+        
+        let mut address = match dir.virtual_address.as_offset(pe) {
+            Ok(a) => a,
+            Err(e) => return Err(e),
+        };
+
+        let mut imports = 0usize;
+
+        loop {
+            if !pe.validate_offset(address) {
+                return Err(Error::InvalidOffset);
+            }
+
+            match pe.buffer.get_ref::<ImageImportDescriptor>(address) {
+                Ok(x) => { if x.original_first_thunk.0 == 0 && x.first_thunk.0 == 0 { break; } },
+                Err(e) => return Err(e),
+            }
+
+            imports += 1;
+            address.0 += mem::size_of::<ImageImportDescriptor>() as u32;
+        }
+
+        Ok(imports)
+    }
+    
+    /// Get the import table pointed to by the ```ImageDataDirectory``` reference. This is typically used by the
+    /// ```ImageDataDirectory::resolve``` function.
+    pub fn parse_import_table<'data>(pe: &'data PE, dir: &'data ImageDataDirectory) -> Result<&'data [ImageImportDescriptor], Error> {
+        let size = match ImageImportDescriptor::parse_import_table_size(pe, dir) {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        let offset = match dir.virtual_address.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        pe.buffer.get_slice_ref::<ImageImportDescriptor>(offset, size)
+    }
+
+    /// Get the mutable import table pointed to by the ```ImageDataDirectory``` reference. This is typically used by the
+    /// ```ImageDataDirectory::resolve_mut``` function.
+    pub fn parse_mut_import_table<'data>(pe: &'data mut PE, dir: &'data ImageDataDirectory) -> Result<&'data mut [ImageImportDescriptor], Error> {
+        let size = match ImageImportDescriptor::parse_import_table_size(pe, dir) {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        let offset = match dir.virtual_address.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        pe.buffer.get_mut_slice_ref::<ImageImportDescriptor>(offset, size)
+    }
+
     /// Get the thunk array pointed to by the ```original_first_thunk``` field.
     pub fn get_original_first_thunk<'data>(&self, pe: &'data PE) -> Result<Vec<Thunk<'data>>, Error> {
         self.parse_thunk_array(pe, self.original_first_thunk)
@@ -1178,7 +1206,16 @@ impl ImageImportDescriptor {
 
         let thunks = match self.get_original_first_thunk(pe) {
             Ok(t) => t,
-            Err(e) => return Err(e),
+            Err(e) => {
+                if e != Error::InvalidRVA {
+                    return Err(e)
+                }
+
+                match self.get_first_thunk(pe) {
+                    Ok(f) => f,
+                    Err(e) => return Err(e),
+                }
+            },
         };
 
         for thunk in thunks {
@@ -1210,13 +1247,127 @@ impl ImageImportDescriptor {
 
 /// Represents an ```IMAGE_IMPORT_BY_NAME``` structure.
 ///
-/// IMAGE_IMPORT_BY_NAME is a variable-sized C structure, which is unsupported in Rust. so, we make
+/// ```IMAGE_IMPORT_BY_NAME``` is a variable-sized C structure, which is unsupported in Rust. So, we make
 /// a special case for imports by name to try and still retain consistent functionality. This is why
 /// this struct is a series of references instead of itself being a raw reference into data.
 #[derive(Copy, Clone, Debug)]
 pub struct ImageImportByName<'data> {
     pub hint: &'data u16,
     pub name: &'data [CChar],
+}
+
+#[repr(u16)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+/// An enum containing relocation types.
+pub enum ImageRelBased {
+    Absolute = 0,
+    High = 1,
+    Low = 2,
+    HighLow = 3,
+    HighAdj = 4,
+    MachineSpecific5 = 5,
+    Reserved = 6,
+    MachineSpecific7 = 7,
+    MachineSpecific8 = 8,
+    MachineSpecific9 = 9,
+    Dir64 = 10,
+    Unknown
+}
+
+/// Represents a unit of a relocation, which contains a type and an offset in a ```u16``` value.
+#[repr(packed)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct Relocation(pub u16);
+impl Relocation {
+    /// Get the type of this relocation.
+    pub fn get_type(&self) -> ImageRelBased {
+        match self.0 >> 12 {
+            0 => ImageRelBased::Absolute,
+            1 => ImageRelBased::High,
+            2 => ImageRelBased::Low,
+            3 => ImageRelBased::HighLow,
+            4 => ImageRelBased::HighAdj,
+            5 => ImageRelBased::MachineSpecific5,
+            6 => ImageRelBased::Reserved,
+            7 => ImageRelBased::MachineSpecific7,
+            8 => ImageRelBased::MachineSpecific8,
+            9 => ImageRelBased::MachineSpecific9,
+            10 => ImageRelBased::Dir64,
+            _ => ImageRelBased::Unknown,
+        }
+    }
+    /// Get the offset of this relocation.
+    pub fn get_offset(&self) -> u16 {
+        self.0 & 0xFFF
+    }
+}
+
+/// Represents a parsed relocation entry.
+pub struct RelocationEntry<'data> {
+    pub base_relocation: &'data ImageBaseRelocation,
+    pub relocations: &'data [Relocation]
+}
+
+/// Represents a mutable parsed relocation entry.
+pub struct RelocationEntryMut<'data> {
+    pub base_relocation: &'data mut ImageBaseRelocation,
+    pub relocations: &'data mut [Relocation],
+}
+
+/// Represents a PE relocation entry.
+#[repr(packed)]
+pub struct ImageBaseRelocation {
+    pub virtual_address: RVA,
+    pub size_of_block: u32,
+}
+impl ImageBaseRelocation {
+    /// Get the relocation table pointed to by the given RVA. Returns a vector of ```RelocationEntry``` objects,
+    /// which contains the base relocation object as well as the relocation deltas.
+    pub fn parse_relocation_table<'data>(pe: &'data PE, dir: &ImageDataDirectory) -> Result<Vec<RelocationEntry<'data>>, Error> {
+        if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
+            return Err(Error::InvalidRVA);
+        }
+
+        let mut start_addr = dir.virtual_address.clone();
+        let end_addr = RVA(start_addr.0 + dir.size);
+
+        if !pe.validate_rva(end_addr) {
+            return Err(Error::InvalidRVA);
+        }
+
+        let mut result = Vec::<RelocationEntry>::new();
+
+        while start_addr.0 < end_addr.0 {
+            let relocation_size = mem::size_of::<ImageBaseRelocation>();
+            let word_size = mem::size_of::<u16>();
+            let start_offset = match start_addr.as_offset(pe) {
+                Ok(a) => a,
+                Err(e) => return Err(e),
+            };
+            
+            let base_relocation = match pe.buffer.get_ref::<ImageBaseRelocation>(start_offset) {
+                Ok(b) => b,
+                Err(e) => return Err(e),
+            };
+            
+            let block_addr = RVA( ((start_addr.0 as usize) + relocation_size) as u32);
+            let block_offset = match block_addr.as_offset(pe) {
+                Ok(o) => o,
+                Err(e) => return Err(e),
+            };
+            
+            let block_size = ((base_relocation.size_of_block as usize) - relocation_size) / word_size;
+            let relocations = match pe.buffer.get_slice_ref::<Relocation>(block_offset, block_size) {
+                Ok(r) => r,
+                Err(e) => return Err(e),
+            };
+
+            result.push(RelocationEntry { base_relocation, relocations });
+            start_addr.0 += (relocation_size + (word_size * block_size)) as u32;
+        }
+
+        Ok(result)
+    }
 }
 
 /// An enum representing a data directory object.
