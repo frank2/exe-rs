@@ -398,6 +398,30 @@ impl Relocation {
 }
 
 /// Represents a parsed relocation entry.
+///
+/// This is ultimately the base component of the relocation table array: a base offset and some deltas.
+/// It can be used to calculate what exactly gets rewritten and where before data is modified.
+///
+/// ```rust
+/// use exe::PE;
+/// use exe::headers::ImageDirectoryEntry;
+/// use exe::types::{DataDirectory, RVA};
+///
+/// let dll = PE::from_file("test/dll.dll").unwrap();
+/// let relocation_dir = dll.resolve_data_directory(ImageDirectoryEntry::BaseReloc).unwrap();
+///
+/// if let DataDirectory::BaseReloc(relocation_table) = relocation_dir {
+///    assert_eq!(relocation_table.len(), 1);
+///
+///    let entry = &relocation_table[0];
+///    let addresses = entry.relocations
+///                         .iter()
+///                         .map(|&x| x.get_address(entry.base_relocation.virtual_address))
+///                         .collect::<Vec<RVA>>();
+///
+///    assert_eq!(addresses[0], RVA(0x1008));
+/// }
+/// ```
 pub struct RelocationEntry<'data> {
     pub base_relocation: &'data ImageBaseRelocation,
     pub relocations: &'data [Relocation]
@@ -560,6 +584,26 @@ impl<'data> RelocationEntryMut<'data> {
 }
 
 /// Syntactic sugar for handling the relocation directory.
+///
+/// It can be used to quickly calculate the relocation data necessary before committing the data
+/// to memory.
+///
+/// ```rust
+/// use exe::PE;
+/// use exe::headers::ImageDirectoryEntry;
+/// use exe::types::{DataDirectory, RelocationTable, RelocationValue, RVA};
+///
+/// let dll = PE::from_file("test/dll.dll").unwrap();
+/// let relocation_dir = dll.resolve_data_directory(ImageDirectoryEntry::BaseReloc).unwrap();
+///
+/// if let DataDirectory::BaseReloc(relocation_table) = relocation_dir {
+///    let relocation_data = relocation_table.relocations(&dll, 0x02000000).unwrap();
+///    let (rva, reloc) = relocation_data[0];
+///
+///    assert_eq!(rva, RVA(0x1008));
+///    assert_eq!(reloc, RelocationValue::Relocation32(0x02001059));
+/// }
+/// ```
 pub trait RelocationTable<'data> {
     /// Get the relocation values of the given relocation table.
     fn relocations(&self, pe: &'data PE, new_base: u64) -> Result<Vec<(RVA, RelocationValue)>, Error>;
