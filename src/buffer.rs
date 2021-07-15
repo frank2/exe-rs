@@ -38,7 +38,7 @@ impl Buffer {
     /// Creates a new buffer from disk data.
     pub fn from_file<P: AsRef<Path>>(filename: P) -> Result<Self, IoError> {
         match fs::read(filename) {
-            Ok(contents) => Ok(Self { data: contents }),
+            Ok(data) => Ok(Self { data }),
             Err(e) => Err(e),
         }
     }
@@ -103,7 +103,7 @@ impl Buffer {
         start <= pos && pos < end
     }
         
-    /// Convert a pointer to an offset. This returns ```Error::BadPointer``` if the pointer
+    /// Convert a pointer to an offset. This returns [Error::BadPointer](Error::BadPointer) if the pointer
     /// isn't in the buffer range.
     pub fn ptr_to_offset(&self, ptr: *const u8) -> Result<Offset, Error> {
         if !self.validate_ptr(ptr) {
@@ -120,7 +120,7 @@ impl Buffer {
             Ok(Offset(delta as u32))
         }
     }
-    /// Converts a reference to an offset. Returns a ```Error::BadPointer``` error if the reference
+    /// Converts a reference to an offset. Returns a [Error::BadPointer](Error::BadPointer) error if the reference
     /// isn't from the buffer.
     pub fn ref_to_offset<T>(&self, data: &T) -> Result<Offset, Error> {
         self.ptr_to_offset(data as *const T as *const u8)

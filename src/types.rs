@@ -23,7 +23,7 @@ pub struct CChar(pub u8);
 /* borrowed from pe-rs */
 /// Syntactic sugar to get functionality out of C-char referenced slices.
 pub trait CCharString {
-    /// Get the zero-terminated representation of this string, or ```None``` if it is not zero-terminatedj.
+    /// Get the zero-terminated representation of this string, or ```None``` if it is not zero-terminated.
     fn zero_terminated(&self) -> Option<&Self>;
     /// Get the string slice as a ```&str```.
     fn as_str(&self) -> &str;
@@ -317,7 +317,7 @@ impl Relocation {
     pub fn get_address(&self, base: RVA) -> RVA {
         RVA(base.0 + self.get_offset() as u32)
     }
-    /// Get the relocation value of this relocation entry. If the type of this location is
+    /// Get the relocation value of this relocation entry. If the type of this relocation is
     /// [ImageRelBased::HighAdj](ImageRelBased::HighAdj), ```next_relocation``` is required.
     pub fn relocate(&self, pe: &PE, base_rva: RVA, new_base: u64, next_relocation: Option<Relocation>) -> Result<RelocationValue, Error> {
         let headers = match pe.get_valid_nt_headers() {

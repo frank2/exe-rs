@@ -144,9 +144,11 @@ pub struct ImageFileHeader {
     pub characteristics: FileCharacteristics,
 }
 impl ImageFileHeader {
+    /// Get the default ImageFileHeader object for x86.
     fn default_x86() -> Self {
         ImageFileHeader::default()
     }
+    /// Get the default ImageFileHeader object for x64.
     fn default_x64() -> Self {
         Self {
             machine: ImageFileMachine::AMD64 as u16,
@@ -625,8 +627,8 @@ impl ImageExportDirectory {
         }
     }
     /// Get the function array of this export entry. This array represents thunk data pointing to either
-    /// ordinals (```ThunkData::Ordinal```), forwarder strings (```ThunkData::ForwarderString```) or
-    /// function data (```ThunkData::Function```).
+    /// ordinals [ThunkData::Ordinal](types::ThunkData::Ordinal), forwarder strings ([ThunkData::ForwarderString](types::ThunkData::ForwarderString)
+    /// or function data [ThunkData::Function](types::ThunkData::Function).
     pub fn get_functions<'data>(&self, pe: &'data PE) -> Result<&'data [Thunk32], Error> {
         if self.address_of_functions.0 == 0 {
             return Err(Error::InvalidRVA);
@@ -695,8 +697,8 @@ impl ImageExportDirectory {
         }
     }
     /// Get a mapping of exports to thunk data for this export entry. This maps exported names to thunk data, which can
-    /// be an ordinal (```ThunkData::Ordinal```), a function (```ThunkData::Function```) or a forwarder string
-    /// (```ThunkData::ForwarderString```).
+    /// be an ordinal ([ThunkData::Ordinal](types::ThunkData::Ordinal)), a function ([ThunkData::Function](types::ThunkData::Function))
+    /// or a forwarder string ([ThunkData::ForwarderString](types::ThunkData::ForwarderString)).
     pub fn get_export_map<'data>(&self, pe: &'data PE) -> Result<HashMap<&'data str, ThunkData>, Error> {
         let mut result: HashMap<&'data str, ThunkData> = HashMap::<&'data str, ThunkData>::new();
 
@@ -890,8 +892,8 @@ impl ImageImportDescriptor {
         Ok(imports)
     }
     
-    /// Get the import table pointed to by the ```ImageDataDirectory``` reference. This is typically used by the
-    /// ```ImageDataDirectory::resolve``` function.
+    /// Get the import table pointed to by the [ImageDataDirectory](ImageDataDirectory) reference. This is typically used by the
+    /// [ImageDataDirectory::resolve](ImageDataDirectory::resolve) function.
     pub fn parse_import_table<'data>(pe: &'data PE, dir: &'data ImageDataDirectory) -> Result<&'data [ImageImportDescriptor], Error> {
         let size = match ImageImportDescriptor::parse_import_table_size(pe, dir) {
             Ok(s) => s,
@@ -906,8 +908,8 @@ impl ImageImportDescriptor {
         pe.buffer.get_slice_ref::<ImageImportDescriptor>(offset, size)
     }
 
-    /// Get the mutable import table pointed to by the ```ImageDataDirectory``` reference. This is typically used by the
-    /// ```ImageDataDirectory::resolve_mut``` function.
+    /// Get the mutable import table pointed to by the [ImageDataDirectory](ImageDataDirectory) reference. This is typically used by the
+    /// [ImageDataDirectory::resolve_mut](ImageDataDirectory::resolve_mut) function.
     pub fn parse_mut_import_table<'data>(pe: &'data mut PE, dir: &'data ImageDataDirectory) -> Result<&'data mut [ImageImportDescriptor], Error> {
         let size = match ImageImportDescriptor::parse_import_table_size(pe, dir) {
             Ok(s) => s,
@@ -960,7 +962,7 @@ impl ImageImportDescriptor {
     }
 
     /// Get the imports represented by this import descriptor. This resolves the import table and returns a series of strings
-    /// representing both ```ImageImportByName``` structures as well as import ordinals.
+    /// representing both [ImageImportByName](ImageImportByName) structures as well as import ordinals.
     pub fn get_imports(&self, pe: &PE) -> Result<Vec<String>, Error> {
         let mut results = Vec::<String>::new();
 
