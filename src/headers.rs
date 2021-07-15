@@ -627,8 +627,8 @@ impl ImageExportDirectory {
         }
     }
     /// Get the function array of this export entry. This array represents thunk data pointing to either
-    /// ordinals [ThunkData::Ordinal](types::ThunkData::Ordinal), forwarder strings ([ThunkData::ForwarderString](types::ThunkData::ForwarderString)
-    /// or function data [ThunkData::Function](types::ThunkData::Function).
+    /// ordinals [ThunkData::Ordinal](ThunkData::Ordinal), forwarder strings ([ThunkData::ForwarderString](ThunkData::ForwarderString)
+    /// or function data [ThunkData::Function](ThunkData::Function).
     pub fn get_functions<'data>(&self, pe: &'data PE) -> Result<&'data [Thunk32], Error> {
         if self.address_of_functions.0 == 0 {
             return Err(Error::InvalidRVA);
@@ -697,8 +697,8 @@ impl ImageExportDirectory {
         }
     }
     /// Get a mapping of exports to thunk data for this export entry. This maps exported names to thunk data, which can
-    /// be an ordinal ([ThunkData::Ordinal](types::ThunkData::Ordinal)), a function ([ThunkData::Function](types::ThunkData::Function))
-    /// or a forwarder string ([ThunkData::ForwarderString](types::ThunkData::ForwarderString)).
+    /// be an ordinal ([ThunkData::Ordinal](ThunkData::Ordinal)), a function ([ThunkData::Function](ThunkData::Function))
+    /// or a forwarder string ([ThunkData::ForwarderString](ThunkData::ForwarderString)).
     pub fn get_export_map<'data>(&self, pe: &'data PE) -> Result<HashMap<&'data str, ThunkData>, Error> {
         let mut result: HashMap<&'data str, ThunkData> = HashMap::<&'data str, ThunkData>::new();
 
