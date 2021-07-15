@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use super::*;
-use super::types::*;
 use super::buffer::*;
+use super::headers::*;
+use super::types::*;
 
 #[test]
 fn test_compiled() {

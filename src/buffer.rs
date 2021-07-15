@@ -11,11 +11,11 @@ use std::path::Path;
 use std::ptr;
 use std::slice;
 
-use crate::types::{Offset, CChar, WChar, ImageImportByName};
 use crate::Error;
+use crate::types::{Offset, CChar, WChar};
 
 #[derive(Clone, Eq, PartialEq, Debug)]
-/// A buffer representing the PE file.
+/// A buffer representing the PE image.
 pub struct Buffer {
     data: Vec<u8>
 }
@@ -93,26 +93,31 @@ impl Buffer {
     pub unsafe fn eof(&self) -> *const u8 {
         self.as_ptr().add(self.len())
     }
-    /// Convert a pointer to an offset. This returns ```Error::BadPointer``` if the pointer
-    /// isn't in the buffer range.
-    pub fn ptr_to_offset(&self, ptr: *const u8) -> Result<Offset, Error> {
+
+    /// Verifies that the given pointer is a valid pointer into this buffer.
+    pub fn validate_ptr(&self, ptr: *const u8) -> bool {
         let start = self.as_ptr() as usize;
         let end = unsafe { self.eof() as usize };
         let pos = ptr as usize;
 
-        if start <= pos && pos < end {
-            let delta = pos - start;
+        start <= pos && pos < end
+    }
+        
+    /// Convert a pointer to an offset. This returns ```Error::BadPointer``` if the pointer
+    /// isn't in the buffer range.
+    pub fn ptr_to_offset(&self, ptr: *const u8) -> Result<Offset, Error> {
+        if !self.validate_ptr(ptr) {
+            return Err(Error::BadPointer);
+        }
+        
+        let delta = (self.as_ptr() as usize) - (ptr as usize);
 
-            /* executables greater than 4GB are unsupported */
-            if delta > (u32::MAX as usize) {
-                Err(Error::BadPointer)
-            }
-            else {
-                Ok(Offset(delta as u32))
-            }
+        /* executables greater than 4GB are unsupported */
+        if delta > (u32::MAX as usize) {
+            Err(Error::BadPointer)
         }
         else {
-            Err(Error::BadPointer)
+            Ok(Offset(delta as u32))
         }
     }
     /// Converts a reference to an offset. Returns a ```Error::BadPointer``` error if the reference
@@ -124,7 +129,8 @@ impl Buffer {
     ///
     /// ```rust
     /// use exe::buffer::Buffer;
-    /// use exe::types::{Offset, ImageDOSHeader, ImageNTHeaders32, NT_SIGNATURE};
+    /// use exe::headers::{ImageDOSHeader, ImageNTHeaders32, NT_SIGNATURE};
+    /// use exe::types::Offset;
     ///
     /// let buffer = Buffer::from_file("test/compiled.exe").unwrap();
     /// 
@@ -312,20 +318,6 @@ impl Buffer {
         };
 
         self.get_mut_slice_ref::<WChar>(offset, found_size)
-    }
-    /// Get an ```ImageImportByName``` object at the given offset. See the documentation of ```ImageImportByName```
-    /// for an explanation of why this is needed.
-    pub fn get_import_by_name(&self, offset: Offset) -> Result<ImageImportByName, Error> {
-        let hint = match self.get_ref::<u16>(offset) {
-            Ok(h) => h,
-            Err(e) => return Err(e),
-        };
-        let name = match self.get_cstring(Offset(offset.0 + (mem::size_of::<u16>() as u32)), true, None) {
-            Ok(n) => n,
-            Err(e) => return Err(e),
-        };
-
-        Ok(ImageImportByName { hint, name })
     }
     /// Read arbitrary data from the buffer.
     pub fn read(&self, offset: Offset, size: usize) -> Result<&[u8], Error> {

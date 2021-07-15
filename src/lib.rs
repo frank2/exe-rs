@@ -3,7 +3,8 @@
 //! Getting started is easy:
 //! ```rust
 //! use exe::PE;
-//! use exe::types::{ImageDirectoryEntry, DataDirectory, CCharString};
+//! use exe::headers::ImageDirectoryEntry;
+//! use exe::types::{DataDirectory, CCharString};
 //!
 //! let pefile = PE::from_file("test/compiled.exe").unwrap();
 //! let import_directory = pefile.resolve_data_directory(ImageDirectoryEntry::Import).unwrap();
@@ -23,6 +24,7 @@
 extern crate chrono;
 
 pub mod buffer;
+pub mod headers;
 pub mod types;
 
 #[cfg(test)]
@@ -34,6 +36,7 @@ use std::mem::size_of;
 use std::path::Path;
 
 use crate::buffer::Buffer;
+use crate::headers::*;
 use crate::types::*;
 
 /// Errors produced by the library.
@@ -82,14 +85,14 @@ impl PE {
             filename: None,
         }
     }
-    /// Generates a new PE file from a slice of data.
+    /// Generates a new PE object from a slice of data.
     pub fn from_data(data: &[u8]) -> Self {
         Self {
             buffer: Buffer::from_data(data),
             filename: None,
         }
     }
-    /// Generates a new PE file from a file on disk.
+    /// Generates a new PE object from a file on disk.
     pub fn from_file<P: AsRef<Path>>(filename: P) -> Result<Self, IoError> {
         match Buffer::from_file(&filename) {
             Ok(buffer) => Ok(Self { buffer: buffer, filename: Some(String::from(filename.as_ref().to_str().unwrap())) }),
@@ -305,7 +308,8 @@ impl PE {
     ///
     /// ```rust
     /// use exe::PE;
-    /// use exe::types::{NTHeaders, HDR64_MAGIC};
+    /// use exe::headers::HDR64_MAGIC;
+    /// use exe::types::NTHeaders;
     ///
     /// let pefile = PE::from_file("test/normal64.exe").unwrap();
     /// let headers = pefile.get_valid_nt_headers().unwrap();
@@ -433,7 +437,7 @@ impl PE {
     }
 
     /// Get a reference to a section in the PE file by a given offset. Yields a
-    /// ```Error::SectionNotFound``` error if the offset wasn't found to be in a section.
+    /// [Error::SectionNotFound](Error::SectionNotFound) error if the offset wasn't found to be in a section.
     pub fn get_section_by_offset(&self, offset: Offset) -> Result<&ImageSectionHeader, Error> {
         let section_table = match self.get_section_table() {
             Ok(s) => s,
@@ -453,7 +457,7 @@ impl PE {
     }
 
     /// Get a mutable reference to a section in the PE file by a given offset. Yields a
-    /// ```Error::SectionNotFound``` error if the offset wasn't found to be in a section.
+    /// [Error::SectionNotFound](Error::SectionNotFound) error if the offset wasn't found to be in a section.
     pub fn get_mut_section_by_offset(&mut self, offset: Offset) -> Result<&mut ImageSectionHeader, Error> {
         let section_table = match self.get_mut_section_table() {
             Ok(s) => s,
@@ -473,7 +477,7 @@ impl PE {
     }
 
     /// Get a reference to a section in the PE file by a given RVA. Yields a
-    /// ```Error::SectionNotFound``` error if the RVA wasn't found to be in a section.
+    /// [Error::SectionNotFound](Error::SectionNotFound) error if the RVA wasn't found to be in a section.
     pub fn get_section_by_rva(&self, rva: RVA) -> Result<&ImageSectionHeader, Error> {
         let section_table = match self.get_section_table() {
             Ok(s) => s,
@@ -493,7 +497,7 @@ impl PE {
     }
 
     /// Get a mutable reference to a section in the PE file by a given RVA. Yields a
-    /// ```Error::SectionNotFound``` error if the RVA wasn't found to be in a section.
+    /// [Error::SectionNotFound](Error::SectionNotFound) error if the RVA wasn't found to be in a section.
     pub fn get_mut_section_by_rva(&mut self, rva: RVA) -> Result<&mut ImageSectionHeader, Error> {
         let section_table = match self.get_mut_section_table() {
             Ok(s) => s,
@@ -513,7 +517,7 @@ impl PE {
     }
 
     /// Get a reference to a section in the PE file by its name. Yields a
-    /// ```Error::SectionNotFound``` error if the name wasn't found in the section table.
+    /// [Error::SectionNotFound](Error::SectionNotFound) error if the name wasn't found in the section table.
     pub fn get_section_by_name(&self, name: String) -> Result<&ImageSectionHeader, Error> {
         let sections = match self.get_section_table() {
             Ok(s) => s,
@@ -531,7 +535,7 @@ impl PE {
     }
 
     /// Get a mutable reference to a section in the PE file by its name. Yields a
-    /// ```Error::SectionNotFound``` error if the name wasn't found in the section table.
+    /// [Error::SectionNotFound](Error::SectionNotFound) error if the name wasn't found in the section table.
     pub fn get_mut_section_by_name(&mut self, name: String) -> Result<&mut ImageSectionHeader, Error> {
         let sections = match self.get_mut_section_table() {
             Ok(s) => s,
@@ -569,7 +573,7 @@ impl PE {
     }
     /// Verify that the given VA is a valid VA for this image. A VA is validated if it
     /// lands between the image base and the end of the image, determined by its size.
-    /// In other words: image_base <= VA < (image_base+image_size)
+    /// In other words: ```image_base <= VA < (image_base+image_size)```
     pub fn validate_va(&self, va: VA) -> bool {
         let headers = match self.get_valid_nt_headers() {
             Ok(h) => h,
@@ -591,7 +595,7 @@ impl PE {
         }
     }
 
-    /// Convert an offset to an RVA address. Produces ```Error::InvalidRVA``` if the produced
+    /// Convert an offset to an RVA address. Produces [Error::InvalidRVA](Error::InvalidRVA) if the produced
     /// RVA is invalid.
     pub fn offset_to_rva(&self, offset: Offset) -> Result<RVA, Error> {
         let section = match self.get_section_by_offset(offset) {
@@ -631,7 +635,7 @@ impl PE {
         self.rva_to_va(rva)
     }
 
-    /// Convert an RVA to an offset address. Produces a ```Error::InvalidOffset``` error if
+    /// Convert an RVA to an offset address. Produces a [Error::InvalidOffset](Error::InvalidOffset) error if
     /// the produced offset is invalid.
     pub fn rva_to_offset(&self, rva: RVA) -> Result<Offset, Error> {
         let section = match self.get_section_by_rva(rva) {
@@ -661,7 +665,7 @@ impl PE {
 
         Ok(Offset(offset))
     }
-    /// Convert an RVA to a VA address. Produces a ```Error::InvalidVA``` error if the produced
+    /// Convert an RVA to a VA address. Produces a [Error::InvalidVA](Error::InvalidVA) error if the produced
     /// VA is invalid.
     pub fn rva_to_va(&self, rva: RVA) -> Result<VA, Error> {
         let headers = match self.get_valid_nt_headers() {
@@ -681,7 +685,7 @@ impl PE {
         Ok(va)
     }
 
-    /// Convert a VA to an RVA. Produces a ```Error::InvalidRVA``` error if the produced RVA
+    /// Convert a VA to an RVA. Produces a [Error::InvalidRVA](Error::InvalidRVA) error if the produced RVA
     /// is invalid.
     pub fn va_to_rva(&self, va: VA) -> Result<RVA, Error> {
         let headers = match self.get_valid_nt_headers() {
@@ -713,7 +717,7 @@ impl PE {
         self.rva_to_offset(rva)
     }
 
-    /// Get the data directory reference represented by the ```ImageDirectoryEntry``` enum.
+    /// Get the data directory reference represented by the [ImageDirectoryEntry](headers::ImageDirectoryEntry) enum.
     pub fn get_data_directory(&self, dir: ImageDirectoryEntry) -> Result<&ImageDataDirectory, Error> {
         match self.get_valid_nt_headers() {
             Err(e) => return Err(e),
@@ -723,7 +727,7 @@ impl PE {
             }
         }
     }
-    /// Get the mutable data directory reference represented by the ```ImageDirectoryEntry``` enum.
+    /// Get the mutable data directory reference represented by the [ImageDirectoryEntry](headers::ImageDirectoryEntry) enum.
     pub fn get_mut_data_directory(&mut self, dir: ImageDirectoryEntry) -> Result<&mut ImageDataDirectory, Error> {
         match self.get_valid_mut_nt_headers() {
             Err(e) => return Err(e),
@@ -734,12 +738,13 @@ impl PE {
         }
     }
     
-    /// Resolve the data directory represented by the ```ImageDirectoryEntry``` enum. This produces a data
+    /// Resolve the data directory represented by the [ImageDirectoryEntry](headers::ImageDirectoryEntry) enum. This produces a data
     /// directory variant enum object associated with the data directory type.
     ///
     /// ```rust
     /// use exe::PE;
-    /// use exe::types::{ImageDirectoryEntry, DataDirectory};
+    /// use exe::headers::ImageDirectoryEntry;
+    /// use exe::types::DataDirectory;
     ///
     /// let pefile = PE::from_file("test/compiled.exe").unwrap();
     /// let data_directory = pefile.resolve_data_directory(ImageDirectoryEntry::Import).unwrap();
