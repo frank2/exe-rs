@@ -64,6 +64,8 @@ pub enum Error {
     BadPointer,
     /// The data directory requested is currently unsupported.
     UnsupportedDirectory,
+    /// The relocation entry is invalid.
+    InvalidRelocation,
 }
 
 /// Represents a PE file.

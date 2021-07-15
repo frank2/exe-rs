@@ -328,7 +328,7 @@ impl Buffer {
         self.get_mut_slice_ref::<u8>(offset, size)
     }
     /// Write arbitrary data to the buffer.
-    pub fn write(&mut self, offset: Offset, data: &[u8]) -> Result<usize, Error> {
+    pub fn write(&mut self, offset: Offset, data: &[u8]) -> Result<(), Error> {
         let size = data.len();
         let end = size+offset.0 as usize;
 
@@ -342,11 +342,11 @@ impl Buffer {
             let to_ptr = self.offset_to_mut_ptr(offset);
             ptr::copy(from_ptr, to_ptr, size);
             
-            Ok(size)
+            Ok(())
         }
     }
     /// Write a referenced object to the buffer.
-    pub fn write_ref<T>(&mut self, offset: Offset, data: &T) -> Result<usize, Error> {
+    pub fn write_ref<T>(&mut self, offset: Offset, data: &T) -> Result<(), Error> {
         let ptr = data as *const T as *const u8;
         let size = mem::size_of::<T>();
         

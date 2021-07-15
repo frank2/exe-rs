@@ -265,6 +265,15 @@ pub enum ThunkMut<'data> {
     Thunk64(&'data mut Thunk64),
 }
 
+/// An enum representing the resulting values of a relocation.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum RelocationValue {
+    Relocation16(u16),
+    Relocation32(u32),
+    Relocation64(u64),
+    None,
+}
+
 /// Represents a unit of a relocation, which contains a type and an offset in a ```u16``` value.
 #[repr(packed)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -307,6 +316,84 @@ impl Relocation {
     /// Get the address that this relocation points to.
     pub fn get_address(&self, base: RVA) -> RVA {
         RVA(base.0 + self.get_offset() as u32)
+    }
+    /// Get the relocation value of this relocation entry. If the type of this location is
+    /// [ImageRelBased::HighAdj](ImageRelBased::HighAdj), ```next_relocation``` is required.
+    pub fn relocate(&self, pe: &PE, base_rva: RVA, new_base: u64, next_relocation: Option<Relocation>) -> Result<RelocationValue, Error> {
+        let headers = match pe.get_valid_nt_headers() {
+            Ok(h) => h,
+            Err(e) => return Err(e),
+        };
+
+        let offset = match self.get_address(base_rva).as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let image_base = match headers {
+            NTHeaders::NTHeaders32(h32) => h32.optional_header.image_base as u64,
+            NTHeaders::NTHeaders64(h64) => h64.optional_header.image_base,
+        };
+
+        let delta = (new_base as i64) - (image_base as i64);
+
+        match self.get_type() {
+            ImageRelBased::High => {
+                let high = delta & 0xFFFF0000;
+                let current = match pe.buffer.get_ref::<i32>(offset) {
+                    Ok(c) => c,
+                    Err(e) => return Err(e),
+                };
+
+                Ok(RelocationValue::Relocation32( ( (*current as i64) + high) as u32))
+            },
+            ImageRelBased::Low => {
+                let low = delta & 0xFFFF;
+                let current = match pe.buffer.get_ref::<i32>(offset) {
+                    Ok(c) => c,
+                    Err(e) => return Err(e),
+                };
+
+                Ok(RelocationValue::Relocation32( ( (*current as i64) + low) as u32))
+            },
+            ImageRelBased::HighLow => {
+                let current = match pe.buffer.get_ref::<i32>(offset) {
+                    Ok(c) => c,
+                    Err(e) => return Err(e),
+                };
+
+                Ok(RelocationValue::Relocation32( ( (*current as i64) + delta) as u32))
+            },
+            ImageRelBased::HighAdj => {
+                if next_relocation.is_none() {
+                    return Err(Error::InvalidRelocation);
+                }
+
+                let next_entry = next_relocation.unwrap();
+                let next_rva = next_entry.get_address(base_rva);
+                let current = match pe.buffer.get_ref::<i16>(offset) {
+                    Ok(o) => o,
+                    Err(e) => return Err(e),
+                };
+                let high = delta & 0xFFFF0000;
+                
+                let mut value = (*current as i64) << 16;
+                value += next_rva.0 as i64;
+                value += high;
+                value >>= 16;
+
+                Ok(RelocationValue::Relocation16(value as u16))
+            },
+            ImageRelBased::Dir64 => {
+                let current = match pe.buffer.get_ref::<i64>(offset) {
+                    Ok(o) => o,
+                    Err(e) => return Err(e),
+                };
+
+                Ok(RelocationValue::Relocation64(((*current as i128) + (delta as i128)) as u64))
+            },
+            _ => Ok(RelocationValue::None),
+        }
     }
 }
 
@@ -472,11 +559,142 @@ impl<'data> RelocationEntryMut<'data> {
     }
 }
 
+/// Syntactic sugar for handling the relocation directory.
+pub trait RelocationTable<'data> {
+    /// Get the relocation values of the given relocation table.
+    fn relocations(&self, pe: &'data PE, new_base: u64) -> Result<Vec<(RVA, RelocationValue)>, Error>;
+    /// Relocate a PE image based on the relocation table.
+    fn relocate(&self, pe: &'data mut PE, new_base: u64) -> Result<(), Error>;
+}
+
+impl<'data> RelocationTable<'data> for Vec<RelocationEntry<'data>> {
+    fn relocations(&self, pe: &'data PE, new_base: u64) -> Result<Vec<(RVA, RelocationValue)>, Error> {
+        let mut result = Vec::<(RVA, RelocationValue)>::new();
+
+        for entry in self {
+            let base_rva = entry.base_relocation.virtual_address.clone();
+            let len = entry.relocations.len();
+
+            for i in 0..len {
+                let current = entry.relocations[i];
+                let mut next: Option<Relocation> = None;
+                
+                if (i+1) < len {
+                    next = Some(entry.relocations[i+1]);
+                }
+
+                let value = match current.relocate(pe, base_rva, new_base, next) {
+                    Ok(v) => v,
+                    Err(e) => return Err(e),
+                };
+                
+                result.push((current.get_address(base_rva), value));
+            }
+        }
+
+        Ok(result)
+    }
+    fn relocate(&self, pe: &'data mut PE, new_base: u64) -> Result<(), Error> {
+        let relocations = match self.relocations(pe, new_base) {
+            Ok(r) => r,
+            Err(e) => return Err(e),
+        };
+
+        let ptr = pe.buffer.as_mut_ptr();
+
+        for (rva, value) in relocations {
+            let offset = match rva.as_offset(pe) {
+                Ok(o) => o,
+                Err(e) => return Err(e),
+            };
+
+            let offset_ptr = unsafe { ptr.add(offset.0 as usize) };
+
+            if !pe.buffer.validate_ptr(offset_ptr) {
+                return Err(Error::BadPointer);
+            }
+
+            unsafe {
+                match value {
+                    RelocationValue::Relocation16(r16) => *(offset_ptr as *mut u16) = r16,
+                    RelocationValue::Relocation32(r32) => *(offset_ptr as *mut u32) = r32,
+                    RelocationValue::Relocation64(r64) => *(offset_ptr as *mut u64) = r64,
+                    RelocationValue::None => (),
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl<'data> RelocationTable<'data> for Vec<RelocationEntryMut<'data>> {
+    fn relocations(&self, pe: &'data PE, new_base: u64) -> Result<Vec<(RVA, RelocationValue)>, Error> {
+        let mut result = Vec::<(RVA, RelocationValue)>::new();
+
+        for entry in self {
+            let base_rva = entry.base_relocation.virtual_address.clone();
+            let len = entry.relocations.len();
+
+            for i in 0..len {
+                let current = entry.relocations[i];
+                let mut next: Option<Relocation> = None;
+                
+                if (i+1) < len {
+                    next = Some(entry.relocations[i+1]);
+                }
+
+                let value = match current.relocate(pe, base_rva, new_base, next) {
+                    Ok(v) => v,
+                    Err(e) => return Err(e),
+                };
+                
+                result.push((current.get_address(base_rva), value));
+            }
+        }
+
+        Ok(result)
+    }
+    fn relocate(&self, pe: &'data mut PE, new_base: u64) -> Result<(), Error> {
+        let relocations = match self.relocations(pe, new_base) {
+            Ok(r) => r,
+            Err(e) => return Err(e),
+        };
+
+        let ptr = pe.buffer.as_mut_ptr();
+
+        for (rva, value) in relocations {
+            let offset = match rva.as_offset(pe) {
+                Ok(o) => o,
+                Err(e) => return Err(e),
+            };
+
+            let offset_ptr = unsafe { ptr.add(offset.0 as usize) };
+
+            if !pe.buffer.validate_ptr(offset_ptr) {
+                return Err(Error::BadPointer);
+            }
+
+            unsafe {
+                match value {
+                    RelocationValue::Relocation16(r16) => *(offset_ptr as *mut u16) = r16,
+                    RelocationValue::Relocation32(r32) => *(offset_ptr as *mut u32) = r32,
+                    RelocationValue::Relocation64(r64) => *(offset_ptr as *mut u64) = r64,
+                    RelocationValue::None => (),
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
 /// An enum representing a data directory object.
 ///
 /// Currently, the following data directories are supported:
-/// * ```ImageDirectoryEntry::Export```
-/// * ```ImageDirectoryEntry::Import```
+/// * [ImageDirectoryEntry::Export](ImageDirectoryEntry::Export)
+/// * [ImageDirectoryEntry::Import](ImageDirectoryEntry::Import)
+/// * [ImageDirectoryEntry::BaseReloc](ImageDirectoryEntry::BaseReloc)
 ///
 pub enum DataDirectory<'data> {
     Export(&'data ImageExportDirectory),

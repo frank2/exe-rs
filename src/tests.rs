@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use super::*;
-use super::buffer::*;
 use super::headers::*;
 use super::types::*;
 
@@ -100,6 +99,28 @@ fn test_dll() {
     }
     else {
         panic!("couldn't get export directory");
+    }
+
+    let relocation_directory = pefile.resolve_data_directory(ImageDirectoryEntry::BaseReloc);
+    assert!(relocation_directory.is_ok());
+
+    if let DataDirectory::BaseReloc(relocation_table) = relocation_directory.unwrap() {
+        assert_eq!(relocation_table.len(), 1);
+
+        let relocation_data = relocation_table.relocations(&pefile, 0x02000000);
+        let expected: Vec<(RVA, RelocationValue)> = [
+            (RVA(0x1008), RelocationValue::Relocation32(0x02001059)),
+            (RVA(0x100F), RelocationValue::Relocation32(0x02001034)),
+            (RVA(0x1017), RelocationValue::Relocation32(0x020010D0)),
+            (RVA(0x1025), RelocationValue::Relocation32(0x0200107E)),
+            (RVA(0x102B), RelocationValue::Relocation32(0x020010D0)),
+        ].iter().cloned().collect();
+             
+        assert!(relocation_data.is_ok());
+        assert_eq!(relocation_data.unwrap(), expected);
+    }
+    else {
+        panic!("couldn't get relocation directory");
     }
 }
 

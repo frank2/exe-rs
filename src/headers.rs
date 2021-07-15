@@ -541,6 +541,12 @@ impl ImageDataDirectory {
                 Err(e) => Err(e),
             }
         }
+        else if entry == ImageDirectoryEntry::BaseReloc {
+            match RelocationEntry::parse_table(pe, self) {
+                Ok(d) => Ok(DataDirectory::BaseReloc(d)),
+                Err(e) => Err(e),
+            }
+        }
         else {
             Err(Error::UnsupportedDirectory)
         }
@@ -566,6 +572,12 @@ impl ImageDataDirectory {
         else if entry == ImageDirectoryEntry::Import {
             match ImageImportDescriptor::parse_mut_import_table(pe, self) {
                 Ok(d) => Ok(DataDirectoryMut::Import(d)),
+                Err(e) => Err(e),
+            }
+        }
+        else if entry == ImageDirectoryEntry::BaseReloc {
+            match RelocationEntryMut::parse_table(pe, self) {
+                Ok(d) => Ok(DataDirectoryMut::BaseReloc(d)),
                 Err(e) => Err(e),
             }
         }

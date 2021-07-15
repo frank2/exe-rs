@@ -7,7 +7,8 @@ Read the documentation [here](https://docs.rs/exe/)!
 
 # Changelog
 
-## 0.2.1
+## 0.3
+* added support for relocation directories
 * moved PE headers into the headers module to differentiate them from Rust types
 * added alignment validation for NT headers
 * allow for mutable ImageImportByName structure
