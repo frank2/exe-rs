@@ -7,6 +7,9 @@ Read the documentation [here](https://docs.rs/exe/)!
 
 # Changelog
 
+## 0.4
+* PE object can now parse memory dumps properly, testing against [compiled_dumped.bin](https://github.com/frank2/exe-rs/blob/main/test/compiled_dumped.bin).
+
 ## 0.3
 * added support for relocation directories
 * moved PE headers into the headers module to differentiate them from Rust types
