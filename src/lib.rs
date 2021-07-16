@@ -85,11 +85,11 @@ pub enum PEType {
 ///
 /// This typically never gets exposed beyond the [translate](PE::translate) function. See [PEType](PEType)
 /// for an explanation of why this is here.
-pub enum PEAddress {
+pub enum PETranslation {
     Disk(Offset),
     Memory(RVA),
 }
-impl Address for PEAddress {
+impl Address for PETranslation {
     fn as_offset(&self, pe: &PE) -> Result<Offset, Error> {
         match self {
             Self::Disk(o) => Ok(*o),
@@ -167,23 +167,24 @@ impl PE {
         }
     }
 
-    /// Translate the buffer RVA into an offset.
+    /// Translate an address into a buffer offset relevant to the image type.
     ///
-    /// This differs from RVA to offset because it does not rely on the section table. Rather, if the
-    /// image is a memory image, it treats RVAs as offsets, because that's what they are in memory.
-    /// Otherwise, it converts the RVA into an offset via the section table.
-    pub fn translate(&self, addr: PEAddress) -> Result<Offset, Error> {
+    /// This differs from [rva_to_offset](PE::rva_to_offset) because it does not directly rely on the section table.
+    /// Rather, if the image is a memory image, it treats [RVA](RVA)s as offsets, because that's what they are in memory.
+    /// Otherwise, it converts the [RVA](RVA) into an offset via the section table. The reverse goes for if
+    /// the PE image is a disk image and an [Offset](Offset) is provided.
+    pub fn translate(&self, addr: PETranslation) -> Result<Offset, Error> {
         match self.pe_type {
             PEType::Disk => match addr {
-                PEAddress::Disk(o) => Ok(o),
-                PEAddress::Memory(r) => r.as_offset(self),
+                PETranslation::Disk(o) => Ok(o),
+                PETranslation::Memory(r) => r.as_offset(self),
             }
             PEType::Memory => match addr {
-                PEAddress::Disk(o) => match o.as_rva(self) {
+                PETranslation::Disk(o) => match o.as_rva(self) {
                     Ok(rva) => Ok(Offset(rva.0)),
                     Err(e) => Err(e),
                 },
-                PEAddress::Memory(r) => Ok(Offset(r.0))
+                PETranslation::Memory(r) => Ok(Offset(r.0)),
             }
         }
     }
