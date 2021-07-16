@@ -77,6 +77,78 @@ fn test_compiled() {
 }
 
 #[test]
+fn test_compiled_dumped() {
+    let compiled = PE::from_memory_dump("test/compiled_dumped.bin");
+    assert!(compiled.is_ok());
+
+    let pefile = compiled.unwrap();
+
+    let arch = pefile.get_arch();
+    assert!(arch.is_ok());
+    assert_eq!(arch.unwrap(), Arch::X86);
+
+    let bad_header = pefile.get_valid_nt_headers_64();
+    assert!(bad_header.is_err());
+
+    let get_headers = pefile.get_valid_nt_headers_32();
+    assert!(get_headers.is_ok());
+
+    let headers = get_headers.unwrap();
+    
+    let get_section_table = pefile.get_section_table();
+    assert!(get_section_table.is_ok());
+
+    let section_table = get_section_table.unwrap();
+    assert_eq!(section_table.len(), headers.file_header.number_of_sections as usize);
+    assert_eq!(section_table[0].name.as_str(), ".text");
+    assert_eq!(section_table[1].name.as_str(), ".rdata");
+    assert_eq!(section_table[2].name.as_str(), ".data");
+
+    let data_directory = pefile.resolve_data_directory(ImageDirectoryEntry::Import);
+    assert!(data_directory.is_ok());
+
+    if let DataDirectory::Import(import_table) = data_directory.unwrap() {
+        assert_eq!(import_table.len(), 2);
+        assert_eq!(import_table[0].original_first_thunk, RVA(0x2040));
+        assert_eq!(import_table[0].name, RVA(0x20A0));
+        assert_eq!(import_table[0].first_thunk, RVA(0x2080));
+
+        let name_0 = import_table[0].get_name(&pefile);
+        assert!(name_0.is_ok());
+        assert_eq!(name_0.unwrap().as_str(), "kernel32.dll");
+
+        let kernel32_thunks_result = import_table[0].get_original_first_thunk(&pefile);
+        assert!(kernel32_thunks_result.is_ok());
+
+        let kernel32_thunks = kernel32_thunks_result.unwrap();
+        if let Thunk::Thunk32(kernel32_thunk) = kernel32_thunks[0] {
+            assert_eq!(*kernel32_thunk, Thunk32(0x2060));
+        }
+        else {
+            panic!("bad thunk");
+        }
+        
+        let kernel32_imports = import_table[0].get_imports(&pefile);
+        let kernel32_expected = vec!["ExitProcess".to_string()];
+        assert!(kernel32_imports.is_ok());
+        assert_eq!(kernel32_imports.unwrap(), kernel32_expected);
+
+        let name_1 = import_table[1].get_name(&pefile);
+        assert!(name_1.is_ok());
+        assert_eq!(name_1.unwrap().as_str(), "msvcrt.dll");
+
+        let msvcrt_imports = import_table[1].get_imports(&pefile);
+        let msvcrt_expected = vec!["printf".to_string()];
+        assert!(msvcrt_imports.is_ok());
+        assert_eq!(msvcrt_imports.unwrap(), msvcrt_expected);
+    }
+    else
+    {
+        panic!("couldn't get import table");
+    }
+}
+
+#[test]
 fn test_dll() {
     let dll = PE::from_file("test/dll.dll");
     assert!(dll.is_ok());

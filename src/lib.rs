@@ -68,9 +68,53 @@ pub enum Error {
     InvalidRelocation,
 }
 
+/// An enum to tag the PE file with what its memory map looks like.
+///
+/// When a PE is loaded, it's ultimately parsed before being placed into memory. This
+/// means the image in memory is different from the disk. This is why, for example,
+/// RVAs and Offsets differ in type-- the RVA represents the offset to the image in
+/// *memory*, whereas the Offset represents the offset to the image on *disk*. This enum
+/// is necessary to maintain a simple translation layer for basic address operations.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum PEType {
+    Disk,
+    Memory,
+}
+
+/// An enum to translate between RVA and Offset addresses.
+///
+/// This typically never gets exposed beyond the [translate](PE::translate) function. See [PEType](PEType)
+/// for an explanation of why this is here.
+pub enum PEAddress {
+    Disk(Offset),
+    Memory(RVA),
+}
+impl Address for PEAddress {
+    fn as_offset(&self, pe: &PE) -> Result<Offset, Error> {
+        match self {
+            Self::Disk(o) => Ok(*o),
+            Self::Memory(r) => r.as_offset(pe),
+        }
+    }
+    fn as_rva(&self, pe: &PE) -> Result<RVA, Error> {
+        match self {
+            Self::Disk(o) => o.as_rva(pe),
+            Self::Memory(r) => Ok(*r),
+        }
+    }
+    fn as_va(&self, pe: &PE) -> Result<VA, Error> {
+        match self {
+            Self::Disk(o) => o.as_va(pe),
+            Self::Memory(r) => r.as_va(pe),
+        }
+    }
+}
+
 /// Represents a PE file.
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct PE {
+    /// The type of buffer the PE file is expecting. See [PEType](PEType) for an explanation.
+    pub pe_type: PEType,
     /// The buffer that holds the data. Various operations such as getting
     /// references to objects in the data can be found in the buffer object.
     pub buffer: Buffer,
@@ -81,15 +125,17 @@ pub struct PE {
 impl PE {
     /// Generates a new, blank PE file. Typically only useful for constructing
     /// new PE files.
-    pub fn new(size: Option<usize>) -> Self {
+    pub fn new(size: Option<usize>, pe_type: PEType) -> Self {
         Self {
+            pe_type: pe_type,
             buffer: Buffer::new(size),
             filename: None,
         }
     }
-    /// Generates a new PE object from a slice of data.
-    pub fn from_data(data: &[u8]) -> Self {
+    /// Generates a new PE object from a slice of data, marking it as a memory-resident image.
+    pub fn from_data(data: &[u8], pe_type: PEType) -> Self {
         Self {
+            pe_type: pe_type,
             buffer: Buffer::from_data(data),
             filename: None,
         }
@@ -97,8 +143,48 @@ impl PE {
     /// Generates a new PE object from a file on disk.
     pub fn from_file<P: AsRef<Path>>(filename: P) -> Result<Self, IoError> {
         match Buffer::from_file(&filename) {
-            Ok(buffer) => Ok(Self { buffer: buffer, filename: Some(String::from(filename.as_ref().to_str().unwrap())) }),
+            Ok(buffer) => Ok(
+                Self {
+                    pe_type: PEType::Disk,
+                    buffer: buffer,
+                    filename: Some(String::from(filename.as_ref().to_str().unwrap()))
+                }
+            ),
             Err(e) => Err(e),
+        }
+    }
+    /// Generates a new PE object from a file on disk, marking it as a memory dump (i.e., sets ```pe_type``` to [PEType::Memory](PEType::Memory).
+    pub fn from_memory_dump<P: AsRef<Path>>(filename: P) -> Result<Self, IoError> {
+        match Buffer::from_file(&filename) {
+            Ok(buffer) => Ok(
+                Self {
+                    pe_type: PEType::Memory,
+                    buffer: buffer,
+                    filename: Some(String::from(filename.as_ref().to_str().unwrap()))
+                }
+            ),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Translate the buffer RVA into an offset.
+    ///
+    /// This differs from RVA to offset because it does not rely on the section table. Rather, if the
+    /// image is a memory image, it treats RVAs as offsets, because that's what they are in memory.
+    /// Otherwise, it converts the RVA into an offset via the section table.
+    pub fn translate(&self, addr: PEAddress) -> Result<Offset, Error> {
+        match self.pe_type {
+            PEType::Disk => match addr {
+                PEAddress::Disk(o) => Ok(o),
+                PEAddress::Memory(r) => r.as_offset(self),
+            }
+            PEType::Memory => match addr {
+                PEAddress::Disk(o) => match o.as_rva(self) {
+                    Ok(rva) => Ok(Offset(rva.0)),
+                    Err(e) => Err(e),
+                },
+                PEAddress::Memory(r) => Ok(Offset(r.0))
+            }
         }
     }
 

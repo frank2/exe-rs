@@ -5,7 +5,7 @@ use std::slice;
 
 use widestring::U16Str;
 
-use crate::{PE, Error};
+use crate::{PE, PEAddress, Error};
 use crate::headers::*;
 
 /// Represents the architecture of the PE image.
@@ -325,7 +325,7 @@ impl Relocation {
             Err(e) => return Err(e),
         };
 
-        let offset = match self.get_address(base_rva).as_offset(pe) {
+        let offset = match pe.translate(PEAddress::Memory(self.get_address(base_rva))) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
@@ -432,7 +432,7 @@ impl<'data> RelocationEntry<'data> {
         let relocation_size = mem::size_of::<ImageBaseRelocation>();
         let word_size = mem::size_of::<u16>();
 
-        let offset = match rva.as_offset(pe) {
+        let offset = match pe.translate(PEAddress::Memory(rva)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
@@ -493,7 +493,7 @@ pub struct RelocationEntryMut<'data> {
 impl<'data> RelocationEntryMut<'data> {
     /// Parse a mutable relocation entry at the given RVA.
     pub fn parse(pe: &'data mut PE, rva: RVA) -> Result<Self, Error> {
-        let offset = match rva.as_offset(pe) {
+        let offset = match pe.translate(PEAddress::Memory(rva)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
@@ -549,11 +549,11 @@ impl<'data> RelocationEntryMut<'data> {
             return Err(Error::InvalidRVA);
         }
 
-        let start_offset = match start_addr.as_offset(pe) {
+        let start_offset = match pe.translate(PEAddress::Memory(start_addr)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
-        let end_offset = match end_addr.as_offset(pe) {
+        let end_offset = match pe.translate(PEAddress::Memory(end_addr)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
@@ -647,7 +647,7 @@ impl<'data> RelocationTable<'data> for Vec<RelocationEntry<'data>> {
         let ptr = pe.buffer.as_mut_ptr();
 
         for (rva, value) in relocations {
-            let offset = match rva.as_offset(pe) {
+            let offset = match pe.translate(PEAddress::Memory(rva)) {
                 Ok(o) => o,
                 Err(e) => return Err(e),
             };
@@ -708,7 +708,7 @@ impl<'data> RelocationTable<'data> for Vec<RelocationEntryMut<'data>> {
         let ptr = pe.buffer.as_mut_ptr();
 
         for (rva, value) in relocations {
-            let offset = match rva.as_offset(pe) {
+            let offset = match pe.translate(PEAddress::Memory(rva)) {
                 Ok(o) => o,
                 Err(e) => return Err(e),
             };

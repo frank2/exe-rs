@@ -16,7 +16,7 @@ use std::default::Default;
 use std::mem;
 use std::slice;
 
-use crate::{PE, Error};
+use crate::{PE, PEAddress, Error};
 use crate::types::*;
 
 pub const DOS_SIGNATURE: u16    = 0x5A4D;
@@ -525,7 +525,7 @@ impl ImageDataDirectory {
             return Err(Error::InvalidRVA);
         }
         
-        let address = match self.virtual_address.as_offset(pe) {
+        let address = match pe.translate(PEAddress::Memory(self.virtual_address)) {
             Ok(a) => a,
             Err(e) => return Err(e),
         };
@@ -559,7 +559,7 @@ impl ImageDataDirectory {
             return Err(Error::InvalidRVA);
         }
         
-        let address = match self.virtual_address.as_offset(pe) {
+        let address = match pe.translate(PEAddress::Memory(self.virtual_address)) {
             Ok(a) => a,
             Err(e) => return Err(e),
         };
@@ -610,7 +610,7 @@ impl ImageExportDirectory {
             return Err(Error::InvalidRVA);
         }
         
-        match self.name.as_offset(pe) {
+        match pe.translate(PEAddress::Memory(self.name)) {
             Err(e) => return Err(e),
             Ok(a) => pe.buffer.get_cstring(a, false, None),
         }
@@ -621,7 +621,7 @@ impl ImageExportDirectory {
             return Err(Error::InvalidRVA);
         }
 
-        match self.name.as_offset(pe) {
+        match pe.translate(PEAddress::Memory(self.name)) {
             Err(e) => return Err(e),
             Ok(a) => pe.buffer.get_mut_cstring(a, false, None),
         }
@@ -634,7 +634,7 @@ impl ImageExportDirectory {
             return Err(Error::InvalidRVA);
         }
 
-        match self.address_of_functions.as_offset(pe) {
+        match pe.translate(PEAddress::Memory(self.address_of_functions)) {
             Err(e) => return Err(e),
             Ok(a) => pe.buffer.get_slice_ref::<Thunk32>(a, self.number_of_functions as usize),
         }
@@ -645,7 +645,7 @@ impl ImageExportDirectory {
             return Err(Error::InvalidRVA);
         }
 
-        match self.address_of_functions.as_offset(pe) {
+        match pe.translate(PEAddress::Memory(self.address_of_functions)) {
             Err(e) => return Err(e),
             Ok(a) => pe.buffer.get_mut_slice_ref::<Thunk32>(a, self.number_of_functions as usize),
         }
@@ -657,7 +657,7 @@ impl ImageExportDirectory {
             return Err(Error::InvalidRVA);
         }
 
-        match self.address_of_names.as_offset(pe) {
+        match pe.translate(PEAddress::Memory(self.address_of_names)) {
             Err(e) => return Err(e),
             Ok(a) => pe.buffer.get_slice_ref::<RVA>(a, self.number_of_names as usize),
         }
@@ -668,7 +668,7 @@ impl ImageExportDirectory {
             return Err(Error::InvalidRVA);
         }
 
-        match self.address_of_names.as_offset(pe) {
+        match pe.translate(PEAddress::Memory(self.address_of_names)) {
             Err(e) => return Err(e),
             Ok(a) => pe.buffer.get_mut_slice_ref::<RVA>(a, self.number_of_names as usize),
         }
@@ -680,7 +680,7 @@ impl ImageExportDirectory {
             return Err(Error::InvalidRVA);
         }
 
-        match self.address_of_name_ordinals.as_offset(pe) {
+        match pe.translate(PEAddress::Memory(self.address_of_name_ordinals)) {
             Err(e) => return Err(e),
             Ok(a) => pe.buffer.get_slice_ref::<u16>(a, self.number_of_names as usize),
         }
@@ -691,7 +691,7 @@ impl ImageExportDirectory {
             return Err(Error::InvalidRVA);
         }
 
-        match self.address_of_name_ordinals.as_offset(pe) {
+        match pe.translate(PEAddress::Memory(self.address_of_name_ordinals)) {
             Err(e) => return Err(e),
             Ok(a) => pe.buffer.get_mut_slice_ref::<u16>(a, self.number_of_names as usize),
         }
@@ -729,7 +729,7 @@ impl ImageExportDirectory {
             let name_rva = names[index as usize];
             if name_rva.0 == 0 { continue; }
 
-            let name_offset = match name_rva.as_offset(pe) {
+            let name_offset = match pe.translate(PEAddress::Memory(name_rva)) {
                 Ok(o) => o,
                 Err(_) => continue, /* we continue instead of returning the error to be greedy with parsing */
             };
@@ -769,7 +769,7 @@ impl ImageImportDescriptor {
         };
         
         let mut thunks = 0usize;
-        let mut indexer = match rva.as_offset(pe) {
+        let mut indexer = match pe.translate(PEAddress::Memory(rva)) {
             Ok(i) => i,
             Err(e) => return Err(e),
         };
@@ -814,7 +814,7 @@ impl ImageImportDescriptor {
             Err(e) => return Err(e),
         };
 
-        let offset = match rva.as_offset(pe) {
+        let offset = match pe.translate(PEAddress::Memory(rva)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
@@ -845,7 +845,7 @@ impl ImageImportDescriptor {
             Err(e) => return Err(e),
         };
 
-        let offset = match rva.as_offset(pe) {
+        let offset = match pe.translate(PEAddress::Memory(rva)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
@@ -867,8 +867,8 @@ impl ImageImportDescriptor {
         if dir.virtual_address.0 == 0 {
             return Err(Error::InvalidRVA);
         }
-        
-        let mut address = match dir.virtual_address.as_offset(pe) {
+
+        let mut address = match pe.translate(PEAddress::Memory(dir.virtual_address)) {
             Ok(a) => a,
             Err(e) => return Err(e),
         };
@@ -900,7 +900,7 @@ impl ImageImportDescriptor {
             Err(e) => return Err(e),
         };
 
-        let offset = match dir.virtual_address.as_offset(pe) {
+        let offset = match pe.translate(PEAddress::Memory(dir.virtual_address)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
@@ -916,7 +916,7 @@ impl ImageImportDescriptor {
             Err(e) => return Err(e),
         };
 
-        let offset = match dir.virtual_address.as_offset(pe) {
+        let offset = match pe.translate(PEAddress::Memory(dir.virtual_address)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
@@ -935,7 +935,7 @@ impl ImageImportDescriptor {
 
     /// Get the name of the module represented by this import descriptor entry.
     pub fn get_name<'data>(&self, pe: &'data PE) -> Result<&'data [CChar], Error> {
-        let offset = match self.name.as_offset(pe) {
+        let offset = match pe.translate(PEAddress::Memory(self.name)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
@@ -944,7 +944,7 @@ impl ImageImportDescriptor {
     }
     /// Get the mutable name of the module represented by this import descriptor entry.
     pub fn get_mut_name<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [CChar], Error> {
-        let offset = match self.name.as_offset(pe) {
+        let offset = match pe.translate(PEAddress::Memory(self.name)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
@@ -1016,7 +1016,7 @@ pub struct ImageImportByName<'data> {
 impl<'data> ImageImportByName<'data> {
     /// Get an ```ImageImportByName``` object at the given RVA.
     pub fn parse(pe: &'data PE, rva: RVA) -> Result<Self, Error> {
-        let offset = match rva.as_offset(pe) {
+        let offset = match pe.translate(PEAddress::Memory(rva)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
@@ -1042,14 +1042,14 @@ pub struct ImageImportByNameMut<'data> {
 impl<'data> ImageImportByNameMut<'data> {
     /// Get a mutable ```ImageImportByName``` object at the given RVA.
     pub fn parse(pe: &'data mut PE, rva: RVA) -> Result<Self, Error> {
-        let mut offset = match rva.as_offset(pe) {
+        let mut offset = match pe.translate(PEAddress::Memory(rva)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
 
-        let mut ptr = unsafe { pe.buffer.offset_to_mut_ptr(offset) };
-
         unsafe {
+            let mut ptr = pe.buffer.offset_to_mut_ptr(offset);
+
             let hint = &mut *(ptr as *mut u16);
             let u16_size = mem::size_of::<u16>();
 
