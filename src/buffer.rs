@@ -75,8 +75,6 @@ impl Entropy for [u8] {
         let mut occurences: HashMap<u8, usize> = (0..=255).map(|x| (x, 0)).collect();
         for c in self { occurences.insert(*c, occurences.get(c).unwrap()+1); }
 
-        println!("Occurences: {:?}", occurences);
-
         let mut entropy = 0.0_f64;
 
         for (_, weight) in occurences {
@@ -86,8 +84,6 @@ impl Entropy for [u8] {
             
             entropy -= p_x * p_x.log2();
         }
-
-        println!("Entropy: {}", entropy);
 
         entropy.abs()
     }
