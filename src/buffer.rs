@@ -1,5 +1,6 @@
 //! This module contains everything needed for representing a PE buffer. The buffer contains
-//! raw functionality necessary to cast objects from the data vector.
+//! raw functionality necessary to cast objects from the data vector, as well as helper functions
+//! to perform calculations such as hashes and entropy.
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
@@ -9,6 +10,7 @@ use sha1::Sha1;
 
 use sha2::Sha256;
 
+use std::collections::HashMap;
 use std::convert::AsRef;
 use std::fs;
 use std::io::{Error as IoError, Cursor};
@@ -56,6 +58,38 @@ impl HashData for [u8] {
             .iter()
             .cloned()
             .collect()
+    }
+}
+
+/// Syntactic sugar to calculate entropy on a given object.
+pub trait Entropy {
+    /// Calculates the entropy of a given object.
+    fn entropy(&self) -> f64;
+}
+
+impl Entropy for [u8] {
+    // algorithm once again borrowed from Ero Carrera's legacy-leaving pefile
+    fn entropy(&self) -> f64 {
+        if self.len() == 0 { return 0.0_f64; }
+        
+        let mut occurences: HashMap<u8, usize> = (0..=255).map(|x| (x, 0)).collect();
+        for c in self { occurences.insert(*c, occurences.get(c).unwrap()+1); }
+
+        println!("Occurences: {:?}", occurences);
+
+        let mut entropy = 0.0_f64;
+
+        for (_, weight) in occurences {
+            let p_x = (weight as f64) / (self.len() as f64);
+
+            if p_x == 0.0 { continue; }
+            
+            entropy -= p_x * p_x.log2();
+        }
+
+        println!("Entropy: {}", entropy);
+
+        entropy.abs()
     }
 }
 
@@ -181,6 +215,10 @@ impl Buffer {
     /// Produces a SHA256 hash of this buffer.
     pub fn sha256(&self) -> Vec<u8> {
         self.as_slice().sha256()
+    }
+    /// Produces the entropy of the buffer.
+    pub fn entropy(&self) -> f64 {
+        self.as_slice().entropy()
     }
     /// Gets a reference to an object in the buffer data. This is ultimately how PE objects are created from the buffer.
     ///
