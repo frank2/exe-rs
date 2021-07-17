@@ -3,6 +3,12 @@
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
+use md5::{Md5, Digest};
+
+use sha1::Sha1;
+
+use sha2::Sha256;
+
 use std::convert::AsRef;
 use std::fs;
 use std::io::{Error as IoError, Cursor};
@@ -13,6 +19,45 @@ use std::slice;
 
 use crate::Error;
 use crate::types::{Offset, CChar, WChar};
+
+/// Syntactic sugar for producing various hashes of data. Typically applied to ```[u8]``` slices.
+pub trait HashData {
+    /// Produce an MD5 hash.
+    fn md5(&self) -> Vec<u8>;
+    /// Produce a SHA1 hash.
+    fn sha1(&self) -> Vec<u8>;
+    /// Produce a SHA256 hash.
+    fn sha256(&self) -> Vec<u8>;
+}
+impl HashData for [u8] {
+    fn md5(&self) -> Vec<u8> {
+        let mut hash = Md5::new();
+        hash.update(self);
+        hash.finalize()
+            .as_slice()
+            .iter()
+            .cloned()
+            .collect()
+    }
+    fn sha1(&self) -> Vec<u8> {
+        let mut hash = Sha1::new();
+        hash.update(self);
+        hash.finalize()
+            .as_slice()
+            .iter()
+            .cloned()
+            .collect()
+    }
+    fn sha256(&self) -> Vec<u8> {
+        let mut hash = Sha256::new();
+        hash.update(self);
+        hash.finalize()
+            .as_slice()
+            .iter()
+            .cloned()
+            .collect()
+    }
+}
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 /// A buffer representing the PE image.
@@ -124,6 +169,18 @@ impl Buffer {
     /// isn't from the buffer.
     pub fn ref_to_offset<T>(&self, data: &T) -> Result<Offset, Error> {
         self.ptr_to_offset(data as *const T as *const u8)
+    }
+    /// Produces an MD5 hash of this buffer.
+    pub fn md5(&self) -> Vec<u8> {
+        self.as_slice().md5()
+    }
+    /// Produces a SHA1 hash of this buffer.
+    pub fn sha1(&self) -> Vec<u8> {
+        self.as_slice().sha1()
+    }
+    /// Produces a SHA256 hash of this buffer.
+    pub fn sha256(&self) -> Vec<u8> {
+        self.as_slice().sha256()
     }
     /// Gets a reference to an object in the buffer data. This is ultimately how PE objects are created from the buffer.
     ///
