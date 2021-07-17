@@ -247,7 +247,6 @@ pub struct ImageOptionalHeader32 {
     pub size_of_heap_commit: u32,
     pub loader_flags: u32,
     pub number_of_rva_and_sizes: u32,
-    pub data_directory: [ImageDataDirectory; 16],
 }
 impl Default for ImageOptionalHeader32 {
     fn default() -> Self {
@@ -282,26 +281,6 @@ impl Default for ImageOptionalHeader32 {
             size_of_heap_commit: 0x1000,
             loader_flags: 0,
             number_of_rva_and_sizes: 0x10,
-            /* I really don't want to give ImageDataDirectory the copy trait,
-               so this is ugly copypasta */
-            data_directory: [
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-            ],
         }
     }
 }
@@ -337,7 +316,6 @@ pub struct ImageOptionalHeader64 {
     pub size_of_heap_commit: u64,
     pub loader_flags: u32,
     pub number_of_rva_and_sizes: u32,
-    pub data_directory: [ImageDataDirectory; 16],
 }
 impl Default for ImageOptionalHeader64 {
     fn default() -> Self {
@@ -371,24 +349,6 @@ impl Default for ImageOptionalHeader64 {
             size_of_heap_commit: 0x1000,
             loader_flags: 0,
             number_of_rva_and_sizes: 0x10,
-            data_directory: [
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-                ImageDataDirectory { virtual_address: RVA(0), size: 0 },
-            ],
         }
     }
 }

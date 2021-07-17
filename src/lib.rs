@@ -32,7 +32,7 @@ mod tests;
 
 use std::convert::AsRef;
 use std::io::{Error as IoError};
-use std::mem::size_of;
+use std::mem;
 use std::path::Path;
 
 use crate::buffer::Buffer;
@@ -66,6 +66,8 @@ pub enum Error {
     UnsupportedDirectory,
     /// The relocation entry is invalid.
     InvalidRelocation,
+    /// The provided directory is not available.
+    BadDirectory,
 }
 
 /// An enum to tag the PE file with what its memory map looks like.
@@ -457,6 +459,81 @@ impl PE {
         }
     }
 
+    /// Get the offset to the data directory within the PE file.
+    pub fn get_data_directory_offset(&self) -> Result<Offset, Error> {
+        let e_lfanew = match self.e_lfanew() {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+        
+        let nt_header = match self.get_valid_nt_headers() {
+            Ok(h) => h,
+            Err(e) => return Err(e),
+        };
+
+        let header_size = match nt_header {
+            NTHeaders::NTHeaders32(_) => mem::size_of::<ImageNTHeaders32>(),
+            NTHeaders::NTHeaders64(_) => mem::size_of::<ImageNTHeaders64>(),
+        };
+
+        let offset = Offset(e_lfanew.0 + (header_size as u32));
+
+        if !self.validate_offset(offset) {
+            return Err(Error::BufferTooSmall);
+        }
+
+        Ok(offset)
+    }
+    /// Get the size of the data directory. Rounds down ```number_of_rva_and_sizes``` to 16, which is what
+    /// the Windows loader does.
+    pub fn get_data_directory_size(&self) -> Result<usize, Error> {
+        let nt_header = match self.get_valid_nt_headers() {
+            Ok(h) => h,
+            Err(e) => return Err(e),
+        };
+
+        let sizes = match nt_header {
+            NTHeaders::NTHeaders32(h32) => h32.optional_header.number_of_rva_and_sizes,
+            NTHeaders::NTHeaders64(h64) => h64.optional_header.number_of_rva_and_sizes,
+        };
+
+        // data directory gets rounded down if greater than 16
+        if sizes > 16 {
+            Ok(16 as usize)
+        }
+        else {
+            Ok(sizes as usize)
+        }
+    }
+    /// Get the data directory table.
+    pub fn get_data_directory_table(&self) -> Result<&[ImageDataDirectory], Error> {
+        let offset = match self.get_data_directory_offset() {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let size = match self.get_data_directory_size() {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        self.buffer.get_slice_ref::<ImageDataDirectory>(offset, size)
+    }
+    /// Get a mutable data directory table.
+    pub fn get_mut_data_directory_table(&mut self) -> Result<&mut [ImageDataDirectory], Error> {
+        let offset = match self.get_data_directory_offset() {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let size = match self.get_data_directory_size() {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        self.buffer.get_mut_slice_ref::<ImageDataDirectory>(offset, size)
+    }
+
     /// Get the offset to the section table within the PE file.
     pub fn get_section_table_offset(&self) -> Result<Offset, Error> {
         let e_lfanew = match self.e_lfanew() {
@@ -476,8 +553,8 @@ impl PE {
 
         let Offset(mut offset) = e_lfanew;
 
-        offset += size_of::<u32>() as u32;
-        offset += size_of::<ImageFileHeader>() as u32;
+        offset += mem::size_of::<u32>() as u32;
+        offset += mem::size_of::<ImageFileHeader>() as u32;
         offset += size_of_optional as u32;
 
         if !self.validate_offset(Offset(offset)) {
@@ -807,24 +884,34 @@ impl PE {
     }
 
     /// Get the data directory reference represented by the [ImageDirectoryEntry](headers::ImageDirectoryEntry) enum.
+    /// Returns [Error::BadDirectory](Error::BadDirectory) if the given directory is inaccessible due to the directory
+    /// size.
     pub fn get_data_directory(&self, dir: ImageDirectoryEntry) -> Result<&ImageDataDirectory, Error> {
-        match self.get_valid_nt_headers() {
+        let directory_table = match self.get_data_directory_table() {
+            Ok(d) => d,
             Err(e) => return Err(e),
-            Ok(h) => match h {
-                NTHeaders::NTHeaders32(h32) => Ok(&h32.optional_header.data_directory[dir as usize]),
-                NTHeaders::NTHeaders64(h64) => Ok(&h64.optional_header.data_directory[dir as usize]),
-            }
+        };
+        let index = dir as usize;
+
+        if index >= directory_table.len() {
+            return Err(Error::BadDirectory);
         }
+
+        Ok(&directory_table[index])
     }
     /// Get the mutable data directory reference represented by the [ImageDirectoryEntry](headers::ImageDirectoryEntry) enum.
     pub fn get_mut_data_directory(&mut self, dir: ImageDirectoryEntry) -> Result<&mut ImageDataDirectory, Error> {
-        match self.get_valid_mut_nt_headers() {
+        let directory_table = match self.get_mut_data_directory_table() {
+            Ok(d) => d,
             Err(e) => return Err(e),
-            Ok(h) => match h {
-                NTHeadersMut::NTHeaders32(h32) => Ok(&mut h32.optional_header.data_directory[dir as usize]),
-                NTHeadersMut::NTHeaders64(h64) => Ok(&mut h64.optional_header.data_directory[dir as usize]),
-            }
+        };
+        let index = dir as usize;
+
+        if index >= directory_table.len() {
+            return Err(Error::BadDirectory);
         }
+
+        Ok(&mut directory_table[index])
     }
     
     /// Resolve the data directory represented by the [ImageDirectoryEntry](headers::ImageDirectoryEntry) enum. This produces a data
@@ -843,12 +930,17 @@ impl PE {
     /// }
     /// ```
     pub fn resolve_data_directory(&self, dir: ImageDirectoryEntry) -> Result<DataDirectory, Error> {
-        match self.get_valid_nt_headers() {
+        let directory_table = match self.get_data_directory_table() {
+            Ok(d) => d,
             Err(e) => return Err(e),
-            Ok(h) => match h {
-                NTHeaders::NTHeaders32(h32) => h32.optional_header.data_directory[dir as usize].resolve(self, dir),
-                NTHeaders::NTHeaders64(h64) => h64.optional_header.data_directory[dir as usize].resolve(self, dir),
-            }
+        };
+
+        let index = dir as usize;
+
+        if index >= directory_table.len() {
+            return Err(Error::BadDirectory);
         }
+
+        directory_table[index].resolve(self, dir)
     }
 }
