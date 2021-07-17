@@ -287,3 +287,14 @@ fn test_no_dd() {
     assert!(data_directory.is_ok());
     assert!(data_directory.unwrap().is_empty());
 }
+
+#[test]
+fn test_hello_world_packed() {
+    let hello_world_packed = PE::from_file("test/hello_world_packed.exe");
+    assert!(hello_world_packed.is_ok());
+
+    let pefile = hello_world_packed.unwrap();
+
+    let entropy = pefile.buffer.entropy();
+    assert!(entropy > 7.0);
+}
