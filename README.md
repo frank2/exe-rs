@@ -10,6 +10,7 @@ Read the documentation [here](https://docs.rs/exe/)!
 ## 0.4
 * PE object can now parse memory dumps properly, testing against [compiled_dumped.bin](https://github.com/frank2/exe-rs/blob/main/test/compiled_dumped.bin).
 * data directory is now parsed correctly, testing against [no_dd.exe](https://github.com/corkami/pocs/blob/master/PE/bin/no_dd.exe)
+* buffer now has support for arbitrary hashing of data, see the HashData trait in the buffer module.
 
 ## 0.3
 * added support for relocation directories
