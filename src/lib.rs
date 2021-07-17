@@ -506,6 +506,11 @@ impl PE {
         }
     }
     /// Get the data directory table.
+    ///
+    /// Normally one would expect this to be a part of [ImageOptionalHeader](ImageOptionalHeader32), but
+    /// [ImageOptionalHeader::number_of_rva_and_sizes](ImageOptionalHeader32::number_of_rva_and_sizes) controls
+    /// the size of the array, so we can't exactly stick it in the optional header, because that would
+    /// produce a variable-sized structure.
     pub fn get_data_directory_table(&self) -> Result<&[ImageDataDirectory], Error> {
         let offset = match self.get_data_directory_offset() {
             Ok(o) => o,
