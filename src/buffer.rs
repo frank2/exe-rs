@@ -63,7 +63,7 @@ impl HashData for [u8] {
 
 /// Syntactic sugar to calculate entropy on a given object.
 pub trait Entropy {
-    /// Calculates the entropy of a given object.
+    /// Calculates the entropy of a given object. Returns a value between 0.0 (low entropy) and 8.0 (high entropy).
     fn entropy(&self) -> f64;
 }
 
