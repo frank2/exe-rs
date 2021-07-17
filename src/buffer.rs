@@ -22,6 +22,27 @@ use std::slice;
 use crate::Error;
 use crate::types::{Offset, CChar, WChar};
 
+/// Get a slice of ```u8``` that represents the underlying data of the object. Useful when combined with
+/// the [HashData](HashData) or [Entropy](Entropy) traits.
+pub fn ref_to_slice<T>(data: &T) -> &[u8] {
+    let ptr = data as *const T as *const u8;
+    let size = mem::size_of::<T>();
+
+    unsafe {
+        slice::from_raw_parts(ptr, size)
+    }
+}
+
+/// Get a mutable slice of ```u8``` that represents the underlying data of the object.
+pub fn ref_to_mut_slice<T>(data: &mut T) -> &mut [u8] {
+    let ptr = data as *mut T as *mut u8;
+    let size = mem::size_of::<T>();
+
+    unsafe {
+        slice::from_raw_parts_mut(ptr, size)
+    }
+}
+
 /// Syntactic sugar for producing various hashes of data. Typically applied to ```[u8]``` slices.
 pub trait HashData {
     /// Produce an MD5 hash.
@@ -434,16 +455,6 @@ impl Buffer {
             ptr::copy(from_ptr, to_ptr, size);
             
             Ok(())
-        }
-    }
-    /// Write a referenced object to the buffer.
-    pub fn write_ref<T>(&mut self, offset: Offset, data: &T) -> Result<(), Error> {
-        let ptr = data as *const T as *const u8;
-        let size = mem::size_of::<T>();
-        
-        unsafe {
-            let data_slice = slice::from_raw_parts(ptr, size);
-            self.write(offset, data_slice)
         }
     }
 }
