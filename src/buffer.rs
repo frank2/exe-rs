@@ -174,6 +174,11 @@ impl Buffer {
     pub fn extend_from_slice(&mut self, other: &[u8]) {
         self.data.extend_from_slice(other)
     }
+    /// Save the buffer to disk with the given filename.
+    pub fn save<P: AsRef<Path>>(filename: P) -> Result<(), IoError> {
+        fs::write(filename, self.as_slice())
+    }
+        
     /// Convert the given offset value to a pointer in the buffer. The function is marked as
     /// unsafe because the offset isn't validated.
     pub unsafe fn offset_to_ptr(&self, offset: Offset) -> *const u8 {
