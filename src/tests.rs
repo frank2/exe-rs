@@ -298,3 +298,38 @@ fn test_hello_world_packed() {
     let entropy = pefile.buffer.entropy();
     assert!(entropy > 7.0);
 }
+
+#[test]
+fn test_creation() {
+    let mut created_file = PE::new(Some(0x4000), PEType::Disk);
+
+    let dos_result = created_file.buffer.write_ref(Offset(0), &ImageDOSHeader::default());
+    assert!(dos_result.is_ok());
+
+    let e_lfanew = created_file.e_lfanew();
+    
+    assert!(e_lfanew.is_ok());
+    assert_eq!(e_lfanew.unwrap(), Offset(0xE0));
+
+    let nt_result = created_file.buffer.write_ref(created_file.e_lfanew().unwrap(), &ImageNTHeaders64::default());
+    assert!(nt_result.is_ok());
+
+    let nt_headers = created_file.get_valid_mut_nt_headers();
+
+    assert!(nt_headers.is_ok());
+
+    if let NTHeadersMut::NTHeaders64(nt_headers_64) = nt_headers.unwrap() {
+        nt_headers_64.file_header.number_of_sections = 3;
+
+        let section_table_check = created_file.get_mut_section_table();
+
+        assert!(section_table_check.is_ok());
+
+        let section_table = section_table_check.unwrap();
+
+        assert_eq!(section_table.len(), 3);
+    }
+    else {
+        panic!("couldn't get NT headers");
+    }
+}
