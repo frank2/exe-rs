@@ -12,7 +12,7 @@ Read the documentation [here](https://docs.rs/exe/)!
 * data directory is now parsed correctly, testing against [no_dd.exe](https://github.com/corkami/pocs/blob/master/PE/bin/no_dd.exe)
 * buffer now has support for arbitrary hashing of ```u8``` slices, see the HashData trait in the buffer module.
 * buffer now also supports arbitrary calculation of entropy on ```u8``` slices, see the Entropy trait in the buffer module.
-* buffers can now be dumped to disk (novel!)
+* buffers can now be dumped to disk (novel!) see Buffer::save.
 
 ## 0.3
 * added support for relocation directories
