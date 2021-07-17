@@ -32,6 +32,10 @@ fn test_compiled() {
     assert_eq!(section_table[1].name.as_str(), ".rdata");
     assert_eq!(section_table[2].name.as_str(), ".data");
 
+    let data_directory_offset = pefile.get_data_directory_offset();
+    assert!(data_directory_offset.is_ok());
+    assert_eq!(data_directory_offset.unwrap(), Offset(0x128));
+
     let data_directory = pefile.resolve_data_directory(ImageDirectoryEntry::Import);
     assert!(data_directory.is_ok());
 
@@ -260,4 +264,16 @@ fn test_imports_nothunk() {
     else {
         panic!("couldn't get import table");
     }
+}
+
+#[test]
+fn test_no_dd() {
+    let no_dd = PE::from_file("test/no_dd.exe");
+    assert!(no_dd.is_ok());
+
+    let pefile = no_dd.unwrap();
+
+    let data_directory = pefile.get_data_directory_table();
+    assert!(data_directory.is_ok());
+    assert!(data_directory.unwrap().is_empty());
 }
