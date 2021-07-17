@@ -457,4 +457,8 @@ impl Buffer {
             Ok(())
         }
     }
+    /// Write an object reference to the buffer.
+    pub fn write_ref<T>(&mut self, offset: Offset, data: &T) -> Result<(), Error> {
+        self.write(offset, ref_to_slice::<T>(data))
+    }
 }
