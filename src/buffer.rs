@@ -175,7 +175,7 @@ impl Buffer {
         self.data.extend_from_slice(other)
     }
     /// Save the buffer to disk with the given filename.
-    pub fn save<P: AsRef<Path>>(filename: P) -> Result<(), IoError> {
+    pub fn save<P: AsRef<Path>>(&self, filename: P) -> Result<(), IoError> {
         fs::write(filename, self.as_slice())
     }
         
