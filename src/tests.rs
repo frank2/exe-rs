@@ -4,6 +4,8 @@ use super::*;
 use super::headers::*;
 use super::types::*;
 
+use std::mem;
+
 #[test]
 fn test_compiled() {
     let compiled = PE::from_file("test/compiled.exe");
@@ -223,7 +225,6 @@ fn test_dll_fw() {
     if let DataDirectory::Export(export_table) = directory.unwrap() {
         let exports = export_table.get_export_map(&pefile);
         let expected: HashMap<&str, ThunkData> = [("ExitProcess", ThunkData::ForwarderString(RVA(0x1060)))].iter().map(|&x| x).collect();
-
         assert!(exports.is_ok());
 
         let export_map = exports.unwrap();
@@ -307,7 +308,6 @@ fn test_creation() {
     assert!(dos_result.is_ok());
 
     let e_lfanew = created_file.e_lfanew();
-    
     assert!(e_lfanew.is_ok());
     assert_eq!(e_lfanew.unwrap(), Offset(0xE0));
 
@@ -315,19 +315,50 @@ fn test_creation() {
     assert!(nt_result.is_ok());
 
     let nt_headers = created_file.get_valid_mut_nt_headers();
-
     assert!(nt_headers.is_ok());
 
     if let NTHeadersMut::NTHeaders64(nt_headers_64) = nt_headers.unwrap() {
-        nt_headers_64.file_header.number_of_sections = 3;
+        nt_headers_64.file_header.number_of_sections = 1;
 
+        // we get this variable all the way the hell up here because it
+        // can't be borrowed where it's needed due to getting the mutable
+        // section table.
+        let pe_type = created_file.pe_type;
         let section_table_check = created_file.get_mut_section_table();
-
         assert!(section_table_check.is_ok());
 
         let section_table = section_table_check.unwrap();
+        assert_eq!(section_table.len(), 1);
 
-        assert_eq!(section_table.len(), 3);
+        section_table[0].set_name(Some(".text"));
+        assert_eq!(section_table[0].name.as_str(), ".text");
+
+        let data: &[u8] = &[0x48, 0x31, 0xC0, 0xC3]; // xor rax,rax / ret
+        section_table[0].virtual_address = RVA(0x1000);
+        section_table[0].virtual_size = 0x1000;
+        section_table[0].pointer_to_raw_data = Offset(0x400);
+        section_table[0].size_of_raw_data = data.len() as u32;
+        section_table[0].characteristics = SectionCharacteristics::MEM_EXECUTE
+            | SectionCharacteristics::MEM_READ
+            | SectionCharacteristics::CNT_CODE;
+
+        let section_offset = section_table[0].data_offset(pe_type);
+        assert_eq!(section_offset, Offset(0x400));
+
+        let write_result = created_file.buffer.write(section_offset, data);
+        assert!(write_result.is_ok());
+
+        let unmut_section_table_result = created_file.get_section_table();
+        assert!(unmut_section_table_result.is_ok());
+
+        let unmut_section_table = unmut_section_table_result.unwrap();
+        let read_result = unmut_section_table[0].read(&created_file);
+        assert!(read_result.is_ok());
+        assert_eq!(read_result.unwrap(), data);
+
+        let alt_read_result = created_file.buffer.read(section_offset, data.len());
+        assert!(alt_read_result.is_ok());
+        assert_eq!(alt_read_result.unwrap(), data);
     }
     else {
         panic!("couldn't get NT headers");

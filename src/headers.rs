@@ -11,6 +11,7 @@ use chrono::offset::{Offset as ChronoOffset};
 use chrono::offset::TimeZone;
 use chrono::{Local as LocalTime};
 
+use std::cmp;
 use std::collections::HashMap;
 use std::convert::AsRef;
 use std::default::Default;
@@ -453,9 +454,9 @@ pub struct ImageSectionHeader {
     pub characteristics: SectionCharacteristics,
 }
 impl ImageSectionHeader {
-    /// Set the name of this section. The name will be truncated to eight bytes. If ```name``` is [None](Option::None), it
+    /// Set the name of this section. The name will be truncated to eight bytes. If ```name``` is [`None`](Option::None), it
     /// zeroes out the name field.
-    pub fn set_name<S: AsRef<String>>(&mut self, name: Option<S>) {
+    pub fn set_name(&mut self, name: Option<&str>) {
         self.name.copy_from_slice((0..8)
                                   .map(|_| CChar(0))
                                   .collect::<Vec<CChar>>()
@@ -465,19 +466,23 @@ impl ImageSectionHeader {
             return;
         }
 
-        let new_name = name.unwrap().as_ref();
+        let new_name = name.unwrap();
+        let name_len = cmp::min(new_name.len(),8);
+        let name_vec = new_name
+            .as_bytes()[..name_len]
+            .iter()
+            .map(|&x| CChar(x))
+            .collect::<Vec<CChar>>();
+        let padding = (0..(8-name_len))
+            .map(|_| CChar(0))
+            .collect::<Vec<CChar>>();
         
-        self.name.copy_from_slice(new_name
-                                  .as_str()
-                                  .as_bytes()[..8]
+        self.name.copy_from_slice(name_vec
                                   .iter()
-                                  .map(|&x| CChar(x))
+                                  .chain(padding.iter())
+                                  .map(|&x| x)
                                   .collect::<Vec<CChar>>()
-                                  .as_slice())
-    }
-    /// Get the name of this section.
-    pub fn get_name(&self) -> String {
-        self.name.as_str().to_string()
+                                  .as_slice());
     }
 
     /// Check whether the given [`Offset`](Offset) is in this section.
@@ -496,7 +501,7 @@ impl ImageSectionHeader {
     }
 
     /// Get the offset to the data this section represents. This essentially performs the same task as
-    /// [PE::translate](PE::translate).
+    /// [`PE::translate`](PE::translate).
     pub fn data_offset(&self, pe_type: PEType) -> Offset {
         match pe_type {
             PEType::Disk => self.pointer_to_raw_data,
@@ -513,29 +518,11 @@ impl ImageSectionHeader {
     }
 
     /// Read a slice of the data this section represents.
-    pub fn read(&self, pe: &PE) -> Result<&[u8], Error> {
+    pub fn read<'data>(&'data self, pe: &'data PE) -> Result<&'data [u8], Error> {
         let offset = self.data_offset(pe.pe_type);
         let size = self.data_size(pe.pe_type);
 
         pe.buffer.read(offset, size)
-    }
-    /// Read a mutable slice of the data this section represents.
-    pub fn read_mut(&self, pe: &mut PE) -> Result<&mut [u8], Error> {
-        let offset = self.data_offset(pe.pe_type);
-        let size = self.data_size(pe.pe_type);
-
-        pe.buffer.read_mut(offset, size)
-    }
-    /// Write data to the section. Raises a [Error::BufferTooSmall](Error::BufferTooSmall) error if the data overflows the section.
-    pub fn write(&self, pe: &mut PE, data: &[u8]) -> Result<(), Error> {
-        let offset = self.data_offset(pe.pe_type);
-        let size = self.data_size(pe.pe_type);
-
-        if data.len() > size {
-            return Err(Error::BufferTooSmall);
-        }
-
-        pe.buffer.write(offset, data)
     }
 }
 
