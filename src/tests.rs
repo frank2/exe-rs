@@ -4,8 +4,6 @@ use super::*;
 use super::headers::*;
 use super::types::*;
 
-use std::mem;
-
 #[test]
 fn test_compiled() {
     let compiled = PE::from_file("test/compiled.exe");

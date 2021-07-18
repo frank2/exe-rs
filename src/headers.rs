@@ -13,7 +13,6 @@ use chrono::{Local as LocalTime};
 
 use std::cmp;
 use std::collections::HashMap;
-use std::convert::AsRef;
 use std::default::Default;
 use std::mem;
 use std::slice;
