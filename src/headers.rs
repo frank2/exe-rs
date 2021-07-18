@@ -12,11 +12,12 @@ use chrono::offset::TimeZone;
 use chrono::{Local as LocalTime};
 
 use std::collections::HashMap;
+use std::convert::AsRef;
 use std::default::Default;
 use std::mem;
 use std::slice;
 
-use crate::{PE, PETranslation, Error};
+use crate::{PE, PEType, PETranslation, Error};
 use crate::types::*;
 
 pub const DOS_SIGNATURE: u16    = 0x5A4D;
@@ -450,6 +451,92 @@ pub struct ImageSectionHeader {
     pub number_of_relocations: u16,
     pub number_of_linenumbers: u16,
     pub characteristics: SectionCharacteristics,
+}
+impl ImageSectionHeader {
+    /// Set the name of this section. The name will be truncated to eight bytes. If ```name``` is [None](Option::None), it
+    /// zeroes out the name field.
+    pub fn set_name<S: AsRef<String>>(&mut self, name: Option<S>) {
+        self.name.copy_from_slice((0..8)
+                                  .map(|_| CChar(0))
+                                  .collect::<Vec<CChar>>()
+                                  .as_slice());
+        
+        if name.is_none() {
+            return;
+        }
+
+        let new_name = name.unwrap().as_ref();
+        
+        self.name.copy_from_slice(new_name
+                                  .as_str()
+                                  .as_bytes()[..8]
+                                  .iter()
+                                  .map(|&x| CChar(x))
+                                  .collect::<Vec<CChar>>()
+                                  .as_slice())
+    }
+    /// Get the name of this section.
+    pub fn get_name(&self) -> String {
+        self.name.as_str().to_string()
+    }
+
+    /// Check whether the given [`Offset`](Offset) is in this section.
+    pub fn has_offset(&self, offset: Offset) -> bool {
+        let start = self.pointer_to_raw_data;
+        let end = Offset(start.0 + self.size_of_raw_data);
+
+        start.0 <= offset.0 && offset.0 < end.0
+    }
+    /// Check whether the given [`RVA`](RVA) is in this section.
+    pub fn has_rva(&self, rva: RVA) -> bool {
+        let start = self.virtual_address;
+        let end = RVA(start.0 + self.virtual_size);
+
+        start.0 <= rva.0 && rva.0 < end.0
+    }
+
+    /// Get the offset to the data this section represents. This essentially performs the same task as
+    /// [PE::translate](PE::translate).
+    pub fn data_offset(&self, pe_type: PEType) -> Offset {
+        match pe_type {
+            PEType::Disk => self.pointer_to_raw_data,
+            PEType::Memory => Offset(self.virtual_address.0),
+        }
+    }
+
+    /// Get the size of this section.
+    pub fn data_size(&self, pe_type: PEType) -> usize {
+        match pe_type {
+            PEType::Disk => self.size_of_raw_data as usize,
+            PEType::Memory => self.virtual_size as usize,
+        }
+    }
+
+    /// Read a slice of the data this section represents.
+    pub fn read(&self, pe: &PE) -> Result<&[u8], Error> {
+        offset = self.data_offset(pe.pe_type);
+        size = self.data_size(pe.pe_type);
+
+        pe.buffer.read(offset, size)
+    }
+    /// Read a mutable slice of the data this section represents.
+    pub fn read_mut(&self, pe: &mut PE) -> Result<&mut [u8], Error> {
+        offset = self.data_offset(pe.pe_type);
+        size = self.data_size(pe.pe_type);
+
+        pe.buffer.read_mut(offset, size)
+    }
+    /// Write data to the section. Raises a [Error::BufferTooSmall](Error::BufferTooSmall) error if the data overflows the section.
+    pub fn write(&self, pe: &mut PE, data: &[u8]) -> Result<(), Error> {
+        offset = self.data_offset(pe.pe_type);
+        size = self.data_size(pe.pe_type);
+
+        if data.len() > size {
+            return Err(Error::BufferTooSmall);
+        }
+
+        pe.buffer.write(offset, data)
+    }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]

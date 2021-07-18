@@ -616,10 +616,7 @@ impl PE {
         };
 
         for section in section_table {
-            let base = section.pointer_to_raw_data.0;
-            let end = base+section.size_of_raw_data;
-
-            if base <= offset.0 && offset.0 < end {
+            if section.has_offset(offset) {
                 return Ok(section);
             }
         }
@@ -636,10 +633,7 @@ impl PE {
         };
 
         for section in section_table {
-            let base = section.pointer_to_raw_data.0;
-            let end = base+section.size_of_raw_data;
-
-            if base <= offset.0 && offset.0 < end {
+            if section.has_offset(offset) {
                 return Ok(section);
             }
         }
@@ -656,10 +650,7 @@ impl PE {
         };
 
         for section in section_table {
-            let base = section.virtual_address.0;
-            let end = base+section.virtual_size;
-
-            if base <= rva.0 && rva.0 < end {
+            if section.has_rva(rva) {
                 return Ok(section);
             }
         }
@@ -676,10 +667,7 @@ impl PE {
         };
 
         for section in section_table {
-            let base = section.virtual_address.0;
-            let end = base+section.virtual_size;
-
-            if base <= rva.0 && rva.0 < end {
+            if section.has_rva(rva) {
                 return Ok(section);
             }
         }
@@ -767,7 +755,7 @@ impl PE {
     }
 
     /// Convert an offset to an RVA address. Produces [Error::InvalidRVA](Error::InvalidRVA) if the produced
-    /// RVA is invalid.
+    /// RVA is invalid or if the section it was transposed from no longer contains it.
     pub fn offset_to_rva(&self, offset: Offset) -> Result<RVA, Error> {
         let section = match self.get_section_by_offset(offset) {
             Ok(s) => s,
@@ -790,7 +778,7 @@ impl PE {
 
         let final_rva = RVA(rva);
 
-        if !self.validate_rva(final_rva) {
+        if !self.validate_rva(final_rva) || !section.has_rva(final_rva) {
             return Err(Error::InvalidRVA);
         }
 
@@ -807,7 +795,7 @@ impl PE {
     }
 
     /// Convert an RVA to an offset address. Produces a [Error::InvalidOffset](Error::InvalidOffset) error if
-    /// the produced offset is invalid.
+    /// the produced offset is invalid or if the section it was transposed from no longer contains it.
     pub fn rva_to_offset(&self, rva: RVA) -> Result<Offset, Error> {
         let section = match self.get_section_by_rva(rva) {
             Ok(s) => s,
@@ -830,7 +818,7 @@ impl PE {
 
         let final_offset = Offset(offset);
 
-        if !self.validate_offset(final_offset) {
+        if !self.validate_offset(final_offset) || !section.has_offset(final_offset) {
             return Err(Error::InvalidOffset);
         }
 
