@@ -13,6 +13,8 @@ Read the documentation [here](https://docs.rs/exe/)!
 * buffer now has support for arbitrary hashing of ```u8``` slices, see the HashData trait in the buffer module.
 * buffer now also supports arbitrary calculation of entropy on ```u8``` slices, see the Entropy trait in the buffer module.
 * buffers can now be dumped to disk (novel!) see Buffer::save.
+* add functionality to ```ImageSectionHeader``` such as reading data and calculating proper offsets to data.
+* fixed a bug where ```RVA```s got translated incorrectly if they had no ```Offset``` equivalent
 
 ## 0.3
 * added support for relocation directories

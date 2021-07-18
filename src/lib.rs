@@ -459,6 +459,19 @@ impl PE {
         }
     }
 
+    /// Get the entrypoint of this PE file.
+    pub fn get_entrypoint(&self) -> Result<RVA, Error> {
+        let nt_headers = self.get_valid_nt_headers() {
+            Ok(h) => h,
+            Err(e) => return Err(e),
+        };
+
+        match nt_headers {
+            NTHeaders::NTHeaders32(h32) => h32.optional_header.address_of_entry_point,
+            NTHeaders::NTHeaders64(h64) => h64.optional_header.address_of_entry_point,
+        }
+    }
+
     /// Get the offset to the data directory within the PE file.
     pub fn get_data_directory_offset(&self) -> Result<Offset, Error> {
         let e_lfanew = match self.e_lfanew() {
