@@ -14,6 +14,7 @@ Read the documentation [here](https://docs.rs/exe/)!
 * buffer now also supports arbitrary calculation of entropy on ```u8``` slices, see the Entropy trait in the buffer module.
 * buffers can now be dumped to disk (novel!) see Buffer::save.
 * add functionality to ```ImageSectionHeader``` such as reading data and calculating proper offsets to data.
+* all headers in the headers module now implement clone!
 * fixed a bug where ```RVA```s got translated incorrectly if they had no ```Offset``` equivalent
 
 ## 0.3
