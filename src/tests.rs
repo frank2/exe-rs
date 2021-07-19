@@ -321,7 +321,6 @@ fn test_creation() {
         // we get this variable all the way the hell up here because it
         // can't be borrowed where it's needed due to getting the mutable
         // section table.
-        let pe_type = created_file.pe_type;
         let section_table_check = created_file.get_mut_section_table();
         assert!(section_table_check.is_ok());
 
@@ -340,17 +339,15 @@ fn test_creation() {
             | SectionCharacteristics::MEM_READ
             | SectionCharacteristics::CNT_CODE;
 
-        let section_offset = section_table[0].data_offset(pe_type);
+        // clone the section so we don't need to rely on borrowing the mutable reference
+        let section = section_table[0].clone();
+        let section_offset = section.data_offset(created_file.pe_type);
         assert_eq!(section_offset, Offset(0x400));
 
-        let write_result = created_file.buffer.write(section_offset, data);
+        let write_result = section.write(&mut created_file, data);
         assert!(write_result.is_ok());
 
-        let unmut_section_table_result = created_file.get_section_table();
-        assert!(unmut_section_table_result.is_ok());
-
-        let unmut_section_table = unmut_section_table_result.unwrap();
-        let read_result = unmut_section_table[0].read(&created_file);
+        let read_result = section.read(&created_file);
         assert!(read_result.is_ok());
         assert_eq!(read_result.unwrap(), data);
 

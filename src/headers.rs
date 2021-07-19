@@ -759,6 +759,25 @@ impl ImageSectionHeader {
 
         pe.buffer.read(offset, size)
     }
+    /// Read a mutable slice of the data this section represents.
+    pub fn read_mut<'data>(&'data self, pe: &'data mut PE) -> Result<&'data mut [u8], Error> {
+        let offset = self.data_offset(pe.pe_type);
+        let size = self.data_size(pe.pe_type);
+
+        pe.buffer.read_mut(offset, size)
+    }
+    /// Write data to this section. It returns [`Error::BufferTooSmall`](Error::BufferTooSmall) if the data
+    /// overflows the section.
+    pub fn write(&self, pe: &mut PE, data: &[u8]) -> Result<(), Error> {
+        let offset = self.data_offset(pe.pe_type);
+        let size = self.data_size(pe.pe_type);
+
+        if data.len() > size {
+            return Err(Error::BufferTooSmall);
+        }
+
+        pe.buffer.write(offset, data)
+    }
 }
 impl Clone for ImageSectionHeader {
     fn clone(&self) -> Self {
