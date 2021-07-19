@@ -2,7 +2,7 @@
 name = "exe"
 description = "A PE (Portable Executable) library!"
 repository = "https://github.com/frank2/exe-rs"
-version = "0.4.0"
+version = "0.3.1"
 authors = ["frank2@dc949.org"]
 edition = "2018"
 license = "GPL-3.0"
