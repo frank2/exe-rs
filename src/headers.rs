@@ -11,6 +11,7 @@ use chrono::offset::{Offset as ChronoOffset};
 use chrono::offset::TimeZone;
 use chrono::{Local as LocalTime};
 
+use std::clone::Clone;
 use std::cmp;
 use std::collections::HashMap;
 use std::default::Default;
@@ -75,6 +76,55 @@ impl Default for ImageDOSHeader {
             e_res2: [0u16; 10],
             e_lfanew: Offset(0xE0),
         }
+    }
+}
+impl Clone for ImageDOSHeader {
+    fn clone(&self) -> Self {
+        // I have no idea why this is usafe but something similar below isn't.
+        unsafe {
+            Self {
+                e_magic: self.e_magic,
+                e_cblp: self.e_cblp,
+                e_cp: self.e_cp,
+                e_crlc: self.e_crlc,
+                e_cparhdr: self.e_cparhdr,
+                e_minalloc: self.e_minalloc,
+                e_maxalloc: self.e_maxalloc,
+                e_ss: self.e_ss,
+                e_sp: self.e_sp,
+                e_csum: self.e_csum,
+                e_ip: self.e_ip,
+                e_cs: self.e_cs,
+                e_lfarlc: self.e_lfarlc,
+                e_ovno: self.e_ovno,
+                e_res: self.e_res.clone(),
+                e_oemid: self.e_oemid,
+                e_oeminfo: self.e_oeminfo,
+                e_res2: self.e_res2.clone(),
+                e_lfanew: self.e_lfanew,
+            }
+        }
+    }
+    fn clone_from(&mut self, source: &Self) {
+        self.e_magic = source.e_magic;
+        self.e_cblp = source.e_cblp;
+        self.e_cp = source.e_cp;
+        self.e_crlc = source.e_crlc;
+        self.e_cparhdr = source.e_cparhdr;
+        self.e_minalloc = source.e_minalloc;
+        self.e_maxalloc = source.e_maxalloc;
+        self.e_ss = source.e_ss;
+        self.e_sp = source.e_sp;
+        self.e_csum = source.e_csum;
+        self.e_ip = source.e_ip;
+        self.e_cs = source.e_cs;
+        self.e_lfarlc = source.e_lfarlc;
+        self.e_ovno = source.e_ovno;
+        unsafe { self.e_res = source.e_res.clone(); }
+        self.e_oemid = source.e_oemid;
+        self.e_oeminfo = source.e_oeminfo;
+        unsafe { self.e_res2 = source.e_res2.clone(); }
+        self.e_lfanew = source.e_lfanew;
     }
 }
 
@@ -173,6 +223,28 @@ impl Default for ImageFileHeader {
             size_of_optional_header: mem::size_of::<ImageOptionalHeader32>() as u16,
             characteristics: FileCharacteristics::EXECUTABLE_IMAGE | FileCharacteristics::MACHINE_32BIT,
         }
+    }
+}
+impl Clone for ImageFileHeader {
+    fn clone(&self) -> Self {
+        Self {
+            machine: self.machine,
+            number_of_sections: self.number_of_sections,
+            time_date_stamp: self.time_date_stamp,
+            pointer_to_symbol_table: self.pointer_to_symbol_table,
+            number_of_symbols: self.number_of_symbols,
+            size_of_optional_header: self.size_of_optional_header,
+            characteristics: self.characteristics,
+        }
+    }
+    fn clone_from(&mut self, source: &Self) {
+        self.machine = source.machine;
+        self.number_of_sections = source.number_of_sections;
+        self.time_date_stamp = source.time_date_stamp;
+        self.pointer_to_symbol_table = source.pointer_to_symbol_table;
+        self.number_of_symbols = source.number_of_symbols;
+        self.size_of_optional_header = source.size_of_optional_header;
+        self.characteristics = source.characteristics;
     }
 }
 
@@ -285,6 +357,75 @@ impl Default for ImageOptionalHeader32 {
         }
     }
 }
+impl Clone for ImageOptionalHeader32 {
+    fn clone(&self) -> Self {
+        Self {
+            magic: self.magic,
+            major_linker_version: self.major_linker_version,
+            minor_linker_version: self.minor_linker_version,
+            size_of_code: self.size_of_code,
+            size_of_initialized_data: self.size_of_initialized_data,
+            size_of_uninitialized_data: self.size_of_uninitialized_data,
+            address_of_entry_point: self.address_of_entry_point,
+            base_of_code: self.base_of_code,
+            base_of_data: self.base_of_data,
+            image_base: self.image_base,
+            section_alignment: self.section_alignment,
+            file_alignment: self.file_alignment,
+            major_operating_system_version: self.major_operating_system_version,
+            minor_operating_system_version: self.minor_operating_system_version,
+            major_image_version: self.major_image_version,
+            minor_image_version: self.minor_image_version,
+            major_subsystem_version: self.major_subsystem_version,
+            minor_subsystem_version: self.minor_subsystem_version,
+            win32_version_value: self.win32_version_value,
+            size_of_image: self.size_of_image,
+            size_of_headers: self.size_of_headers,
+            checksum: self.checksum,
+            subsystem: self.subsystem,
+            dll_characteristics: self.dll_characteristics,
+            size_of_stack_reserve: self.size_of_stack_reserve,
+            size_of_stack_commit: self.size_of_stack_commit,
+            size_of_heap_reserve: self.size_of_heap_reserve,
+            size_of_heap_commit: self.size_of_heap_commit,
+            loader_flags: self.loader_flags,
+            number_of_rva_and_sizes: self.number_of_rva_and_sizes,
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.magic = source.magic;
+        self.major_linker_version = source.major_linker_version;
+        self.minor_linker_version = source.minor_linker_version;
+        self.size_of_code = source.size_of_code;
+        self.size_of_initialized_data = source.size_of_initialized_data;
+        self.size_of_uninitialized_data = source.size_of_uninitialized_data;
+        self.address_of_entry_point = source.address_of_entry_point;
+        self.base_of_code = source.base_of_code;
+        self.base_of_data = source.base_of_data;
+        self.image_base = source.image_base;
+        self.section_alignment = source.section_alignment;
+        self.file_alignment = source.file_alignment;
+        self.major_operating_system_version = source.major_operating_system_version;
+        self.minor_operating_system_version = source.minor_operating_system_version;
+        self.major_image_version = source.major_image_version;
+        self.minor_image_version = source.minor_image_version;
+        self.major_subsystem_version = source.major_subsystem_version;
+        self.minor_subsystem_version = source.minor_subsystem_version;
+        self.win32_version_value = source.win32_version_value;
+        self.size_of_image = source.size_of_image;
+        self.size_of_headers = source.size_of_headers;
+        self.checksum = source.checksum;
+        self.subsystem = source.subsystem;
+        self.dll_characteristics = source.dll_characteristics;
+        self.size_of_stack_reserve = source.size_of_stack_reserve;
+        self.size_of_stack_commit = source.size_of_stack_commit;
+        self.size_of_heap_reserve = source.size_of_heap_reserve;
+        self.size_of_heap_commit = source.size_of_heap_commit;
+        self.loader_flags = source.loader_flags;
+        self.number_of_rva_and_sizes = source.number_of_rva_and_sizes;
+    }
+}
 
 #[repr(packed)]
 pub struct ImageOptionalHeader64 {
@@ -353,6 +494,73 @@ impl Default for ImageOptionalHeader64 {
         }
     }
 }
+impl Clone for ImageOptionalHeader64 {
+    fn clone(&self) -> Self {
+        Self {
+            magic: self.magic,
+            major_linker_version: self.major_linker_version,
+            minor_linker_version: self.minor_linker_version,
+            size_of_code: self.size_of_code,
+            size_of_initialized_data: self.size_of_initialized_data,
+            size_of_uninitialized_data: self.size_of_uninitialized_data,
+            address_of_entry_point: self.address_of_entry_point,
+            base_of_code: self.base_of_code,
+            image_base: self.image_base,
+            section_alignment: self.section_alignment,
+            file_alignment: self.file_alignment,
+            major_operating_system_version: self.major_operating_system_version,
+            minor_operating_system_version: self.minor_operating_system_version,
+            major_image_version: self.major_image_version,
+            minor_image_version: self.minor_image_version,
+            major_subsystem_version: self.major_subsystem_version,
+            minor_subsystem_version: self.minor_subsystem_version,
+            win32_version_value: self.win32_version_value,
+            size_of_image: self.size_of_image,
+            size_of_headers: self.size_of_headers,
+            checksum: self.checksum,
+            subsystem: self.subsystem,
+            dll_characteristics: self.dll_characteristics,
+            size_of_stack_reserve: self.size_of_stack_reserve,
+            size_of_stack_commit: self.size_of_stack_commit,
+            size_of_heap_reserve: self.size_of_heap_reserve,
+            size_of_heap_commit: self.size_of_heap_commit,
+            loader_flags: self.loader_flags,
+            number_of_rva_and_sizes: self.number_of_rva_and_sizes,
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.magic = source.magic;
+        self.major_linker_version = source.major_linker_version;
+        self.minor_linker_version = source.minor_linker_version;
+        self.size_of_code = source.size_of_code;
+        self.size_of_initialized_data = source.size_of_initialized_data;
+        self.size_of_uninitialized_data = source.size_of_uninitialized_data;
+        self.address_of_entry_point = source.address_of_entry_point;
+        self.base_of_code = source.base_of_code;
+        self.image_base = source.image_base;
+        self.section_alignment = source.section_alignment;
+        self.file_alignment = source.file_alignment;
+        self.major_operating_system_version = source.major_operating_system_version;
+        self.minor_operating_system_version = source.minor_operating_system_version;
+        self.major_image_version = source.major_image_version;
+        self.minor_image_version = source.minor_image_version;
+        self.major_subsystem_version = source.major_subsystem_version;
+        self.minor_subsystem_version = source.minor_subsystem_version;
+        self.win32_version_value = source.win32_version_value;
+        self.size_of_image = source.size_of_image;
+        self.size_of_headers = source.size_of_headers;
+        self.checksum = source.checksum;
+        self.subsystem = source.subsystem;
+        self.dll_characteristics = source.dll_characteristics;
+        self.size_of_stack_reserve = source.size_of_stack_reserve;
+        self.size_of_stack_commit = source.size_of_stack_commit;
+        self.size_of_heap_reserve = source.size_of_heap_reserve;
+        self.size_of_heap_commit = source.size_of_heap_commit;
+        self.loader_flags = source.loader_flags;
+        self.number_of_rva_and_sizes = source.number_of_rva_and_sizes;
+    }
+}
 
 #[repr(packed)]
 pub struct ImageNTHeaders32 {
@@ -369,6 +577,20 @@ impl Default for ImageNTHeaders32 {
         }
     }
 }
+impl Clone for ImageNTHeaders32 {
+    fn clone(&self) -> Self {
+        Self {
+            signature: self.signature,
+            file_header: self.file_header.clone(),
+            optional_header: self.optional_header.clone(),
+        }
+    }
+    fn clone_from(&mut self, source: &Self) {
+        self.signature = source.signature;
+        self.file_header = source.file_header.clone();
+        self.optional_header = source.optional_header.clone();
+    }
+}
 
 #[repr(packed)]
 pub struct ImageNTHeaders64 {
@@ -383,6 +605,20 @@ impl Default for ImageNTHeaders64 {
             file_header: ImageFileHeader::default_x64(),
             optional_header: ImageOptionalHeader64::default(),
         }
+    }
+}
+impl Clone for ImageNTHeaders64 {
+    fn clone(&self) -> Self {
+        Self {
+            signature: self.signature,
+            file_header: self.file_header.clone(),
+            optional_header: self.optional_header.clone(),
+        }
+    }
+    fn clone_from(&mut self, source: &Self) {
+        self.signature = source.signature;
+        self.file_header = source.file_header.clone();
+        self.optional_header = source.optional_header.clone();
     }
 }
 
@@ -524,6 +760,34 @@ impl ImageSectionHeader {
         pe.buffer.read(offset, size)
     }
 }
+impl Clone for ImageSectionHeader {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            virtual_size: self.virtual_size,
+            virtual_address: self.virtual_address,
+            size_of_raw_data: self.size_of_raw_data,
+            pointer_to_raw_data: self.pointer_to_raw_data,
+            pointer_to_relocations: self.pointer_to_relocations,
+            pointer_to_linenumbers: self.pointer_to_linenumbers,
+            number_of_relocations: self.number_of_relocations,
+            number_of_linenumbers: self.number_of_linenumbers,
+            characteristics: self.characteristics,
+        }
+    }
+    fn clone_from(&mut self, source: &Self) {
+        self.name = source.name.clone();
+        self.virtual_size = source.virtual_size;
+        self.virtual_address = source.virtual_address;
+        self.size_of_raw_data = source.size_of_raw_data;
+        self.pointer_to_raw_data = source.pointer_to_raw_data;
+        self.pointer_to_relocations = source.pointer_to_relocations;
+        self.pointer_to_linenumbers = source.pointer_to_linenumbers;
+        self.number_of_relocations = source.number_of_relocations;
+        self.number_of_linenumbers = source.number_of_linenumbers;
+        self.characteristics = source.characteristics;
+    }
+}
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum ImageDirectoryEntry {
@@ -619,6 +883,19 @@ impl ImageDataDirectory {
         else {
             Err(Error::UnsupportedDirectory)
         }
+    }
+}
+impl Clone for ImageDataDirectory {
+    fn clone(&self) -> Self {
+        Self {
+            virtual_address: self.virtual_address,
+            size: self.size,
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.virtual_address = source.virtual_address;
+        self.size = source.size;
     }
 }
 
@@ -779,6 +1056,36 @@ impl ImageExportDirectory {
         }
 
         Ok(result)
+    }
+}
+impl Clone for ImageExportDirectory {
+    fn clone(&self) -> Self {
+        Self {
+            characteristics: self.characteristics,
+            time_date_stamp: self.time_date_stamp,
+            major_version: self.major_version,
+            minor_version: self.minor_version,
+            name: self.name,
+            base: self.base,
+            number_of_functions: self.number_of_functions,
+            number_of_names: self.number_of_names,
+            address_of_functions: self.address_of_functions,
+            address_of_names: self.address_of_names,
+            address_of_name_ordinals: self.address_of_name_ordinals,
+        }
+    }
+    fn clone_from(&mut self, source: &Self) {
+        self.characteristics = source.characteristics;
+        self.time_date_stamp = source.time_date_stamp;
+        self.major_version = source.major_version;
+        self.minor_version = source.minor_version;
+        self.name = source.name;
+        self.base = source.base;
+        self.number_of_functions = source.number_of_functions;
+        self.number_of_names = source.number_of_names;
+        self.address_of_functions = source.address_of_functions;
+        self.address_of_names = source.address_of_names;
+        self.address_of_name_ordinals = source.address_of_name_ordinals;
     }
 }
 
@@ -1034,6 +1341,24 @@ impl ImageImportDescriptor {
         Ok(results)
     }
 }
+impl Clone for ImageImportDescriptor {
+    fn clone(&self) -> Self {
+        Self {
+            original_first_thunk: self.original_first_thunk,
+            time_date_stamp: self.time_date_stamp,
+            forwarder_chain: self.forwarder_chain,
+            name: self.name,
+            first_thunk: self.first_thunk,
+        }
+    }
+    fn clone_from(&mut self, source: &Self) {
+        self.original_first_thunk = source.original_first_thunk;
+        self.time_date_stamp = source.time_date_stamp;
+        self.forwarder_chain = source.forwarder_chain;
+        self.name = source.name;
+        self.first_thunk = source.first_thunk;
+    }
+}
 
 /// Represents an ```IMAGE_IMPORT_BY_NAME``` structure.
 ///
@@ -1127,4 +1452,16 @@ pub enum ImageRelBased {
 pub struct ImageBaseRelocation {
     pub virtual_address: RVA,
     pub size_of_block: u32,
+}
+impl Clone for ImageBaseRelocation {
+    fn clone(&self) -> Self {
+        Self {
+            virtual_address: self.virtual_address,
+            size_of_block: self.size_of_block,
+        }
+    }
+    fn clone_from(&mut self, source: &Self) {
+        self.virtual_address = source.virtual_address;
+        self.size_of_block = source.size_of_block;
+    }
 }
