@@ -461,14 +461,14 @@ impl PE {
 
     /// Get the entrypoint of this PE file.
     pub fn get_entrypoint(&self) -> Result<RVA, Error> {
-        let nt_headers = self.get_valid_nt_headers() {
+        let nt_headers = match self.get_valid_nt_headers() {
             Ok(h) => h,
             Err(e) => return Err(e),
         };
 
         match nt_headers {
-            NTHeaders::NTHeaders32(h32) => h32.optional_header.address_of_entry_point,
-            NTHeaders::NTHeaders64(h64) => h64.optional_header.address_of_entry_point,
+            NTHeaders::NTHeaders32(h32) => Ok(h32.optional_header.address_of_entry_point),
+            NTHeaders::NTHeaders64(h64) => Ok(h64.optional_header.address_of_entry_point),
         }
     }
 
