@@ -733,6 +733,127 @@ impl<'data> RelocationTable<'data> for Vec<RelocationEntryMut<'data>> {
     }
 }
 
+/// Special value used to calculate a variety of fields in the resource directory taking up a single [`u32`](u32) value.
+///
+/// The [resource directory](ImageResourceDirectory) uses a series of DWORDs that can be flagged or unflagged, representing the presence
+/// of another directory in the resources or data being pointed to. Rust doesn't have bitfields, so instead we just mask the
+/// significant bit in this object and present an interface to access the data.
+#[repr(packed)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct FlaggedDword(pub u32);
+impl FlaggedDword {
+    /// Get the flag represented by the object.
+    pub fn get_flag(&self) -> bool {
+        (self.0 & 0x80000000) > 0
+    }
+    /// Get the dword value represented by the object.
+    pub fn get_dword(&self) -> u32 {
+        if self.get_flag() {
+            self.0 & 0x7FFFFFFF
+        }
+        else {
+            self.0
+        }
+    }
+}
+
+/// A ```u32``` wrapper representing offsets into a resource directory.
+#[repr(packed)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct ResourceOffset(pub u32);
+impl ResourceOffset {
+    pub fn resolve(&self, pe: &PE) -> Result<RVA, Error> {
+        pe.get_resource_address(*self)
+    }
+}
+impl Address for ResourceOffset {
+    fn as_offset(&self, pe: &PE) -> Result<Offset, Error> {
+        let rva = match self.resolve(pe) {
+            Ok(r) => r,
+            Err(e) => return Err(e),
+        };
+
+        rva.as_offset(pe)
+    }
+    fn as_rva(&self, pe: &PE) -> Result<RVA, Error> {
+        self.resolve(pe)
+    }
+    fn as_va(&self, pe: &PE) -> Result<VA, Error> {
+        let rva = match self.resolve(pe) {
+            Ok(r) => r,
+            Err(e) => return Err(e),
+        };
+
+        rva.as_va(pe)
+    }
+}
+
+/// Represents the ID value of a given resource directory entry.
+///
+/// [`Name`](ResourceDirectoryID::Name) typically points to a [`ImageResourceDirStringU`](ImageResourceDirStringU) object.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum ResourceDirectoryID {
+    ID(u32),
+    Name(ResourceOffset),
+}
+
+/// Represents the data contained in the resource directory.
+///
+/// [`Directory`](ResourceDirectoryData::Directory) points to another [`ImageResourceDirectory`](ImageResourceDirectory)
+/// object, whereas [`Data`](ResourceDirectoryData::Data) points to a [`ImageResourceDataEntry`](ImageResourceDataEntry)
+/// object.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum ResourceDirectoryData {
+    Directory(ResourceOffset),
+    Data(ResourceOffset),
+}
+
+/// Represents a directory node in the greater resource directory.
+#[derive(Clone)]
+pub struct ResourceNode<'data> {
+    directory: &'data ImageResourceDirectory,
+    entries: &'data [ImageResourceDirectoryEntry],
+}
+impl<'data> ResourceNode<'data> {
+    /// Parse a resource directory node with the given [`ResourceOffset`](ResourceOffset).
+    ///
+    /// If the offset goes outside the bounds of the directory, a [`Error::BufferTooSmall`](Error::BufferTooSmall) error
+    /// is returned.
+    pub fn parse(pe: &'data PE, offset: ResourceOffset) -> Result<ResourceNode<'data>, Error> {
+        let resolved_offset = match offset.resolve(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let mut image_offset = match pe.translate(PETranslation::Memory(resolved_offset)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+        
+        if !pe.validate_offset(image_offset) {
+            return Err(Error::InvalidRVA)
+        }
+       
+        let directory = match pe.buffer.get_ref::<ImageResourceDirectory>(image_offset) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+
+        image_offset.0 += mem::size_of::<ImageResourceDirectory>() as u32;
+
+        if !pe.validate_offset(image_offset) {
+            return Err(Error::InvalidRVA)
+        }
+        
+        let entries = match pe.buffer.get_slice_ref::<ImageResourceDirectoryEntry>(image_offset, directory.entries()) {
+            Ok(e) => e,
+            Err(e) => return Err(e),
+        };
+
+        Ok(ResourceNode { directory, entries })
+    }
+}
+
 /// An enum representing a data directory object.
 ///
 /// Currently, the following data directories are supported:

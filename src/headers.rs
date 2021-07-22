@@ -1484,3 +1484,265 @@ impl Clone for ImageBaseRelocation {
         self.size_of_block = source.size_of_block;
     }
 }
+
+#[repr(packed)]
+pub struct ImageResourceDirectory {
+    pub characteristics: u32,
+    pub time_date_stamp: u32,
+    pub major_version: u16,
+    pub minor_version: u16,
+    pub number_of_named_entries: u16,
+    pub number_of_id_entries: u16,
+}
+impl ImageResourceDirectory {
+    /// Get the number of entries this resource directory has.
+    pub fn entries(&self) -> usize {
+        (self.number_of_named_entries as usize) + (self.number_of_id_entries as usize)
+    }
+}
+impl Clone for ImageResourceDirectory {
+    fn clone(&self) -> Self {
+        Self {
+            characteristics: self.characteristics,
+            time_date_stamp: self.time_date_stamp,
+            major_version: self.major_version,
+            minor_version: self.minor_version,
+            number_of_named_entries: self.number_of_named_entries,
+            number_of_id_entries: self.number_of_id_entries,
+        }
+    }
+    fn clone_from(&mut self, source: &Self) {
+        self.characteristics = source.characteristics;
+        self.time_date_stamp = source.time_date_stamp;
+        self.major_version = source.major_version;
+        self.minor_version = source.minor_version;
+        self.number_of_named_entries = source.number_of_named_entries;
+        self.number_of_id_entries = source.number_of_id_entries;
+    }
+}
+
+#[repr(packed)]
+pub struct ImageResourceDirectoryEntry {
+    pub name: FlaggedDword,
+    pub offset_to_data: FlaggedDword,
+}
+impl ImageResourceDirectoryEntry {
+    pub fn get_id(&self) -> ResourceDirectoryID {
+        if self.name.get_flag() {
+            ResourceDirectoryID::Name(ResourceOffset(self.name.get_dword()))
+        }
+        else {
+            ResourceDirectoryID::ID(self.name.get_dword())
+        }
+    }
+    pub fn get_data(&self) -> ResourceDirectoryData {
+        if self.offset_to_data.get_flag() {
+            ResourceDirectoryData::Directory(ResourceOffset(self.offset_to_data.get_dword()))
+        }
+        else {
+            ResourceDirectoryData::Data(ResourceOffset(self.offset_to_data.get_dword()))
+        }
+    }
+}
+impl Clone for ImageResourceDirectoryEntry {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name,
+            offset_to_data: self.offset_to_data,
+        }
+    }
+    fn clone_from(&mut self, source: &Self) {
+        self.name = source.name;
+        self.offset_to_data = source.offset_to_data;
+    }
+}
+
+/// Represents an ```IMAGE_RESOURCE_DIR_STRING``` structure.
+///
+/// See [ImageImportByName](ImageImportByName) for an explanation as to why this structure
+/// is different from the others.
+#[derive(Copy, Clone, Debug)]
+pub struct ImageResourceDirString<'data> {
+    pub length: &'data u16,
+    pub name: &'data [CChar],
+}
+impl<'data> ImageResourceDirString<'data> {
+    /// Get a ```ImageResourceDirString``` object at the given RVA.
+    pub fn parse(pe: &'data PE, rva: RVA) -> Result<Self, Error> {
+        let offset = match pe.translate(PETranslation::Memory(rva)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+        
+        let length = match pe.buffer.get_ref::<u16>(offset) {
+            Ok(h) => h,
+            Err(e) => return Err(e),
+        };
+        
+        let name = match pe.buffer.get_slice_ref::<CChar>(Offset(offset.0 + (mem::size_of::<u16>() as u32)), *length as usize) {
+            Ok(n) => n,
+            Err(e) => return Err(e),
+        };
+
+        Ok(Self { length, name })
+    }
+}
+
+/// Represents a mutable ```IMAGE_RESOURCE_DIR_STRING``` structure.
+///
+/// See [ImageImportByName](ImageImportByName) for an explanation as to why this structure
+/// is different from the others.
+pub struct ImageResourceDirStringMut<'data> {
+    pub length: &'data mut u16,
+    pub name: &'data mut [CChar],
+}
+impl<'data> ImageResourceDirStringMut<'data> {
+    /// Get a mutable ```ImageResourceDirString``` object at the given RVA.
+    pub fn parse(pe: &'data mut PE, rva: RVA) -> Result<Self, Error> {
+        let mut offset = match pe.translate(PETranslation::Memory(rva)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        unsafe {
+            let mut ptr = pe.buffer.offset_to_mut_ptr(offset);
+
+            let length = &mut *(ptr as *mut u16);
+            let u16_size = mem::size_of::<u16>();
+
+            ptr = ptr.add(u16_size);
+
+            if !pe.buffer.validate_ptr(ptr) {
+                return Err(Error::BadPointer);
+            }
+
+            offset.0 += u16_size as u32;
+            
+            let name = slice::from_raw_parts_mut(ptr as *mut CChar, *length as usize);
+
+            Ok(Self { length, name })
+        }
+    }
+}
+
+/// Represents an ```IMAGE_RESOURCE_DIR_STRING_U``` structure.
+///
+/// See [ImageImportByName](ImageImportByName) for an explanation as to why this structure
+/// is different from the others.
+#[derive(Copy, Clone, Debug)]
+pub struct ImageResourceDirStringU<'data> {
+    pub length: &'data u16,
+    pub name: &'data [WChar],
+}
+impl<'data> ImageResourceDirStringU<'data> {
+    /// Get a ```ImageResourceDirStringU``` object at the given RVA.
+    pub fn parse(pe: &'data PE, rva: RVA) -> Result<Self, Error> {
+        let offset = match pe.translate(PETranslation::Memory(rva)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+        
+        let length = match pe.buffer.get_ref::<u16>(offset) {
+            Ok(h) => h,
+            Err(e) => return Err(e),
+        };
+        
+        let name = match pe.buffer.get_slice_ref::<WChar>(Offset(offset.0 + (mem::size_of::<u16>() as u32)), *length as usize) {
+            Ok(n) => n,
+            Err(e) => return Err(e),
+        };
+
+        Ok(Self { length, name })
+    }
+}
+
+/// Represents a mutable ```IMAGE_RESOURCE_DIR_STRING_U``` structure.
+///
+/// See [ImageImportByName](ImageImportByName) for an explanation as to why this structure
+/// is different from the others.
+pub struct ImageResourceDirStringUMut<'data> {
+    pub length: &'data mut u16,
+    pub name: &'data mut [WChar],
+}
+impl<'data> ImageResourceDirStringUMut<'data> {
+    /// Get a mutable ```ImageResourceDirStringU``` object at the given RVA.
+    pub fn parse(pe: &'data mut PE, rva: RVA) -> Result<Self, Error> {
+        let mut offset = match pe.translate(PETranslation::Memory(rva)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        unsafe {
+            let mut ptr = pe.buffer.offset_to_mut_ptr(offset);
+
+            let length = &mut *(ptr as *mut u16);
+            let u16_size = mem::size_of::<u16>();
+
+            ptr = ptr.add(u16_size);
+
+            if !pe.buffer.validate_ptr(ptr) {
+                return Err(Error::BadPointer);
+            }
+
+            offset.0 += u16_size as u32;
+            
+            let name = slice::from_raw_parts_mut(ptr as *mut WChar, *length as usize);
+
+            Ok(Self { length, name })
+        }
+    }
+}
+
+#[repr(packed)]
+pub struct ImageResourceDataEntry {
+    offset_to_data: RVA,
+    size: u32,
+    code_page: u32,
+    reserved: u32,
+}
+impl ImageResourceDataEntry {
+    /// Read the data pointed to by this data entry.
+    pub fn read<'data>(&self, pe: &'data PE) -> Result<&'data [u8], Error> {
+        if self.offset_to_data.0 == 0 || !pe.validate_rva(self.offset_to_data) {
+            return Err(Error::InvalidRVA);
+        }
+
+        let offset = match pe.translate(PETranslation::Memory(self.offset_to_data)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        pe.buffer.read(offset, self.size as usize)
+    }
+    /// Read mutable data pointed to by this directory entry.
+    pub fn read_mut<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [u8], Error> {
+        if self.offset_to_data.0 == 0 || !pe.validate_rva(self.offset_to_data) {
+            return Err(Error::InvalidRVA);
+        }
+
+        let offset = match pe.translate(PETranslation::Memory(self.offset_to_data)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        pe.buffer.read_mut(offset, self.size as usize)
+    }
+    /// Write data to the directory entry. Returns [`Error::BufferTooSmall`](Error::BufferTooSmall) if the data
+    /// overflows the buffer provided by the directory entry.
+    pub fn write(&self, pe: &mut PE, data: &[u8]) -> Result<(), Error> {
+        if self.offset_to_data.0 == 0 || !pe.validate_rva(self.offset_to_data) {
+            return Err(Error::InvalidRVA);
+        }
+
+        let offset = match pe.translate(PETranslation::Memory(self.offset_to_data)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        if (data.len() as u32) > self.size {
+            return Err(Error::BufferTooSmall);
+        }
+
+        pe.buffer.write(offset, data)
+    }
+}

@@ -919,6 +919,27 @@ impl PE {
 
         Ok(&mut directory_table[index])
     }
+
+    /// Get an [Offset](Offset) object relative to the resource directory.
+    ///
+    /// This is useful for gathering addresses when parsing the resource directory. Returns [Error::BufferTooSmall](Error::BufferTooSmall)
+    /// if the offset doesn't fit in the resource directory.
+    pub fn get_resource_address(&self, offset: ResourceOffset) -> Result<RVA, Error> {
+        let dir = match self.get_data_directory(ImageDirectoryEntry::Resource) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+
+        if offset.0 > dir.size {
+            return Err(Error::BufferTooSmall);
+        }
+
+        if dir.virtual_address.0 == 0 || !self.validate_rva(dir.virtual_address) {
+            return Err(Error::InvalidRVA);
+        }
+
+        Ok(RVA(dir.virtual_address.0 + offset.0))
+    }
     
     /// Resolve the data directory represented by the [ImageDirectoryEntry](headers::ImageDirectoryEntry) enum. This produces a data
     /// directory variant enum object associated with the data directory type.
