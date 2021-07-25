@@ -68,6 +68,8 @@ pub enum Error {
     InvalidRelocation,
     /// The provided directory is not available.
     BadDirectory,
+    /// The data directory is corrupt and cannot be parsed.
+    CorruptDataDirectory,
 }
 
 /// An enum to tag the PE file with what its memory map looks like.

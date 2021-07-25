@@ -788,6 +788,68 @@ impl Address for ResourceOffset {
     }
 }
 
+/// Represents a variety of default categories for categorizing resource data.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum ResourceID {
+    Cursor = 1,
+    Bitmap = 2,
+    Icon = 3,
+    Menu = 4,
+    Dialog = 5,
+    String = 6,
+    FontDir = 7,
+    Font = 8,
+    Accelerator = 9,
+    RCData = 10,
+    MessageTable = 11,
+    GroupCursor = 12,
+    Reserved = 13,
+    GroupIcon = 14,
+    Reserved2 = 15,
+    Version = 16,
+    DlgInclude = 17,
+    Reserved3 = 18,
+    PlugPlay = 19,
+    VXD = 20,
+    AniCursor = 21,
+    AniIcon = 22,
+    HTML = 23,
+    Manifest = 24,
+    Unknown,
+}
+impl ResourceID {
+    /// Convert the ```u32``` value into a ```ResourceID``` value.
+    pub fn from_u32(u: u32) -> Self {
+        match u {
+            1 => Self::Cursor,
+            2 => Self::Bitmap,
+            3 => Self::Icon,
+            4 => Self::Menu,
+            5 => Self::Dialog,
+            6 => Self::String,
+            7 => Self::FontDir,
+            8 => Self::Font,
+            9 => Self::Accelerator,
+            10 => Self::RCData,
+            11 => Self::MessageTable,
+            12 => Self::GroupCursor,
+            13 => Self::Reserved,
+            14 => Self::GroupIcon,
+            15 => Self::Reserved2,
+            16 => Self::Version,
+            17 => Self::DlgInclude,
+            18 => Self::Reserved3,
+            19 => Self::PlugPlay,
+            20 => Self::VXD,
+            21 => Self::AniCursor,
+            22 => Self::AniIcon,
+            23 => Self::HTML,
+            24 => Self::Manifest,
+            _ => Self::Unknown
+        }
+    }
+}
+
 /// Represents the ID value of a given resource directory entry.
 ///
 /// [`Name`](ResourceDirectoryID::Name) typically points to a [`ImageResourceDirStringU`](ImageResourceDirStringU) object.
@@ -850,7 +912,276 @@ impl<'data> ResourceNode<'data> {
             Err(e) => return Err(e),
         };
 
-        Ok(ResourceNode { directory, entries })
+        Ok(Self { directory, entries })
+    }
+}
+
+/// Represents a mutable directory node in the greater resource directory.
+pub struct ResourceNodeMut<'data> {
+    directory: &'data mut ImageResourceDirectory,
+    entries: &'data mut [ImageResourceDirectoryEntry],
+}
+impl<'data> ResourceNodeMut<'data> {
+    /// Parse a mutable resource directory node with the given [`ResourceOffset`](ResourceOffset).
+    ///
+    /// If the offset goes outside the bounds of the directory, a [`Error::BufferTooSmall`](Error::BufferTooSmall) error
+    /// is returned.
+    pub fn parse(pe: &'data mut PE, offset: ResourceOffset) -> Result<ResourceNodeMut<'data>, Error> {
+        let resolved_offset = match offset.resolve(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let image_offset = match pe.translate(PETranslation::Memory(resolved_offset)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+        
+        if !pe.validate_offset(image_offset) {
+            return Err(Error::InvalidRVA)
+        }
+
+        unsafe {
+            let ptr = pe.buffer.offset_to_mut_ptr(image_offset);
+
+            Self::parse_unsafe(pe, ptr)
+        }
+    }
+    /// Parse a mutable resource node at the given pointer.
+    ///
+    /// The pointer is verified against the buffer before parsing. You should probably use [`ResourceNodeMut::parse`](ResourceNodeMut::parse)
+    /// unless you really need to use a pointer, as that function has more rigorous address checking.
+    pub unsafe fn parse_unsafe(pe: &'data PE, mut ptr: *mut u8) -> Result<Self, Error> {
+        if !pe.buffer.validate_ptr(ptr) {
+            return Err(Error::BadPointer);
+        }
+            
+        let directory = &mut *(ptr as *mut ImageResourceDirectory);
+            
+        ptr = ptr.add(mem::size_of::<ImageResourceDirectory>());
+            
+        if !pe.buffer.validate_ptr(ptr as *const u8) {
+            return Err(Error::BadPointer)
+        }
+        
+        let entries = slice::from_raw_parts_mut(ptr as *mut ImageResourceDirectoryEntry, directory.entries());
+
+        Ok(Self { directory, entries })
+    }
+}
+
+/// Represents a flattened node of data in a given resource tree.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct FlattenedResourceDataEntry {
+    /// The type ID of this resource, or alternatively, depth 1 of the resource tree.
+    pub type_id: ResourceDirectoryID,
+    /// The resource ID of this resource, or alternatively, depth 2 of the resource tree.
+    pub rsrc_id: ResourceDirectoryID,
+    /// The language ID of this resource, or alternatively, depth 3 of the resource tree.
+    pub lang_id: ResourceDirectoryID,
+    /// The data leaf ultimately representing this resource.
+    pub data: ResourceOffset,
+}
+impl FlattenedResourceDataEntry {
+    pub fn get_data_entry<'data>(&self, pe: &'data PE) -> Result<&'data ImageResourceDataEntry, Error> {
+        let rva = match self.data.resolve(pe) {
+            Ok(r) => r,
+            Err(e) => return Err(e),
+        };
+
+        let offset = match pe.translate(PETranslation::Memory(rva)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        pe.buffer.get_ref::<ImageResourceDataEntry>(offset)
+    }
+    pub fn get_mut_data_entry<'data>(&self, pe: &'data mut PE) -> Result<&'data mut ImageResourceDataEntry, Error> {
+        let rva = match self.data.resolve(pe) {
+            Ok(r) => r,
+            Err(e) => return Err(e),
+        };
+
+        let offset = match pe.translate(PETranslation::Memory(rva)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        pe.buffer.get_mut_ref::<ImageResourceDataEntry>(offset)
+    }
+}
+
+/// Represents a resource directory, containing flattened resources and the root node of the resource tree.
+pub struct ResourceDirectory<'data> {
+    pub root_node: ResourceNode<'data>,
+    pub resources: Vec<FlattenedResourceDataEntry>,
+}
+impl<'data> ResourceDirectory<'data> {
+    /// Parse the resource directory in the given PE file.
+    pub fn parse(pe: &'data PE) -> Result<Self, Error> {
+        let mut resources = Vec::<FlattenedResourceDataEntry>::new();
+        
+        let root_node = match ResourceNode::parse(pe, ResourceOffset(0)) {
+            Ok(r) => r,
+            Err(e) => return Err(e),
+        };
+
+        for type_entry in root_node.entries {
+            let id_offset = match type_entry.get_data() {
+                ResourceDirectoryData::Data(_) => return Err(Error::CorruptDataDirectory),
+                ResourceDirectoryData::Directory(d) => d,
+            };
+            
+            let id_node = match ResourceNode::parse(pe, id_offset) {
+                Ok(n) => n,
+                Err(e) => return Err(e),
+            };
+
+            for id_entry in id_node.entries {
+                let lang_offset = match id_entry.get_data() {
+                    ResourceDirectoryData::Data(_) => return Err(Error::CorruptDataDirectory),
+                    ResourceDirectoryData::Directory(d) => d,
+                };
+
+                let lang_node = match ResourceNode::parse(pe, lang_offset) {
+                    Ok(n) => n,
+                    Err(e) => return Err(e),
+                };
+
+                for lang_entry in lang_node.entries {
+                    let data_offset = match lang_entry.get_data() {
+                        ResourceDirectoryData::Directory(_) => return Err(Error::CorruptDataDirectory),
+                        ResourceDirectoryData::Data(d) => d,
+                    };
+
+                    resources.push(FlattenedResourceDataEntry {
+                        type_id: type_entry.get_id(),
+                        rsrc_id: id_entry.get_id(),
+                        lang_id: lang_entry.get_id(),
+                        data: data_offset,
+                    });
+                }
+            }
+        }
+
+        Ok(Self { root_node, resources })
+    }
+    pub fn filter_by_type(&self, id: ResourceID) -> Vec<FlattenedResourceDataEntry> {
+        self.resources
+            .iter()
+            .filter(|x| match x.type_id {
+                ResourceDirectoryID::Name(_) => false,
+                ResourceDirectoryID::ID(v) => ResourceID::from_u32(v) == id,
+            })
+            .map(|&x| x)
+            .collect()
+    }
+}
+
+/// Represents a mutable resource directory, containing flattened resources and the root node of the resource tree.
+pub struct ResourceDirectoryMut<'data> {
+    pub root_node: ResourceNodeMut<'data>,
+    pub resources: Vec<FlattenedResourceDataEntry>,
+}
+impl<'data> ResourceDirectoryMut<'data> {
+    /// Parse the resource directory in the given PE file.
+    pub fn parse(pe: &'data mut PE) -> Result<Self, Error> {
+        let mut resources = Vec::<FlattenedResourceDataEntry>::new();
+
+        let dir_size = match pe.get_data_directory(ImageDirectoryEntry::Resource) {
+            Ok(d) => d.size,
+            Err(e) => return Err(e),
+        };
+
+        let rva = match ResourceOffset(0).resolve(pe) {
+            Ok(r) => r,
+            Err(e) => return Err(e),
+        };
+
+        let offset = match pe.translate(PETranslation::Memory(rva)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        unsafe {
+            let ptr = pe.buffer.offset_to_mut_ptr(offset);
+        
+            let root_node = match ResourceNodeMut::parse_unsafe(pe, ptr) {
+                Ok(r) => r,
+                Err(e) => return Err(e),
+            };
+
+            // call iter() specifically to prevent an implicit call to into_iter()
+            for type_entry in root_node.entries.iter() {
+                let id_offset = match type_entry.get_data() {
+                    ResourceDirectoryData::Data(_) => return Err(Error::CorruptDataDirectory),
+                    ResourceDirectoryData::Directory(d) => d,
+                };
+
+                if id_offset.0 > dir_size {
+                    return Err(Error::BufferTooSmall);
+                }
+
+                let id_ptr = ptr.add(id_offset.0 as usize);
+
+                if !pe.buffer.validate_ptr(id_ptr as *const u8) {
+                    return Err(Error::BadPointer);
+                }
+            
+                let id_node = match ResourceNodeMut::parse_unsafe(pe, id_ptr) {
+                    Ok(n) => n,
+                    Err(e) => return Err(e),
+                };
+
+                for id_entry in id_node.entries {
+                    let lang_offset = match id_entry.get_data() {
+                        ResourceDirectoryData::Data(_) => return Err(Error::CorruptDataDirectory),
+                        ResourceDirectoryData::Directory(d) => d,
+                    };
+
+                    if lang_offset.0 > dir_size {
+                        return Err(Error::BufferTooSmall);
+                    }
+
+                    let lang_ptr = ptr.add(lang_offset.0 as usize);
+
+                    if !pe.buffer.validate_ptr(lang_ptr as *const u8) {
+                        return Err(Error::BadPointer);
+                    }
+
+                    let lang_node = match ResourceNodeMut::parse_unsafe(pe, lang_ptr) {
+                        Ok(n) => n,
+                        Err(e) => return Err(e),
+                    };
+
+                    for lang_entry in lang_node.entries {
+                        let data_offset = match lang_entry.get_data() {
+                            ResourceDirectoryData::Directory(_) => return Err(Error::CorruptDataDirectory),
+                            ResourceDirectoryData::Data(d) => d,
+                        };
+
+                        resources.push(FlattenedResourceDataEntry {
+                            type_id: type_entry.get_id(),
+                            rsrc_id: id_entry.get_id(),
+                            lang_id: lang_entry.get_id(),
+                            data: data_offset,
+                        });
+                    }
+                }
+            }
+
+            Ok(Self { root_node, resources })
+        }
+    }
+    pub fn filter_by_type(&self, id: ResourceID) -> Vec<FlattenedResourceDataEntry> {
+        self.resources
+            .iter()
+            .filter(|x| match x.type_id {
+                ResourceDirectoryID::Name(_) => false,
+                ResourceDirectoryID::ID(v) => ResourceID::from_u32(v) == id,
+            })
+            .map(|&x| x)
+            .collect()
     }
 }
 
@@ -860,11 +1191,13 @@ impl<'data> ResourceNode<'data> {
 /// * [ImageDirectoryEntry::Export](ImageDirectoryEntry::Export)
 /// * [ImageDirectoryEntry::Import](ImageDirectoryEntry::Import)
 /// * [ImageDirectoryEntry::BaseReloc](ImageDirectoryEntry::BaseReloc)
+/// * [ImageDirectoryEntry::Resource](ImageDirectoryEntry::Resource)
 ///
 pub enum DataDirectory<'data> {
     Export(&'data ImageExportDirectory),
     Import(&'data [ImageImportDescriptor]),
     BaseReloc(Vec<RelocationEntry<'data>>),
+    Resource(ResourceDirectory<'data>),
     Unsupported,
 }
 
@@ -873,5 +1206,6 @@ pub enum DataDirectoryMut<'data> {
     Export(&'data mut ImageExportDirectory),
     Import(&'data mut [ImageImportDescriptor]),
     BaseReloc(Vec<RelocationEntryMut<'data>>),
+    Resource(ResourceDirectoryMut<'data>),
     Unsupported,
 }

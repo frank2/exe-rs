@@ -865,6 +865,12 @@ impl ImageDataDirectory {
                 Err(e) => Err(e),
             }
         }
+        else if entry == ImageDirectoryEntry::Resource {
+            match ResourceDirectory::parse(pe) {
+                Ok(d) => Ok(DataDirectory::Resource(d)),
+                Err(e) => Err(e),
+            }
+        }
         else {
             Err(Error::UnsupportedDirectory)
         }
@@ -896,6 +902,12 @@ impl ImageDataDirectory {
         else if entry == ImageDirectoryEntry::BaseReloc {
             match RelocationEntryMut::parse_table(pe, self) {
                 Ok(d) => Ok(DataDirectoryMut::BaseReloc(d)),
+                Err(e) => Err(e),
+            }
+        }
+        else if entry == ImageDirectoryEntry::Resource {
+            match ResourceDirectoryMut::parse(pe) {
+                Ok(d) => Ok(DataDirectoryMut::Resource(d)),
                 Err(e) => Err(e),
             }
         }
@@ -1695,10 +1707,10 @@ impl<'data> ImageResourceDirStringUMut<'data> {
 
 #[repr(packed)]
 pub struct ImageResourceDataEntry {
-    offset_to_data: RVA,
-    size: u32,
-    code_page: u32,
-    reserved: u32,
+    pub offset_to_data: RVA,
+    pub size: u32,
+    pub code_page: u32,
+    pub reserved: u32,
 }
 impl ImageResourceDataEntry {
     /// Read the data pointed to by this data entry.
