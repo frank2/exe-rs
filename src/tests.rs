@@ -296,6 +296,50 @@ fn test_hello_world_packed() {
 
     let entropy = pefile.buffer.entropy();
     assert!(entropy > 7.0);
+
+    let data_directory = pefile.resolve_data_directory(ImageDirectoryEntry::Resource);
+    assert!(data_directory.is_ok());
+
+    if let DataDirectory::Resource(resource_table) = data_directory.unwrap() {
+        assert_eq!(resource_table.resources.len(), 1);
+
+        let rsrc = resource_table.resources[0];
+
+        assert_eq!(rsrc.type_id, ResourceDirectoryID::ID(24));
+        assert_eq!(rsrc.rsrc_id, ResourceDirectoryID::ID(1));
+        assert_eq!(rsrc.lang_id, ResourceDirectoryID::ID(1033));
+        assert_eq!(rsrc.data, ResourceOffset(0x48));
+    }
+    else {
+        panic!("couldn't parse resource directory");
+    }
+}
+
+#[test]
+fn test_cff_explorer() {
+    let cff_explorer = PE::from_file("test/cff_explorer.exe");
+    assert!(cff_explorer.is_ok());
+
+    let pefile = cff_explorer.unwrap();
+    let data_directory = pefile.resolve_data_directory(ImageDirectoryEntry::Resource);
+    assert!(data_directory.is_ok());
+
+    if let DataDirectory::Resource(resource_table) = data_directory.unwrap() {
+        let cursors = resource_table.filter_by_type(ResourceID::Cursor);
+        assert_eq!(cursors.len(), 17);
+
+        let bitmaps = resource_table.filter_by_type(ResourceID::Bitmap);
+        assert_eq!(bitmaps.len(), 30);
+
+        let icons = resource_table.filter_by_type(ResourceID::Icon);
+        assert_eq!(icons.len(), 43);
+
+        let fonts = resource_table.filter_by_type(ResourceID::Font);
+        assert_eq!(fonts.len(), 0);
+    }
+    else {
+        panic!("couldn't parse resource directory")
+    }
 }
 
 #[test]
