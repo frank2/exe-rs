@@ -7,6 +7,9 @@ Read the documentation [here](https://docs.rs/exe/)!
 
 # Changelog
 
+## 0.4
+* added support for resource directories
+
 ## 0.3.1
 * PE object can now parse memory dumps properly, testing against [compiled_dumped.bin](https://github.com/frank2/exe-rs/blob/main/test/compiled_dumped.bin).
 * data directory is now parsed correctly, testing against [no_dd.exe](https://github.com/corkami/pocs/blob/master/PE/bin/no_dd.exe)
