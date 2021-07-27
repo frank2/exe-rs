@@ -1104,6 +1104,7 @@ pub struct FlattenedResourceDataEntry {
     pub data: ResourceOffset,
 }
 impl FlattenedResourceDataEntry {
+    /// Get the data entry pointed to by the ```data``` offset.
     pub fn get_data_entry<'data>(&self, pe: &'data PE) -> Result<&'data ImageResourceDataEntry, Error> {
         let rva = match self.data.resolve(pe) {
             Ok(r) => r,
@@ -1117,6 +1118,7 @@ impl FlattenedResourceDataEntry {
 
         pe.buffer.get_ref::<ImageResourceDataEntry>(offset)
     }
+    /// Get a mutable data entry pointed to by the ```data``` offset.
     pub fn get_mut_data_entry<'data>(&self, pe: &'data mut PE) -> Result<&'data mut ImageResourceDataEntry, Error> {
         let rva = match self.data.resolve(pe) {
             Ok(r) => r,
