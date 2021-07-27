@@ -46,6 +46,9 @@ fn test_compiled() {
     assert!(data_directory_offset.is_ok());
     assert_eq!(data_directory_offset.unwrap(), Offset(0x128));
 
+    assert!(pefile.has_data_directory(ImageDirectoryEntry::Import));
+    assert!(!pefile.has_data_directory(ImageDirectoryEntry::Export));
+    
     let import_directory_result = ImportDirectory::parse(&pefile);
     assert!(import_directory_result.is_ok());
 
@@ -113,6 +116,9 @@ fn test_compiled_dumped() {
     assert_eq!(section_table[1].name.as_str(), ".rdata");
     assert_eq!(section_table[2].name.as_str(), ".data");
 
+    assert!(pefile.has_data_directory(ImageDirectoryEntry::Import));
+    assert!(!pefile.has_data_directory(ImageDirectoryEntry::Export));
+
     let import_directory_result = ImportDirectory::parse(&pefile);
     assert!(import_directory_result.is_ok());
 
@@ -159,6 +165,8 @@ fn test_dll() {
 
     let pefile = dll.unwrap();
 
+    assert!(pefile.has_data_directory(ImageDirectoryEntry::Export));
+
     let directory = ExportDirectory::parse(&pefile);
     assert!(directory.is_ok());
 
@@ -172,6 +180,7 @@ fn test_dll() {
 
     assert!(exports.is_ok());
     assert_eq!(exports.unwrap(), expected);
+    assert!(pefile.has_data_directory(ImageDirectoryEntry::BaseReloc));
 
     let relocation_directory_result = RelocationDirectory::parse(&pefile);
     assert!(relocation_directory_result.is_ok());
@@ -198,6 +207,8 @@ fn test_dll_fw() {
     assert!(dll_fw.is_ok());
 
     let pefile = dll_fw.unwrap();
+
+    assert!(pefile.has_data_directory(ImageDirectoryEntry::Export));
 
     let directory = ExportDirectory::parse(&pefile);
     assert!(directory.is_ok());
@@ -230,6 +241,9 @@ fn test_imports_nothunk() {
     assert!(imports_nothunk.is_ok());
 
     let pefile = imports_nothunk.unwrap();
+
+    assert!(pefile.has_data_directory(ImageDirectoryEntry::Import));
+
     let data_directory = ImportDirectory::parse(&pefile);
     assert!(data_directory.is_ok());
 
@@ -270,6 +284,7 @@ fn test_hello_world_packed() {
 
     let entropy = pefile.buffer.entropy();
     assert!(entropy > 7.0);
+    assert!(pefile.has_data_directory(ImageDirectoryEntry::Resource));
 
     let data_directory = ResourceDirectory::parse(&pefile);
     assert!(data_directory.is_ok());
@@ -291,6 +306,8 @@ fn test_cff_explorer() {
     assert!(cff_explorer.is_ok());
 
     let pefile = cff_explorer.unwrap();
+    assert!(pefile.has_data_directory(ImageDirectoryEntry::Resource));
+
     let data_directory = ResourceDirectory::parse(&pefile);
     assert!(data_directory.is_ok());
 
