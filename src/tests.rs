@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 
+#[cfg(windows)] use winapi::um::libloaderapi::GetModuleHandleA;
+#[cfg(windows)] use winapi::shared::minwindef::HMODULE;
+
 use super::*;
 use super::headers::*;
 use super::types::*;
@@ -382,4 +385,12 @@ fn test_creation() {
     else {
         panic!("couldn't get NT headers");
     }
+}
+
+#[cfg(windows)]
+#[test]
+fn test_pointer() {
+    let hmodule = unsafe { GetModuleHandleA(std::ptr::null()) };
+    let memory_module = unsafe { PE::from_ptr(hmodule as *const u8) };
+    assert!(memory_module.is_ok());
 }
