@@ -883,6 +883,7 @@ impl FlaggedDword {
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ResourceOffset(pub u32);
 impl ResourceOffset {
+    /// Resolve this resource offset into an [`RVA`](RVA).
     pub fn resolve(&self, pe: &PE) -> Result<RVA, Error> {
         pe.get_resource_address(*self)
     }
