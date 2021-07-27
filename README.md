@@ -9,7 +9,7 @@ Read the documentation [here](https://docs.rs/exe/)!
 
 ## 0.4
 * added support for resource directories
-* refactored data directories to initialize them in a new fashion, see [the docs](https://docs.rs/exe) for more details and [the test file](https://github.com/frank2/exe-rs/blob/main/src/tests.rs) for examples.
+* refactored data directories to be initialized in a new fashion, see [the docs](https://docs.rs/exe) for more details and [the test file](https://github.com/frank2/exe-rs/blob/main/src/tests.rs) for examples.
 
 ## 0.3.1
 * PE object can now parse memory dumps properly, testing against [compiled_dumped.bin](https://github.com/frank2/exe-rs/blob/main/test/compiled_dumped.bin).
