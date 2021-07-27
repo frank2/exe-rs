@@ -10,13 +10,14 @@ Read the documentation [here](https://docs.rs/exe/)!
 ## 0.4
 * added support for resource directories
 * refactored data directories to be initialized in a new fashion, see [the docs](https://docs.rs/exe) for more details and [the test file](https://github.com/frank2/exe-rs/blob/main/src/tests.rs) for examples.
+* PE images can now be parsed from pointers, see ```PE::from_ptr``` and [the test file](https://github.com/frank2/exe-rs/blob/main/src/tests.rs) for example usage.
 
 ## 0.3.1
 * PE object can now parse memory dumps properly, testing against [compiled_dumped.bin](https://github.com/frank2/exe-rs/blob/main/test/compiled_dumped.bin).
 * data directory is now parsed correctly, testing against [no_dd.exe](https://github.com/corkami/pocs/blob/master/PE/bin/no_dd.exe)
 * buffer now has support for arbitrary hashing of ```u8``` slices, see the HashData trait in the buffer module.
 * buffer now also supports arbitrary calculation of entropy on ```u8``` slices, see the Entropy trait in the buffer module.
-* buffers can now be dumped to disk (novel!) see Buffer::save.
+* buffers can now be dumped to disk (novel!) see ```Buffer::save```.
 * add functionality to ```ImageSectionHeader``` such as reading data and calculating proper offsets to data.
 * all headers in the headers module now implement clone!
 * fixed a bug where ```RVA```s got translated incorrectly if they had no ```Offset``` equivalent
