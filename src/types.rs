@@ -995,8 +995,8 @@ pub enum ResourceDirectoryData {
 /// Represents a directory node in the greater resource directory.
 #[derive(Clone)]
 pub struct ResourceNode<'data> {
-    directory: &'data ImageResourceDirectory,
-    entries: &'data [ImageResourceDirectoryEntry],
+    pub directory: &'data ImageResourceDirectory,
+    pub entries: &'data [ImageResourceDirectoryEntry],
 }
 impl<'data> ResourceNode<'data> {
     /// Parse a resource directory node with the given [`ResourceOffset`](ResourceOffset).
@@ -1040,8 +1040,8 @@ impl<'data> ResourceNode<'data> {
 
 /// Represents a mutable directory node in the greater resource directory.
 pub struct ResourceNodeMut<'data> {
-    directory: &'data mut ImageResourceDirectory,
-    entries: &'data mut [ImageResourceDirectoryEntry],
+    pub directory: &'data mut ImageResourceDirectory,
+    pub entries: &'data mut [ImageResourceDirectoryEntry],
 }
 impl<'data> ResourceNodeMut<'data> {
     /// Parse a mutable resource directory node with the given [`ResourceOffset`](ResourceOffset).
