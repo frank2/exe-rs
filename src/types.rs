@@ -1189,6 +1189,7 @@ impl<'data> ResourceDirectory<'data> {
 
         Ok(Self { root_node, resources })
     }
+    /// Filter the parsed resources by the given default [`ResourceID`](ResourceID).
     pub fn filter_by_type(&self, id: ResourceID) -> Vec<FlattenedResourceDataEntry> {
         self.resources
             .iter()
@@ -1296,6 +1297,7 @@ impl<'data> ResourceDirectoryMut<'data> {
             Ok(Self { root_node, resources })
         }
     }
+    /// Filter the parsed resources by the given default [`ResourceID`](ResourceID).
     pub fn filter_by_type(&self, id: ResourceID) -> Vec<FlattenedResourceDataEntry> {
         self.resources
             .iter()
