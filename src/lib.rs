@@ -154,7 +154,7 @@ impl PE {
             Err(e) => Err(e),
         }
     }
-    /// Generates a new PE object from a file on disk, marking it as a memory dump (i.e., sets ```pe_type``` to [`PEType::Memory`](PEType::Memory).
+    /// Generates a new PE object from a file on disk, marking it as a memory dump (i.e., sets ```pe_type``` to [`PEType::Memory`](PEType::Memory)).
     pub fn from_memory_dump<P: AsRef<Path>>(filename: P) -> Result<Self, IoError> {
         match Buffer::from_file(&filename) {
             Ok(buffer) => Ok(
