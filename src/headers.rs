@@ -2,7 +2,7 @@
 //!
 //! Objects taken directly from C are typically prefixed with "Image" and will closely
 //! resemble the names of their C counterparts, but named to conform to Rust standards.
-//! For example, ```IMAGE_DIRECTORY_ENTRY``` is known as [ImageDirectoryEntry](ImageDirectoryEntry) in
+//! For example, ```IMAGE_DIRECTORY_ENTRY``` is known as [`ImageDirectoryEntry`](ImageDirectoryEntry) in
 //! this library.
 
 use bitflags::bitflags;
@@ -18,7 +18,7 @@ use std::default::Default;
 use std::mem;
 use std::slice;
 
-use crate::{PE, PEType, PETranslation, Error};
+use crate::*;
 use crate::types::*;
 
 pub const DOS_SIGNATURE: u16    = 0x5A4D;
@@ -753,6 +753,8 @@ impl ImageSectionHeader {
     }
 
     /// Read a slice of the data this section represents.
+    ///
+    /// The address and size chosen is relative to the PE argument's [type](PEType).
     pub fn read<'data>(&'data self, pe: &'data PE) -> Result<&'data [u8], Error> {
         let offset = self.data_offset(pe.pe_type);
         let size = self.data_size(pe.pe_type);
@@ -760,6 +762,8 @@ impl ImageSectionHeader {
         pe.buffer.read(offset, size)
     }
     /// Read a mutable slice of the data this section represents.
+    ///
+    /// The address and size chosen is relative to the PE argument's [type](PEType).
     pub fn read_mut<'data>(&'data self, pe: &'data mut PE) -> Result<&'data mut [u8], Error> {
         let offset = self.data_offset(pe.pe_type);
         let size = self.data_size(pe.pe_type);
@@ -768,6 +772,8 @@ impl ImageSectionHeader {
     }
     /// Write data to this section. It returns [`Error::BufferTooSmall`](Error::BufferTooSmall) if the data
     /// overflows the section.
+    ///
+    /// The address and size chosen is relative to the PE argument's [type](PEType).
     pub fn write(&self, pe: &mut PE, data: &[u8]) -> Result<(), Error> {
         let offset = self.data_offset(pe.pe_type);
         let size = self.data_size(pe.pe_type);
@@ -834,88 +840,6 @@ pub struct ImageDataDirectory {
     pub virtual_address: RVA,
     pub size: u32,
 }
-impl ImageDataDirectory {
-    /// Get the data directory object pointed to by this data directory entry.
-    pub fn resolve<'data>(&'data self, pe: &'data PE, entry: ImageDirectoryEntry) -> Result<DataDirectory<'data>, Error> {
-        if self.virtual_address.0 == 0 {
-            return Err(Error::InvalidRVA);
-        }
-        
-        let address = match pe.translate(PETranslation::Memory(self.virtual_address)) {
-            Ok(a) => a,
-            Err(e) => return Err(e),
-        };
-
-        /* we use an if/else statement instead of a match block for readability */
-        if entry == ImageDirectoryEntry::Export {
-            match pe.buffer.get_ref::<ImageExportDirectory>(address) {
-                Ok(d) => Ok(DataDirectory::Export(d)),
-                Err(e) => Err(e),
-            }
-        }
-        else if entry == ImageDirectoryEntry::Import {
-            match ImageImportDescriptor::parse_import_table(pe, self) {
-                Ok(d) => Ok(DataDirectory::Import(d)),
-                Err(e) => Err(e),
-            }
-        }
-        else if entry == ImageDirectoryEntry::BaseReloc {
-            match RelocationEntry::parse_table(pe, self) {
-                Ok(d) => Ok(DataDirectory::BaseReloc(d)),
-                Err(e) => Err(e),
-            }
-        }
-        else if entry == ImageDirectoryEntry::Resource {
-            match ResourceDirectory::parse(pe) {
-                Ok(d) => Ok(DataDirectory::Resource(d)),
-                Err(e) => Err(e),
-            }
-        }
-        else {
-            Err(Error::UnsupportedDirectory)
-        }
-    }
-    /// Get the mutable data directory object pointed to by this data directory entry.
-    pub fn resolve_mut<'data>(&'data self, pe: &'data mut PE, entry: ImageDirectoryEntry) -> Result<DataDirectoryMut<'data>, Error> {
-        if self.virtual_address.0 == 0 {
-            return Err(Error::InvalidRVA);
-        }
-        
-        let address = match pe.translate(PETranslation::Memory(self.virtual_address)) {
-            Ok(a) => a,
-            Err(e) => return Err(e),
-        };
-
-        /* we use an if/else statement instead of a match block for readability */
-        if entry == ImageDirectoryEntry::Export {
-            match pe.buffer.get_mut_ref::<ImageExportDirectory>(address) {
-                Ok(d) => Ok(DataDirectoryMut::Export(d)),
-                Err(e) => Err(e),
-            }
-        }
-        else if entry == ImageDirectoryEntry::Import {
-            match ImageImportDescriptor::parse_mut_import_table(pe, self) {
-                Ok(d) => Ok(DataDirectoryMut::Import(d)),
-                Err(e) => Err(e),
-            }
-        }
-        else if entry == ImageDirectoryEntry::BaseReloc {
-            match RelocationEntryMut::parse_table(pe, self) {
-                Ok(d) => Ok(DataDirectoryMut::BaseReloc(d)),
-                Err(e) => Err(e),
-            }
-        }
-        else if entry == ImageDirectoryEntry::Resource {
-            match ResourceDirectoryMut::parse(pe) {
-                Ok(d) => Ok(DataDirectoryMut::Resource(d)),
-                Err(e) => Err(e),
-            }
-        }
-        else {
-            Err(Error::UnsupportedDirectory)
-        }
-    }
-}
 impl Clone for ImageDataDirectory {
     fn clone(&self) -> Self {
         Self {
@@ -945,6 +869,44 @@ pub struct ImageExportDirectory {
     pub address_of_name_ordinals: RVA, // [u16; number_of_names]
 }
 impl ImageExportDirectory {
+    /// Parse the export table in the PE file.
+    pub fn parse<'data>(pe: &'data PE) -> Result<&'data ImageExportDirectory, Error> {
+        let dir = match pe.get_data_directory(ImageDirectoryEntry::Export) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+
+        if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
+            return Err(Error::InvalidRVA);
+        }
+
+        let offset = match pe.translate(PETranslation::Memory(dir.virtual_address)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        pe.buffer.get_ref::<ImageExportDirectory>(offset)
+    }
+
+    /// Parse a mutable export table in the PE file.
+    pub fn parse_mut<'data>(pe: &'data mut PE) -> Result<&'data mut ImageExportDirectory, Error> {
+        let dir = match pe.get_data_directory(ImageDirectoryEntry::Export) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+
+        if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
+            return Err(Error::InvalidRVA);
+        }
+
+        let offset = match pe.translate(PETranslation::Memory(dir.virtual_address)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        pe.buffer.get_mut_ref::<ImageExportDirectory>(offset)
+    }
+    
     /// Get the name of this export module.
     pub fn get_name<'data>(&self, pe: &'data PE) -> Result<&'data [CChar], Error> {
         if self.name.0 == 0 {
@@ -968,8 +930,8 @@ impl ImageExportDirectory {
         }
     }
     /// Get the function array of this export entry. This array represents thunk data pointing to either
-    /// ordinals [ThunkData::Ordinal](ThunkData::Ordinal), forwarder strings ([ThunkData::ForwarderString](ThunkData::ForwarderString)
-    /// or function data [ThunkData::Function](ThunkData::Function).
+    /// ordinals [`ThunkData::Ordinal`](ThunkData::Ordinal), forwarder strings ([`ThunkData::ForwarderString`](ThunkData::ForwarderString)
+    /// or function data [`ThunkData::Function`](ThunkData::Function).
     pub fn get_functions<'data>(&self, pe: &'data PE) -> Result<&'data [Thunk32], Error> {
         if self.address_of_functions.0 == 0 {
             return Err(Error::InvalidRVA);
@@ -1038,8 +1000,8 @@ impl ImageExportDirectory {
         }
     }
     /// Get a mapping of exports to thunk data for this export entry. This maps exported names to thunk data, which can
-    /// be an ordinal ([ThunkData::Ordinal](ThunkData::Ordinal)), a function ([ThunkData::Function](ThunkData::Function))
-    /// or a forwarder string ([ThunkData::ForwarderString](ThunkData::ForwarderString)).
+    /// be an ordinal ([`ThunkData::Ordinal`](ThunkData::Ordinal)), a function ([`ThunkData::Function`](ThunkData::Function))
+    /// or a forwarder string ([`ThunkData::ForwarderString`](ThunkData::ForwarderString)).
     pub fn get_export_map<'data>(&self, pe: &'data PE) -> Result<HashMap<&'data str, ThunkData>, Error> {
         let mut result: HashMap<&'data str, ThunkData> = HashMap::<&'data str, ThunkData>::new();
 
@@ -1233,68 +1195,6 @@ impl ImageImportDescriptor {
         }
     }
 
-    /// Parse the size of the import table pointed to by the ```ImageDataDirectory``` reference.
-    pub fn parse_import_table_size(pe: &PE, dir: &ImageDataDirectory) -> Result<usize, Error> {
-        if dir.virtual_address.0 == 0 {
-            return Err(Error::InvalidRVA);
-        }
-
-        let mut address = match pe.translate(PETranslation::Memory(dir.virtual_address)) {
-            Ok(a) => a,
-            Err(e) => return Err(e),
-        };
-
-        let mut imports = 0usize;
-
-        loop {
-            if !pe.validate_offset(address) {
-                return Err(Error::InvalidOffset);
-            }
-
-            match pe.buffer.get_ref::<ImageImportDescriptor>(address) {
-                Ok(x) => { if x.original_first_thunk.0 == 0 && x.first_thunk.0 == 0 { break; } },
-                Err(e) => return Err(e),
-            }
-
-            imports += 1;
-            address.0 += mem::size_of::<ImageImportDescriptor>() as u32;
-        }
-
-        Ok(imports)
-    }
-    
-    /// Get the import table pointed to by the [ImageDataDirectory](ImageDataDirectory) reference. This is typically used by the
-    /// [ImageDataDirectory::resolve](ImageDataDirectory::resolve) function.
-    pub fn parse_import_table<'data>(pe: &'data PE, dir: &'data ImageDataDirectory) -> Result<&'data [ImageImportDescriptor], Error> {
-        let size = match ImageImportDescriptor::parse_import_table_size(pe, dir) {
-            Ok(s) => s,
-            Err(e) => return Err(e),
-        };
-
-        let offset = match pe.translate(PETranslation::Memory(dir.virtual_address)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
-        pe.buffer.get_slice_ref::<ImageImportDescriptor>(offset, size)
-    }
-
-    /// Get the mutable import table pointed to by the [ImageDataDirectory](ImageDataDirectory) reference. This is typically used by the
-    /// [ImageDataDirectory::resolve_mut](ImageDataDirectory::resolve_mut) function.
-    pub fn parse_mut_import_table<'data>(pe: &'data mut PE, dir: &'data ImageDataDirectory) -> Result<&'data mut [ImageImportDescriptor], Error> {
-        let size = match ImageImportDescriptor::parse_import_table_size(pe, dir) {
-            Ok(s) => s,
-            Err(e) => return Err(e),
-        };
-
-        let offset = match pe.translate(PETranslation::Memory(dir.virtual_address)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
-        pe.buffer.get_mut_slice_ref::<ImageImportDescriptor>(offset, size)
-    }
-
     /// Get the thunk array pointed to by the ```original_first_thunk``` field.
     pub fn get_original_first_thunk<'data>(&self, pe: &'data PE) -> Result<Vec<Thunk<'data>>, Error> {
         self.parse_thunk_array(pe, self.original_first_thunk)
@@ -1333,7 +1233,7 @@ impl ImageImportDescriptor {
     }
 
     /// Get the imports represented by this import descriptor. This resolves the import table and returns a series of strings
-    /// representing both [ImageImportByName](ImageImportByName) structures as well as import ordinals.
+    /// representing both [`ImageImportByName`](ImageImportByName) structures as well as import ordinals.
     pub fn get_imports(&self, pe: &PE) -> Result<Vec<String>, Error> {
         let mut results = Vec::<String>::new();
 
@@ -1539,6 +1439,9 @@ pub struct ImageResourceDirectoryEntry {
     pub offset_to_data: FlaggedDword,
 }
 impl ImageResourceDirectoryEntry {
+    /// Get the ID of this directory entry.
+    ///
+    /// The ID can either be a [name](ResourceDirectoryID::Name) or a numeric [ID](ResourceDirectoryID::ID).
     pub fn get_id(&self) -> ResourceDirectoryID {
         if self.name.get_flag() {
             ResourceDirectoryID::Name(ResourceOffset(self.name.get_dword()))
@@ -1547,6 +1450,9 @@ impl ImageResourceDirectoryEntry {
             ResourceDirectoryID::ID(self.name.get_dword())
         }
     }
+    /// Get the offset to the data this entry represents.
+    ///
+    /// This can be either [data](ResourceDirectoryData::Data) or [another directory](ResourceDirectoryData::Directory).
     pub fn get_data(&self) -> ResourceDirectoryData {
         if self.offset_to_data.get_flag() {
             ResourceDirectoryData::Directory(ResourceOffset(self.offset_to_data.get_dword()))
@@ -1571,9 +1477,9 @@ impl Clone for ImageResourceDirectoryEntry {
 
 /// Represents an ```IMAGE_RESOURCE_DIR_STRING``` structure.
 ///
-/// See [ImageImportByName](ImageImportByName) for an explanation as to why this structure
+/// See [`ImageImportByName`](ImageImportByName) for an explanation as to why this structure
 /// is different from the others.
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct ImageResourceDirString<'data> {
     pub length: &'data u16,
     pub name: &'data [CChar],
@@ -1602,7 +1508,7 @@ impl<'data> ImageResourceDirString<'data> {
 
 /// Represents a mutable ```IMAGE_RESOURCE_DIR_STRING``` structure.
 ///
-/// See [ImageImportByName](ImageImportByName) for an explanation as to why this structure
+/// See [`ImageImportByName`](ImageImportByName) for an explanation as to why this structure
 /// is different from the others.
 pub struct ImageResourceDirStringMut<'data> {
     pub length: &'data mut u16,
@@ -1639,9 +1545,9 @@ impl<'data> ImageResourceDirStringMut<'data> {
 
 /// Represents an ```IMAGE_RESOURCE_DIR_STRING_U``` structure.
 ///
-/// See [ImageImportByName](ImageImportByName) for an explanation as to why this structure
+/// See [`ImageImportByName`](ImageImportByName) for an explanation as to why this structure
 /// is different from the others.
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct ImageResourceDirStringU<'data> {
     pub length: &'data u16,
     pub name: &'data [WChar],
@@ -1670,7 +1576,7 @@ impl<'data> ImageResourceDirStringU<'data> {
 
 /// Represents a mutable ```IMAGE_RESOURCE_DIR_STRING_U``` structure.
 ///
-/// See [ImageImportByName](ImageImportByName) for an explanation as to why this structure
+/// See [`ImageImportByName`](ImageImportByName) for an explanation as to why this structure
 /// is different from the others.
 pub struct ImageResourceDirStringUMut<'data> {
     pub length: &'data mut u16,

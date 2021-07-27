@@ -3,17 +3,14 @@
 //! Getting started is easy:
 //! ```rust
 //! use exe::PE;
-//! use exe::headers::ImageDirectoryEntry;
-//! use exe::types::{DataDirectory, CCharString};
+//! use exe::types::{ImportDirectory, CCharString};
 //!
 //! let pefile = PE::from_file("test/compiled.exe").unwrap();
-//! let import_directory = pefile.resolve_data_directory(ImageDirectoryEntry::Import).unwrap();
+//! let import_directory = ImportDirectory::parse(&pefile).unwrap();
 //!
-//! if let DataDirectory::Import(import_table) = import_directory {
-//!    for import in import_table {
-//!       println!("Module: {}", import.get_name(&pefile).unwrap().as_str());
-//!       println!("Imports: {:?}", import.get_imports(&pefile).unwrap());
-//!    }
+//! for import in import_directory.descriptors {
+//!    println!("Module: {}", import.get_name(&pefile).unwrap().as_str());
+//!    println!("Imports: {:?}", import.get_imports(&pefile).unwrap());
 //! }
 //! ```
 //!
@@ -74,7 +71,7 @@ pub enum Error {
 
 /// An enum to tag the PE file with what its memory map looks like.
 ///
-/// When a PE is loaded, it's ultimately parsed before being placed into memory. This
+/// When a PE is loaded, it's ultimately parsed and rewritten before being placed into memory. This
 /// means the image in memory is different from the disk. This is why, for example,
 /// RVAs and Offsets differ in type-- the RVA represents the offset to the image in
 /// *memory*, whereas the Offset represents the offset to the image on *disk*. This enum
@@ -87,7 +84,7 @@ pub enum PEType {
 
 /// An enum to translate between RVA and Offset addresses.
 ///
-/// This typically never gets exposed beyond the [translate](PE::translate) function. See [PEType](PEType)
+/// This typically never gets exposed beyond the [`translate`](PE::translate) function. See [`PEType`](PEType)
 /// for an explanation of why this is here.
 pub enum PETranslation {
     Disk(Offset),
@@ -122,7 +119,6 @@ pub struct PE {
     /// The buffer that holds the data. Various operations such as getting
     /// references to objects in the data can be found in the buffer object.
     pub buffer: Buffer,
-    /* pub virtual: Option<Buffer> */
     /// The optional filename of the PE file.
     pub filename: Option<String>,
 }
@@ -157,7 +153,7 @@ impl PE {
             Err(e) => Err(e),
         }
     }
-    /// Generates a new PE object from a file on disk, marking it as a memory dump (i.e., sets ```pe_type``` to [PEType::Memory](PEType::Memory).
+    /// Generates a new PE object from a file on disk, marking it as a memory dump (i.e., sets ```pe_type``` to [`PEType::Memory`](PEType::Memory).
     pub fn from_memory_dump<P: AsRef<Path>>(filename: P) -> Result<Self, IoError> {
         match Buffer::from_file(&filename) {
             Ok(buffer) => Ok(
@@ -173,9 +169,9 @@ impl PE {
 
     /// Translate an address into a buffer offset relevant to the image type.
     ///
-    /// This differs from [rva_to_offset](PE::rva_to_offset) because it does not directly rely on the section table.
-    /// Rather, if the image is a memory image, it treats [RVA](RVA)s as offsets, because that's what they are in memory.
-    /// Otherwise, it converts the [RVA](RVA) into an offset via the section table. The reverse goes for if
+    /// This differs from [`rva_to_offset`](PE::rva_to_offset) because it does not directly rely on the section table.
+    /// Rather, if the image is a memory image, it treats [`RVA`](RVA)s as offsets, because that's what they are in memory.
+    /// Otherwise, it converts the [`RVA`](RVA) into an offset via the section table. The reverse goes for if
     /// the PE image is a disk image and an [Offset](Offset) is provided.
     pub fn translate(&self, addr: PETranslation) -> Result<Offset, Error> {
         match self.pe_type {
@@ -524,8 +520,8 @@ impl PE {
     ///
     /// Normally one would expect this to be a part of [ImageOptionalHeader](ImageOptionalHeader32), but
     /// [ImageOptionalHeader::number_of_rva_and_sizes](ImageOptionalHeader32::number_of_rva_and_sizes) controls
-    /// the size of the array, so we can't exactly stick it in the optional header, because that would
-    /// produce a variable-sized structure.
+    /// the size of the array. Therefore, we can't stick it in the optional header, because that would
+    /// produce a variable-sized structure, which Rust doesn't support.
     pub fn get_data_directory_table(&self) -> Result<&[ImageDataDirectory], Error> {
         let offset = match self.get_data_directory_offset() {
             Ok(o) => o,
@@ -726,13 +722,15 @@ impl PE {
         Err(Error::SectionNotFound)
     }
 
-    /// Verify that the given offset is a valid offset. An offset is validated if it is less than
-    /// the length of the buffer.
+    /// Verify that the given offset is a valid offset.
+    ///
+    /// An offset is validated if it is less than the length of the buffer.
     pub fn validate_offset(&self, offset: Offset) -> bool {
         (offset.0 as usize) < self.buffer.len()
     }
-    /// Verify that the given RVA is a valid RVA. An RVA is validated if it is less than the size
-    /// of the image.
+    /// Verify that the given RVA is a valid RVA.
+    ///
+    /// An RVA is validated if it is less than the size of the image.
     pub fn validate_rva(&self, rva: RVA) -> bool {
         let headers = match self.get_valid_nt_headers() {
             Ok(h) => h,
@@ -745,8 +743,9 @@ impl PE {
 
         (rva.0 as usize) < image_size
     }
-    /// Verify that the given VA is a valid VA for this image. A VA is validated if it
-    /// lands between the image base and the end of the image, determined by its size.
+    /// Verify that the given VA is a valid VA for this image.
+    ///
+    /// A VA is validated if it lands between the image base and the end of the image, determined by its size.
     /// In other words: ```image_base <= VA < (image_base+image_size)```
     pub fn validate_va(&self, va: VA) -> bool {
         let headers = match self.get_valid_nt_headers() {
@@ -921,10 +920,26 @@ impl PE {
 
         Ok(&mut directory_table[index])
     }
-
-    /// Get an [Offset](Offset) object relative to the resource directory.
+    /// Check whether or not this PE file has a given data directory.
     ///
-    /// This is useful for gathering addresses when parsing the resource directory. Returns [Error::BufferTooSmall](Error::BufferTooSmall)
+    /// A PE file "has" a data directory if the following conditions are met:
+    /// * the directory is present in the data directory array
+    /// * the RVA is nonzero
+    /// * the RVA is valid
+    pub fn has_data_directory(&self, dir: ImageDirectoryEntry) -> bool {
+        let dir_obj = match self.get_data_directory(dir) {
+            Ok(d) => d,
+            Err(_) => return false,
+        };
+
+        if dir_obj.virtual_address.0 == 0 { return false; }
+
+        self.validate_rva(dir_obj.virtual_address)
+    }
+
+    /// Get an [`RVA`](RVA) object relative to the resource directory.
+    ///
+    /// This is useful for gathering addresses when parsing the resource directory. Returns [`Error::BufferTooSmall`](Error::BufferTooSmall)
     /// if the offset doesn't fit in the resource directory.
     pub fn get_resource_address(&self, offset: ResourceOffset) -> Result<RVA, Error> {
         let dir = match self.get_data_directory(ImageDirectoryEntry::Resource) {
@@ -941,35 +956,5 @@ impl PE {
         }
 
         Ok(RVA(dir.virtual_address.0 + offset.0))
-    }
-    
-    /// Resolve the data directory represented by the [ImageDirectoryEntry](headers::ImageDirectoryEntry) enum. This produces a data
-    /// directory variant enum object associated with the data directory type.
-    ///
-    /// ```rust
-    /// use exe::PE;
-    /// use exe::headers::ImageDirectoryEntry;
-    /// use exe::types::DataDirectory;
-    ///
-    /// let pefile = PE::from_file("test/compiled.exe").unwrap();
-    /// let data_directory = pefile.resolve_data_directory(ImageDirectoryEntry::Import).unwrap();
-    ///
-    /// if let DataDirectory::Import(import_table) = data_directory {
-    ///    println!("Got the import table!");
-    /// }
-    /// ```
-    pub fn resolve_data_directory(&self, dir: ImageDirectoryEntry) -> Result<DataDirectory, Error> {
-        let directory_table = match self.get_data_directory_table() {
-            Ok(d) => d,
-            Err(e) => return Err(e),
-        };
-
-        let index = dir as usize;
-
-        if index >= directory_table.len() {
-            return Err(Error::BadDirectory);
-        }
-
-        directory_table[index].resolve(self, dir)
     }
 }

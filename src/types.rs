@@ -50,7 +50,7 @@ pub struct WChar(pub u16);
 pub trait WCharString {
     /// Get the zero-terminated representation of this string, or ```None``` if it is not zero-terminated.
     fn zero_terminated(&self) -> Option<&Self>;
-    /// Get the string slice as a ```&U16Str```.
+    /// Get the string slice as a [`U16Str`](U16Str).
     fn as_u16_str(&self) -> &U16Str;
 }
 impl WCharString for [WChar] {
@@ -265,6 +265,112 @@ pub enum ThunkMut<'data> {
     Thunk64(&'data mut Thunk64),
 }
 
+pub type ExportDirectory = ImageExportDirectory;
+
+/// Represents the import directory in the PE file.
+pub struct ImportDirectory<'data> {
+    pub descriptors: &'data [ImageImportDescriptor]
+}
+impl<'data> ImportDirectory<'data> {
+    /// Parse the size of the import table in the PE file.
+    pub fn parse_size(pe: &'data PE) -> Result<usize, Error> {
+        let dir = match pe.get_data_directory(ImageDirectoryEntry::Import) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+
+        if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
+            return Err(Error::InvalidRVA);
+        }
+
+        let mut address = match pe.translate(PETranslation::Memory(dir.virtual_address)) {
+            Ok(a) => a,
+            Err(e) => return Err(e),
+        };
+
+        let mut imports = 0usize;
+
+        loop {
+            if !pe.validate_offset(address) {
+                return Err(Error::InvalidOffset);
+            }
+
+            match pe.buffer.get_ref::<ImageImportDescriptor>(address) {
+                Ok(x) => { if x.original_first_thunk.0 == 0 && x.first_thunk.0 == 0 { break; } },
+                Err(e) => return Err(e),
+            }
+
+            imports += 1;
+            address.0 += mem::size_of::<ImageImportDescriptor>() as u32;
+        }
+
+        Ok(imports)
+    }
+    /// Parse the import table in the PE file.
+    pub fn parse(pe: &'data PE) -> Result<Self, Error> {
+        let dir = match pe.get_data_directory(ImageDirectoryEntry::Import) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+
+        if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
+            return Err(Error::InvalidRVA);
+        }
+
+        let offset = match pe.translate(PETranslation::Memory(dir.virtual_address)) {
+            Ok(a) => a,
+            Err(e) => return Err(e),
+        };
+
+        let size = match Self::parse_size(pe) {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        let descriptors = match pe.buffer.get_slice_ref::<ImageImportDescriptor>(offset, size) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+
+        Ok(Self { descriptors } )
+    }
+}
+
+/// Represents a mutable import directory in the PE file.
+pub struct ImportDirectoryMut<'data> {
+    pub descriptors: &'data mut [ImageImportDescriptor]
+}
+impl<'data> ImportDirectoryMut<'data> {
+    /// Parse a mutable import table in the PE file.
+    pub fn parse(pe: &'data mut PE) -> Result<Self, Error> {
+        let dir = match pe.get_data_directory(ImageDirectoryEntry::Import) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+
+        if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
+            return Err(Error::InvalidRVA);
+        }
+
+        let offset = match pe.translate(PETranslation::Memory(dir.virtual_address)) {
+            Ok(a) => a,
+            Err(e) => return Err(e),
+        };
+
+        let size = match ImportDirectory::parse_size(pe) {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        let descriptors = match pe.buffer.get_mut_slice_ref::<ImageImportDescriptor>(offset, size) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+
+        Ok(Self { descriptors } )
+    }
+}
+
 /// An enum representing the resulting values of a relocation.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum RelocationValue {
@@ -404,23 +510,19 @@ impl Relocation {
 ///
 /// ```rust
 /// use exe::PE;
-/// use exe::headers::ImageDirectoryEntry;
-/// use exe::types::{DataDirectory, RVA};
+/// use exe::types::{RelocationDirectory, RVA};
 ///
 /// let dll = PE::from_file("test/dll.dll").unwrap();
-/// let relocation_dir = dll.resolve_data_directory(ImageDirectoryEntry::BaseReloc).unwrap();
+/// let relocation_dir = RelocationDirectory::parse(&dll).unwrap();
+/// assert_eq!(relocation_dir.entries.len(), 1);
 ///
-/// if let DataDirectory::BaseReloc(relocation_table) = relocation_dir {
-///    assert_eq!(relocation_table.len(), 1);
+/// let entry = &relocation_dir.entries[0];
+/// let addresses = entry.relocations
+///                      .iter()
+///                      .map(|&x| x.get_address(entry.base_relocation.virtual_address))
+///                      .collect::<Vec<RVA>>();
 ///
-///    let entry = &relocation_table[0];
-///    let addresses = entry.relocations
-///                         .iter()
-///                         .map(|&x| x.get_address(entry.base_relocation.virtual_address))
-///                         .collect::<Vec<RVA>>();
-///
-///    assert_eq!(addresses[0], RVA(0x1008));
-/// }
+/// assert_eq!(addresses[0], RVA(0x1008));
 /// ```
 pub struct RelocationEntry<'data> {
     pub base_relocation: &'data ImageBaseRelocation,
@@ -452,33 +554,6 @@ impl<'data> RelocationEntry<'data> {
         Ok(Self { base_relocation, relocations })
     }
     /// Parse a relocation table with the given data directory.
-    pub fn parse_table(pe: &'data PE, dir: &ImageDataDirectory) -> Result<Vec<RelocationEntry<'data>>, Error> {
-        if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
-            return Err(Error::InvalidRVA);
-        }
-
-        let mut start_addr = dir.virtual_address.clone();
-        let end_addr = RVA(start_addr.0 + dir.size);
-
-        if !pe.validate_rva(end_addr) {
-            return Err(Error::InvalidRVA);
-        }
-
-        let mut result = Vec::<RelocationEntry>::new();
-
-        while start_addr.0 < end_addr.0 {
-            let entry = match RelocationEntry::parse(pe, start_addr) {
-                Ok(r) => r,
-                Err(e) => return Err(e),
-            };
-            let size = entry.size();
-            
-            result.push(entry);
-            start_addr.0 += size as u32;
-        }
-
-        Ok(result)
-    }
     /// Get the size of this relocation entry in bytes.
     pub fn size(&self) -> usize {
         mem::size_of::<ImageBaseRelocation>() + (self.relocations.len() * mem::size_of::<Relocation>())
@@ -536,86 +611,74 @@ impl<'data> RelocationEntryMut<'data> {
         Ok(Self { base_relocation, relocations })
     }
 
-    /// Parse a mutable relocation table with the given data directory.
-    pub fn parse_table(pe: &'data mut PE, dir: &ImageDataDirectory) -> Result<Vec<RelocationEntryMut<'data>>, Error> {
-        if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
-            return Err(Error::InvalidRVA);
-        }
-
-        let start_addr = dir.virtual_address.clone();
-        let end_addr = RVA(start_addr.0 + dir.size);
-
-        if !pe.validate_rva(end_addr) {
-            return Err(Error::InvalidRVA);
-        }
-
-        let start_offset = match pe.translate(PETranslation::Memory(start_addr)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-        let end_offset = match pe.translate(PETranslation::Memory(end_addr)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
-        let mut result = Vec::<RelocationEntryMut>::new();
-
-        unsafe {
-            let mut start_ptr = pe.buffer.offset_to_mut_ptr(start_offset);
-            let end_ptr = pe.buffer.offset_to_ptr(end_offset);
-            
-            while (start_ptr as usize) < (end_ptr as usize) {
-                let entry = match Self::parse_unsafe(pe, start_ptr) {
-                    Ok(r) => r,
-                    Err(e) => return Err(e),
-                };
-            
-                start_ptr = start_ptr.add(entry.size());
-                result.push(entry);
-            }
-        }
-
-        Ok(result)
-    }
     /// Get the size of this relocation entry in bytes.
     pub fn size(&self) -> usize {
         mem::size_of::<ImageBaseRelocation>() + (self.relocations.len() * mem::size_of::<Relocation>())
     }
 }
 
-/// Syntactic sugar for handling the relocation directory.
+/// Represents the relocation directory.
 ///
 /// It can be used to quickly calculate the relocation data necessary before committing the data
 /// to memory.
 ///
 /// ```rust
 /// use exe::PE;
-/// use exe::headers::ImageDirectoryEntry;
-/// use exe::types::{DataDirectory, RelocationTable, RelocationValue, RVA};
+/// use exe::types::{RelocationDirectory, RelocationValue, RVA};
 ///
 /// let dll = PE::from_file("test/dll.dll").unwrap();
-/// let relocation_dir = dll.resolve_data_directory(ImageDirectoryEntry::BaseReloc).unwrap();
+/// let relocation_dir = RelocationDirectory::parse(&dll).unwrap();
+/// let relocation_data = relocation_dir.relocations(&dll, 0x02000000).unwrap();
+/// let (rva, reloc) = relocation_data[0];
 ///
-/// if let DataDirectory::BaseReloc(relocation_table) = relocation_dir {
-///    let relocation_data = relocation_table.relocations(&dll, 0x02000000).unwrap();
-///    let (rva, reloc) = relocation_data[0];
-///
-///    assert_eq!(rva, RVA(0x1008));
-///    assert_eq!(reloc, RelocationValue::Relocation32(0x02001059));
-/// }
+/// assert_eq!(rva, RVA(0x1008));
+/// assert_eq!(reloc, RelocationValue::Relocation32(0x02001059));
 /// ```
-pub trait RelocationTable<'data> {
-    /// Get the relocation values of the given relocation table.
-    fn relocations(&self, pe: &'data PE, new_base: u64) -> Result<Vec<(RVA, RelocationValue)>, Error>;
-    /// Relocate a PE image based on the relocation table.
-    fn relocate(&self, pe: &'data mut PE, new_base: u64) -> Result<(), Error>;
+pub struct RelocationDirectory<'data> {
+    pub entries: Vec<RelocationEntry<'data>>,
 }
+impl<'data> RelocationDirectory<'data> {
+    /// Parse the relocation directory.
+    pub fn parse(pe: &'data PE) -> Result<Self, Error> {
+        let dir = match pe.get_data_directory(ImageDirectoryEntry::BaseReloc) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+        
+        if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
+            return Err(Error::InvalidRVA);
+        }
 
-impl<'data> RelocationTable<'data> for Vec<RelocationEntry<'data>> {
-    fn relocations(&self, pe: &'data PE, new_base: u64) -> Result<Vec<(RVA, RelocationValue)>, Error> {
+        let mut start_addr = dir.virtual_address.clone();
+        let end_addr = RVA(start_addr.0 + dir.size);
+
+        if !pe.validate_rva(end_addr) {
+            return Err(Error::InvalidRVA);
+        }
+
+        let mut entries = Vec::<RelocationEntry>::new();
+
+        while start_addr.0 < end_addr.0 {
+            let entry = match RelocationEntry::parse(pe, start_addr) {
+                Ok(r) => r,
+                Err(e) => return Err(e),
+            };
+            let size = entry.size();
+            
+            entries.push(entry);
+            start_addr.0 += size as u32;
+        }
+
+        Ok(Self { entries })
+    }
+
+    /// Get a vector of [`RVA`](RVA)-to-[`RelocationValue`](RelocationValue) tuples.
+    ///
+    /// Essentially performs the relocation without writing the values.
+    pub fn relocations(&self, pe: &'data PE, new_base: u64) -> Result<Vec<(RVA, RelocationValue)>, Error> {
         let mut result = Vec::<(RVA, RelocationValue)>::new();
 
-        for entry in self {
+        for entry in &self.entries {
             let base_rva = entry.base_relocation.virtual_address.clone();
             let len = entry.relocations.len();
 
@@ -638,6 +701,8 @@ impl<'data> RelocationTable<'data> for Vec<RelocationEntry<'data>> {
 
         Ok(result)
     }
+    /// Grabs the relocation values from [`RelocationDirectory::relocations`](RelocationDirectory::relocations) and
+    /// writes them to the PE buffer.
     fn relocate(&self, pe: &'data mut PE, new_base: u64) -> Result<(), Error> {
         let relocations = match self.relocations(pe, new_base) {
             Ok(r) => r,
@@ -672,11 +737,65 @@ impl<'data> RelocationTable<'data> for Vec<RelocationEntry<'data>> {
     }
 }
 
-impl<'data> RelocationTable<'data> for Vec<RelocationEntryMut<'data>> {
-    fn relocations(&self, pe: &'data PE, new_base: u64) -> Result<Vec<(RVA, RelocationValue)>, Error> {
+/// Represents a mutable relocation directory.
+pub struct RelocationDirectoryMut<'data> {
+    pub entries: Vec<RelocationEntryMut<'data>>,
+}
+impl<'data> RelocationDirectoryMut<'data> {
+    /// Parse a mutable relocation table.
+    pub fn parse(pe: &'data mut PE) -> Result<Self, Error> {
+        let dir = match pe.get_data_directory(ImageDirectoryEntry::BaseReloc) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+        
+        if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
+            return Err(Error::InvalidRVA);
+        }
+
+        let start_addr = dir.virtual_address.clone();
+        let end_addr = RVA(start_addr.0 + dir.size);
+
+        if !pe.validate_rva(end_addr) {
+            return Err(Error::InvalidRVA);
+        }
+
+        let start_offset = match pe.translate(PETranslation::Memory(start_addr)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+        let end_offset = match pe.translate(PETranslation::Memory(end_addr)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let mut entries = Vec::<RelocationEntryMut>::new();
+
+        unsafe {
+            let mut start_ptr = pe.buffer.offset_to_mut_ptr(start_offset);
+            let end_ptr = pe.buffer.offset_to_ptr(end_offset);
+            
+            while (start_ptr as usize) < (end_ptr as usize) {
+                let entry = match RelocationEntryMut::parse_unsafe(pe, start_ptr) {
+                    Ok(r) => r,
+                    Err(e) => return Err(e),
+                };
+            
+                start_ptr = start_ptr.add(entry.size());
+                entries.push(entry);
+            }
+        }
+
+        Ok(Self { entries })
+    }
+
+    /// Get a vector of [`RVA`](RVA)-to-[`RelocationValue`](RelocationValue) tuples.
+    ///
+    /// Essentially performs the relocation without writing the values.
+    pub fn relocations(&self, pe: &'data PE, new_base: u64) -> Result<Vec<(RVA, RelocationValue)>, Error> {
         let mut result = Vec::<(RVA, RelocationValue)>::new();
 
-        for entry in self {
+        for entry in &self.entries {
             let base_rva = entry.base_relocation.virtual_address.clone();
             let len = entry.relocations.len();
 
@@ -699,6 +818,8 @@ impl<'data> RelocationTable<'data> for Vec<RelocationEntryMut<'data>> {
 
         Ok(result)
     }
+    /// Grabs the relocation values from [`RelocationDirectoryMut::relocations`](RelocationDirectoryMut::relocations) and
+    /// writes them to the PE buffer.
     fn relocate(&self, pe: &'data mut PE, new_base: u64) -> Result<(), Error> {
         let relocations = match self.relocations(pe, new_base) {
             Ok(r) => r,
@@ -1084,7 +1205,7 @@ pub struct ResourceDirectoryMut<'data> {
     pub resources: Vec<FlattenedResourceDataEntry>,
 }
 impl<'data> ResourceDirectoryMut<'data> {
-    /// Parse the resource directory in the given PE file.
+    /// Parse a mutable resource directory in the given PE file.
     pub fn parse(pe: &'data mut PE) -> Result<Self, Error> {
         let mut resources = Vec::<FlattenedResourceDataEntry>::new();
 
@@ -1183,29 +1304,4 @@ impl<'data> ResourceDirectoryMut<'data> {
             .map(|&x| x)
             .collect()
     }
-}
-
-/// An enum representing a data directory object.
-///
-/// Currently, the following data directories are supported:
-/// * [ImageDirectoryEntry::Export](ImageDirectoryEntry::Export)
-/// * [ImageDirectoryEntry::Import](ImageDirectoryEntry::Import)
-/// * [ImageDirectoryEntry::BaseReloc](ImageDirectoryEntry::BaseReloc)
-/// * [ImageDirectoryEntry::Resource](ImageDirectoryEntry::Resource)
-///
-pub enum DataDirectory<'data> {
-    Export(&'data ImageExportDirectory),
-    Import(&'data [ImageImportDescriptor]),
-    BaseReloc(Vec<RelocationEntry<'data>>),
-    Resource(ResourceDirectory<'data>),
-    Unsupported,
-}
-
-/// An enum representing a mutable data directory object.
-pub enum DataDirectoryMut<'data> {
-    Export(&'data mut ImageExportDirectory),
-    Import(&'data mut [ImageImportDescriptor]),
-    BaseReloc(Vec<RelocationEntryMut<'data>>),
-    Resource(ResourceDirectoryMut<'data>),
-    Unsupported,
 }

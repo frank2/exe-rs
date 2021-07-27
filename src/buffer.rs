@@ -23,7 +23,7 @@ use crate::Error;
 use crate::types::{Offset, CChar, WChar};
 
 /// Get a slice of ```u8``` that represents the underlying data of the object. Useful when combined with
-/// the [HashData](HashData) or [Entropy](Entropy) traits.
+/// the [`HashData`](HashData) or [`Entropy`](Entropy) traits.
 pub fn ref_to_slice<T>(data: &T) -> &[u8] {
     let ptr = data as *const T as *const u8;
     let size = mem::size_of::<T>();
@@ -221,7 +221,7 @@ impl Buffer {
             Ok(Offset(delta as u32))
         }
     }
-    /// Converts a reference to an offset. Returns a [Error::BadPointer](Error::BadPointer) error if the reference
+    /// Converts a reference to an offset. Returns a [`Error::BadPointer`](Error::BadPointer) error if the reference
     /// isn't from the buffer.
     pub fn ref_to_offset<T>(&self, data: &T) -> Result<Offset, Error> {
         self.ptr_to_offset(data as *const T as *const u8)
@@ -283,7 +283,7 @@ impl Buffer {
             Ok(&mut *ptr)
         }
     }
-    /// Gets a slice reference of data in the buffer. This is how to get arrays in the buffer.
+    /// Gets a slice reference of data in the buffer. This is how to get arrays from the buffer.
     ///
     /// ```rust
     /// use exe::buffer::Buffer;
