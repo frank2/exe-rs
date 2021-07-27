@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 #[cfg(windows)] use winapi::um::libloaderapi::GetModuleHandleA;
-#[cfg(windows)] use winapi::shared::minwindef::HMODULE;
 
 use super::*;
 use super::headers::*;
