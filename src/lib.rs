@@ -31,6 +31,7 @@ use std::convert::AsRef;
 use std::io::{Error as IoError};
 use std::mem;
 use std::path::Path;
+use std::slice;
 
 use crate::buffer::Buffer;
 use crate::headers::*;
@@ -165,6 +166,45 @@ impl PE {
             ),
             Err(e) => Err(e),
         }
+    }
+    /// Generates a new PE file from a pointer to memory.
+    ///
+    /// This pointer is assumed to be pointed at a memory-mapped image (i.e., is [`PEType::Memory`](PEType::Memory)). Because of the nature
+    /// of verifying the given pointer is a PE image, this function also parses the image and verifies it's a PE image. And despite using
+    /// a pointer, this function copies the image from memory, and does not maintain its pointed status.
+    pub unsafe fn from_ptr(ptr: *const u8) -> Result<PE, Error> {
+        let dos_header = &*(ptr as *const ImageDOSHeader);
+
+        if dos_header.e_magic != DOS_SIGNATURE {
+            return Err(Error::InvalidDOSSignature);
+        }
+
+        let nt_header = &*(ptr.add(dos_header.e_lfanew.0 as usize) as *const ImageNTHeaders32);
+
+        if nt_header.signature != NT_SIGNATURE {
+            return Err(Error::InvalidPESignature);
+        }
+
+        let mut image_size = 0usize;
+
+        if nt_header.optional_header.magic == HDR32_MAGIC {
+            image_size = nt_header.optional_header.size_of_image as usize;
+        }
+        else if nt_header.optional_header.magic == HDR64_MAGIC {
+            let nt_header_64 = &*(ptr.add(dos_header.e_lfanew.0 as usize) as *const ImageNTHeaders64);
+            image_size = nt_header_64.optional_header.size_of_image as usize;
+        }
+        else {
+            return Err(Error::InvalidNTSignature);
+        }
+
+        let data = slice::from_raw_parts(ptr, image_size);
+
+        Ok(PE {
+            pe_type: PEType::Memory,
+            buffer: Buffer::from_data(data),
+            filename: None,
+        })
     }
 
     /// Translate an address into a buffer offset relevant to the image type.
