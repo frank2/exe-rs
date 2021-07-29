@@ -220,7 +220,7 @@ impl Default for ImageFileHeader {
             time_date_stamp: LocalTime.timestamp(0, 0).timestamp() as u32,
             pointer_to_symbol_table: Offset(0),
             number_of_symbols: 0,
-            size_of_optional_header: mem::size_of::<ImageOptionalHeader32>() as u16,
+            size_of_optional_header: (mem::size_of::<ImageOptionalHeader32>() as u16) + ((mem::size_of::<ImageDataDirectory>() * 16) as u16),
             characteristics: FileCharacteristics::EXECUTABLE_IMAGE | FileCharacteristics::MACHINE_32BIT,
         }
     }
