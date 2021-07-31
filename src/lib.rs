@@ -808,6 +808,32 @@ impl PE {
         }
     }
 
+    /// Check if a given [`Offset`](Offset) is aligned to the [`file_alignment`](ImageOptionalHeader32::file_alignment) attribute of the
+    /// [optional header](ImageOptionalHeader32).
+    pub fn is_aligned_to_file(&self, offset: Offset) -> bool {
+        let alignment = match self.get_valid_nt_headers() {
+            Ok(h) => match h {
+                NTHeaders::NTHeaders32(h32) => h32.optional_header.file_alignment,
+                NTHeaders::NTHeaders64(h64) => h64.optional_header.file_alignment,
+            },
+            Err(e) => return false,
+        };
+
+        offset.0 % alignment == 0
+    }
+    /// Check if a given [`RVA`](RVA) is aligned to the [`section_alignment`](ImageOptionalHeader32::section_alignment) attribute of the
+    /// [optional header](ImageOptionalHeader32).
+    pub fn is_aligned_to_section(&self, rva: RVA) -> bool {
+        let alignment = match self.get_valid_nt_headers() {
+            Ok(h) => match h {
+                NTHeaders::NTHeaders32(h32) => h32.optional_header.file_alignment,
+                NTHeaders::NTHeaders64(h64) => h64.optional_header.file_alignment,
+            },
+            Err(e) => return false,
+        };
+
+        rva.0 % alignment == 0
+    }
     /// Aligns a given [`Offset`](Offset) to the [`file_alignment`](ImageOptionalHeader32::file_alignment) attribute of the
     /// [optional header](ImageOptionalHeader32).
     pub fn align_to_file(&self, offset: Offset) -> Result<Offset, Error> {
@@ -826,7 +852,7 @@ impl PE {
                 return Err(Error::InvalidOffset);
             }
             
-            Ok(offset)
+            return Ok(offset);
         }
 
         let new_offset = Offset(offset.0 + (alignment - current));
@@ -848,6 +874,8 @@ impl PE {
             Err(e) => return Err(e),
         };
 
+        println!("alignment is {}", alignment);
+
         let current = rva.0 % alignment;
 
         if current == 0 {
@@ -855,13 +883,17 @@ impl PE {
                 return Err(Error::InvalidRVA);
             }
             
-            Ok(rva)
+            return Ok(rva);
         }
+
+        println!("current is {}", current);
 
         let new_rva = RVA(rva.0 + (alignment - current));
 
+        println!("new RVA is {:?}", new_rva);
+
         if !self.validate_rva(new_rva) {
-            return Err(Error::InvalidOffset);
+            return Err(Error::InvalidRVA);
         }
 
         Ok(new_rva)

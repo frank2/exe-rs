@@ -734,6 +734,15 @@ impl ImageSectionHeader {
 
         start.0 <= rva.0 && rva.0 < end.0
     }
+    
+    /// Check if the given section is aligned to the file boundary.
+    pub fn is_aligned_to_file(&self, pe: &PE) -> bool {
+        pe.is_aligned_to_file(self.pointer_to_raw_data)
+    }
+    /// Check if the given section is aligned to the section boundary.
+    pub fn is_aligned_to_section(&self, pe: &PE) -> bool {
+        pe.is_aligned_to_section(self.virtual_address)
+    }
 
     /// Get the offset to the data this section represents. This essentially performs the same task as
     /// [`PE::translate`](PE::translate).

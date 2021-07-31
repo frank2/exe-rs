@@ -346,7 +346,20 @@ fn test_creation() {
 
     if let NTHeadersMut::NTHeaders64(nt_headers_64) = nt_headers.unwrap() {
         nt_headers_64.file_header.number_of_sections = 1;
+        nt_headers_64.optional_header.size_of_image = 0x4000;
 
+        let section_offset_result = created_file.align_to_file(Offset(0x200));
+        assert!(section_offset_result.is_ok());
+
+        let section_offset = section_offset_result.unwrap();
+        assert_eq!(section_offset, Offset(0x400));
+
+        let section_rva_result = created_file.align_to_section(RVA(0x800));
+        assert!(section_rva_result.is_ok());
+
+        let section_rva = section_rva_result.unwrap();
+        assert_eq!(section_rva, RVA(0x1000));
+        
         let section_table_check = created_file.get_mut_section_table();
         assert!(section_table_check.is_ok());
 
@@ -357,9 +370,9 @@ fn test_creation() {
         assert_eq!(section_table[0].name.as_str(), ".text");
 
         let data: &[u8] = &[0x48, 0x31, 0xC0, 0xC3]; // xor rax,rax / ret
-        section_table[0].virtual_address = RVA(0x1000);
+        section_table[0].virtual_address = section_rva;
         section_table[0].virtual_size = 0x1000;
-        section_table[0].pointer_to_raw_data = Offset(0x400);
+        section_table[0].pointer_to_raw_data = section_offset;
         section_table[0].size_of_raw_data = data.len() as u32;
         section_table[0].characteristics = SectionCharacteristics::MEM_EXECUTE
             | SectionCharacteristics::MEM_READ
@@ -367,6 +380,9 @@ fn test_creation() {
 
         // clone the section so we don't need to rely on borrowing the mutable reference
         let section = section_table[0].clone();
+        assert!(section.is_aligned_to_file(&created_file));
+        assert!(section.is_aligned_to_section(&created_file));
+        
         let section_offset = section.data_offset(created_file.pe_type);
         assert_eq!(section_offset, Offset(0x400));
 
