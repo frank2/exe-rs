@@ -808,6 +808,65 @@ impl PE {
         }
     }
 
+    /// Aligns a given [`Offset`](Offset) to the [`file_alignment`](ImageOptionalHeader32::file_alignment) attribute of the
+    /// [optional header](ImageOptionalHeader32).
+    pub fn align_to_file(&self, offset: Offset) -> Result<Offset, Error> {
+        let alignment = match self.get_valid_nt_headers() {
+            Ok(h) => match h {
+                NTHeaders::NTHeaders32(h32) => h32.optional_header.file_alignment,
+                NTHeaders::NTHeaders64(h64) => h64.optional_header.file_alignment,
+            },
+            Err(e) => return Err(e),
+        };
+
+        let current = offset.0 % alignment;
+
+        if current == 0 {
+            if !self.validate_offset(offset) {
+                return Err(Error::InvalidOffset);
+            }
+            
+            Ok(offset)
+        }
+
+        let new_offset = Offset(offset.0 + (alignment - current));
+
+        if !self.validate_offset(new_offset) {
+            return Err(Error::InvalidOffset);
+        }
+
+        Ok(new_offset)
+    }
+    /// Aligns a given [`RVA`](RVA) to the [`section_alignment`](ImageOptionalHeader32::section_alignment) attribute of the
+    /// [optional header](ImageOptionalHeader32).
+    pub fn align_to_section(&self, rva: RVA) -> Result<RVA, Error> {
+        let alignment = match self.get_valid_nt_headers() {
+            Ok(h) => match h {
+                NTHeaders::NTHeaders32(h32) => h32.optional_header.section_alignment,
+                NTHeaders::NTHeaders64(h64) => h64.optional_header.section_alignment,
+            },
+            Err(e) => return Err(e),
+        };
+
+        let current = rva.0 % alignment;
+
+        if current == 0 {
+            if !self.validate_rva(rva) {
+                return Err(Error::InvalidRVA);
+            }
+            
+            Ok(rva)
+        }
+
+        let new_rva = RVA(rva.0 + (alignment - current));
+
+        if !self.validate_rva(new_rva) {
+            return Err(Error::InvalidOffset);
+        }
+
+        Ok(new_rva)
+    }
+
     /// Convert an offset to an RVA address. Produces [Error::InvalidRVA](Error::InvalidRVA) if the produced
     /// RVA is invalid or if the section it was transposed from no longer contains it.
     pub fn offset_to_rva(&self, offset: Offset) -> Result<RVA, Error> {
