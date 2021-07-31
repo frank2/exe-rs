@@ -9,6 +9,7 @@ Read the documentation [here](https://docs.rs/exe/)!
 
 ## 0.4.1
 * fixed a bug in default ```ImageFileHeader``` generation where the ```size_of_optional_header``` value was calculated incorrectly.
+* added functionality to align offsets and RVAs to the file alignment and section alignment of the headers, see ```PE::align_to_file``` and ```ImageSectionHeader::is_aligned_to_file``` for details.
 
 ## 0.4
 * added support for resource directories
