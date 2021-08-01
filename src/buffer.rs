@@ -44,6 +44,27 @@ pub fn ref_to_mut_slice<T>(data: &mut T) -> &mut [u8] {
 }
 
 /// Syntactic sugar for producing various hashes of data. Typically applied to ```[u8]``` slices.
+///
+/// ```rust
+/// use hex;
+/// use exe::PE;
+/// use exe::buffer::HashData;
+/// use exe::types::CCharString;
+///
+/// let pefile = PE::from_file("test/compiled.exe").unwrap();
+/// let section_table = pefile.get_section_table().unwrap();
+///
+/// println!("=Section Hashes=");
+///
+/// for section in section_table {
+///    println!("[{}]", section.name.as_str());
+///
+///    let section_data = section.read(&pefile).unwrap();
+///
+///    println!("MD5:    {}", hex::encode(section_data.md5()));
+///    println!("SHA1:   {}", hex::encode(section_data.sha1()));
+///    println!("SHA256: {}\n", hex::encode(section_data.sha256()));
+/// }
 pub trait HashData {
     /// Produce an MD5 hash.
     fn md5(&self) -> Vec<u8>;
