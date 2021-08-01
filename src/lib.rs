@@ -270,6 +270,24 @@ impl PE {
             Err(e) => Err(e)
         }
     }
+    /// Get the executable DOS stub in the data.
+    ///
+    /// This collects a [`u8`](u8) slice from the end of the DOS header to [`e_lfanew`](ImageDOSHeader::e_lfanew). If
+    /// [`e_lfanew`](ImageDOSHeader::e_lfanew) overlaps the DOS header, an empty slice is returned.
+    pub fn get_dos_stub(&self) -> Result<&[u8], Error> {
+        let e_lfanew = match self.e_lfanew() {
+            Ok(e) => e,
+            Err(e) => return Err(e),
+        };
+
+        let dos_header_end = Offset(mem::size_of::<ImageDOSHeader>() as u32);
+
+        if e_lfanew.0 < dos_header_end.0 {
+            return self.buffer.read(dos_header_end, 0usize);
+        }
+        
+        self.buffer.read(dos_header_end, (e_lfanew.0 - dos_header_end.0) as usize)
+    }
 
     /// Get 32-bit NT headers without verifying its contents.
     pub fn get_nt_headers_32(&self) -> Result<&ImageNTHeaders32, Error> {
