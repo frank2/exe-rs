@@ -1,9 +1,7 @@
 # exe-rs
-The PE Executable Library, but for Rust!
+```exe-rs``` is a Portable Executable (PE) parsing library tested on multiple kinds of malformed PE executables, including [the Corkami corpus](https://github.com/corkami/pocs/tree/master/PE) and various forms of malware! It's a library built with creation in mind as well as parsing, attempting to make tasks related to PE files as smooth and flawless as possible.
 
-This library is tested on the [Corkami corpus](https://github.com/corkami/pocs/tree/master/PE)!
-
-Read the documentation [here](https://docs.rs/exe/)!
+You can read the documentation [here](https://docs.rs/exe/), and see various use examples in [the test file](https://github.com/frank2/exe-rs/blob/main/src/tests.rs).
 
 # Changelog
 
