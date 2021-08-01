@@ -1,3 +1,5 @@
+use hex;
+
 use std::collections::HashMap;
 
 #[cfg(windows)] use winapi::um::libloaderapi::GetModuleHandleA;
@@ -14,15 +16,18 @@ fn test_compiled() {
     let pefile = compiled.unwrap();
 
     let md5 = pefile.buffer.md5();
-    assert_eq!(md5, vec![0x42,0x40,0xAF,0xEB,0x03,0xE0,0xFC,0x11,0xB7,0x2F,0xDB,0xA7,0xFF,0x30,0xDC,0x4F]);
+    assert_eq!(md5, hex::decode("4240afeb03e0fc11b72fdba7ff30dc4f").unwrap());
 
     let sha1 = pefile.buffer.sha1();
-    assert_eq!(sha1, vec![0xBE,0x63,0xA8,0x93,0x13,0xA2,0xD7,0xDB,0xF5,0x24,0xAA,0x43,0x33,0xF8,0x96,0xA2,0x87,0xF4,0x1A,0x20]);
+    assert_eq!(sha1, hex::decode("be63a89313a2d7dbf524aa4333f896a287f41a20").unwrap());
 
     let sha256 = pefile.buffer.sha256();
-    assert_eq!(sha256, vec![0x56,0x20,0x2f,0xe9,0x6d,0x34,0x93,0xd0,0x3e,0x77,0x21,0x0d,0x75,0x1f,0x8e,0x2a,
-                            0x16,0xee,0x7e,0xe9,0x62,0xb0,0xec,0x1f,0x6f,0x83,0x0c,0xce,0x6c,0x89,0x45,0x40]);
+    assert_eq!(sha256, hex::decode("56202fe96d3493d03e77210d751f8e2a16ee7ee962b0ec1f6f830cce6c894540").unwrap());
 
+    let dos_stub = pefile.get_dos_stub();
+    assert!(dos_stub.is_ok());
+    assert_eq!(dos_stub.unwrap(), hex::decode("0E1FBA0E00B409CD21B8014CCD21546869732070726F6772616D2063616E6E6F742062652072756E20696E20444F53206D6F64652E0D0D0A24000000000000005D5C6DC1193D0392193D0392193D0392972210921E3D0392E51D1192183D039252696368193D03920000000000000000").unwrap());
+    
     let arch = pefile.get_arch();
     assert!(arch.is_ok());
     assert_eq!(arch.unwrap(), Arch::X86);
@@ -96,6 +101,10 @@ fn test_compiled_dumped() {
     assert!(compiled.is_ok());
 
     let pefile = compiled.unwrap();
+
+    let dos_stub = pefile.get_dos_stub();
+    assert!(dos_stub.is_ok());
+    assert_eq!(dos_stub.unwrap(), hex::decode("0E1FBA0E00B409CD21B8014CCD21546869732070726F6772616D2063616E6E6F742062652072756E20696E20444F53206D6F64652E0D0D0A24000000000000005D5C6DC1193D0392193D0392193D0392972210921E3D0392E51D1192183D039252696368193D03920000000000000000").unwrap());
 
     let arch = pefile.get_arch();
     assert!(arch.is_ok());
