@@ -1,19 +1,16 @@
 use hex;
 
 use std::collections::HashMap;
+use std::fs;
 
 #[cfg(windows)] use winapi::um::libloaderapi::GetModuleHandleA;
 
 use super::*;
-use super::headers::*;
-use super::types::*;
 
 #[test]
 fn test_compiled() {
-    let compiled = PE::from_file("test/compiled.exe");
-    assert!(compiled.is_ok());
-
-    let pefile = compiled.unwrap();
+    let buffer = fs::read("test/compiled.exe").unwrap();
+    let pefile = PE::new_disk(buffer.as_slice());
 
     let md5 = pefile.buffer.md5();
     assert_eq!(md5, hex::decode("4240afeb03e0fc11b72fdba7ff30dc4f").unwrap());
@@ -56,6 +53,7 @@ fn test_compiled() {
     assert!(pefile.has_data_directory(ImageDirectoryEntry::Import));
     assert!(!pefile.has_data_directory(ImageDirectoryEntry::Export));
     
+
     let import_directory_result = ImportDirectory::parse(&pefile);
     assert!(import_directory_result.is_ok());
 
@@ -97,10 +95,8 @@ fn test_compiled() {
 
 #[test]
 fn test_compiled_dumped() {
-    let compiled = PE::from_memory_dump("test/compiled_dumped.bin");
-    assert!(compiled.is_ok());
-
-    let pefile = compiled.unwrap();
+    let buffer = fs::read("test/compiled_dumped.bin").unwrap();
+    let pefile = PE::new_memory(buffer.as_slice());
 
     let dos_stub = pefile.get_dos_stub();
     assert!(dos_stub.is_ok());
@@ -171,10 +167,8 @@ fn test_compiled_dumped() {
 
 #[test]
 fn test_dll() {
-    let dll = PE::from_file("test/dll.dll");
-    assert!(dll.is_ok());
-
-    let pefile = dll.unwrap();
+    let buffer = fs::read("test/dll.dll").unwrap();
+    let pefile = PE::new_disk(buffer.as_slice());
 
     assert!(pefile.has_data_directory(ImageDirectoryEntry::Export));
 
@@ -214,10 +208,8 @@ fn test_dll() {
 
 #[test]
 fn test_dll_fw() {
-    let dll_fw = PE::from_file("test/dllfw.dll");
-    assert!(dll_fw.is_ok());
-
-    let pefile = dll_fw.unwrap();
+    let buffer = fs::read("test/dllfw.dll").unwrap();
+    let pefile = PE::new_disk(buffer.as_slice());
 
     assert!(pefile.has_data_directory(ImageDirectoryEntry::Export));
 
@@ -248,10 +240,8 @@ fn test_dll_fw() {
 
 #[test]
 fn test_imports_nothunk() {
-    let imports_nothunk = PE::from_file("test/imports_nothunk.exe");
-    assert!(imports_nothunk.is_ok());
-
-    let pefile = imports_nothunk.unwrap();
+    let buffer = fs::read("test/imports_nothunk.exe").unwrap();
+    let pefile = PE::new_disk(buffer.as_slice());
 
     assert!(pefile.has_data_directory(ImageDirectoryEntry::Import));
 
@@ -276,10 +266,8 @@ fn test_imports_nothunk() {
 
 #[test]
 fn test_no_dd() {
-    let no_dd = PE::from_file("test/no_dd.exe");
-    assert!(no_dd.is_ok());
-
-    let pefile = no_dd.unwrap();
+    let buffer = fs::read("test/no_dd.exe").unwrap();
+    let pefile = PE::new_disk(buffer.as_slice());
 
     let data_directory = pefile.get_data_directory_table();
     assert!(data_directory.is_ok());
@@ -288,10 +276,8 @@ fn test_no_dd() {
 
 #[test]
 fn test_hello_world_packed() {
-    let hello_world_packed = PE::from_file("test/hello_world_packed.exe");
-    assert!(hello_world_packed.is_ok());
-
-    let pefile = hello_world_packed.unwrap();
+    let buffer = fs::read("test/hello_world_packed.exe").unwrap();
+    let pefile = PE::new_disk(buffer.as_slice());
 
     let entropy = pefile.buffer.entropy();
     assert!(entropy > 7.0);
@@ -313,10 +299,9 @@ fn test_hello_world_packed() {
 
 #[test]
 fn test_cff_explorer() {
-    let cff_explorer = PE::from_file("test/cff_explorer.exe");
-    assert!(cff_explorer.is_ok());
+    let buffer = fs::read("test/cff_explorer.exe").unwrap();
+    let pefile = PE::new_disk(buffer.as_slice());
 
-    let pefile = cff_explorer.unwrap();
     assert!(pefile.has_data_directory(ImageDirectoryEntry::Resource));
 
     let data_directory = ResourceDirectory::parse(&pefile);
@@ -338,7 +323,8 @@ fn test_cff_explorer() {
 
 #[test]
 fn test_creation() {
-    let mut created_file = PE::new(Some(0x4000), PEType::Disk);
+    let mut buffer = vec![0u8; 0x4000];
+    let mut created_file = PE::new_mut_disk(buffer.as_mut_slice());
 
     let dos_result = created_file.buffer.write_ref(Offset(0), &ImageDOSHeader::default());
     assert!(dos_result.is_ok());
@@ -415,6 +401,6 @@ fn test_creation() {
 #[test]
 fn test_pointer() {
     let hmodule = unsafe { GetModuleHandleA(std::ptr::null()) };
-    let memory_module = unsafe { PE::from_ptr(hmodule as *const u8) };
+    let memory_module = unsafe { PE::from_ptr(PEType::Memory, hmodule as *const u8) };
     assert!(memory_module.is_ok());
 }
