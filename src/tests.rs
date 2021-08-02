@@ -12,6 +12,8 @@ fn test_compiled() {
     let buffer = fs::read("test/compiled.exe").unwrap();
     let pefile = PE::new_disk(buffer.as_slice());
 
+    assert_eq!(buffer.len(), pefile.calculate_disk_size().unwrap());
+
     let md5 = pefile.buffer.md5();
     assert_eq!(md5, hex::decode("4240afeb03e0fc11b72fdba7ff30dc4f").unwrap());
 
@@ -97,6 +99,8 @@ fn test_compiled() {
 fn test_compiled_dumped() {
     let buffer = fs::read("test/compiled_dumped.bin").unwrap();
     let pefile = PE::new_memory(buffer.as_slice());
+
+    assert_eq!(buffer.len(), pefile.calculate_memory_size().unwrap());
 
     let dos_stub = pefile.get_dos_stub();
     assert!(dos_stub.is_ok());
