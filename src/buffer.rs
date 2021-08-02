@@ -47,11 +47,13 @@ pub fn ref_to_mut_slice<T>(data: &mut T) -> &mut [u8] {
 ///
 /// ```rust
 /// use hex;
+///
 /// use exe::PE;
 /// use exe::buffer::HashData;
 /// use exe::types::CCharString;
 ///
-/// let pefile = PE::from_file("test/compiled.exe").unwrap();
+/// let buffer = std::fs::read("test/compiled.exe").unwrap();
+/// let pefile = PE::new_disk(buffer.as_slice());
 /// let section_table = pefile.get_section_table().unwrap();
 ///
 /// println!("=Section Hashes=");
@@ -108,7 +110,6 @@ pub trait Entropy {
     /// Calculates the entropy of a given object. Returns a value between 0.0 (low entropy) and 8.0 (high entropy).
     fn entropy(&self) -> f64;
 }
-
 impl Entropy for [u8] {
     // algorithm once again borrowed from Ero Carrera's legacy-leaving pefile
     fn entropy(&self) -> f64 {
@@ -131,48 +132,110 @@ impl Entropy for [u8] {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
-/// A buffer representing the PE image.
-pub struct Buffer {
-    data: Vec<u8>
+/// An enum for simultaneously handling mutable and immutable memory.
+pub enum BufferData<'data> {
+    /// Represents an immutable [`u8`](u8) buffer.
+    Memory(&'data [u8]),
+    /// Represents a mutable [`u8`](u8) buffer.
+    MutMemory(&'data mut [u8]),
 }
-impl Buffer {
-    /// Creates a new buffer with an optional size.
-    pub fn new(size: Option<usize>) -> Self {
-        if size.is_some() {
-            Self { data: vec![0u8; size.unwrap()] }
-        }
-        else {
-            Self { data: Vec::<u8>::new() }
+impl<'data> BufferData<'data> {
+    /// Get the length of this buffer.
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Memory(m) => m.len(),
+            Self::MutMemory(mm) => mm.len(),
         }
     }
-    /// Creates a new buffer from a slice of data.
-    pub fn from_data(data: &[u8]) -> Self {
+    /// Get the buffer as an immutable slice.
+    pub fn as_slice(&self) -> &'data [u8] {
+        match self {
+            Self::Memory(m) => m,
+            Self::MutMemory(mm) => unsafe { slice::from_raw_parts(mm.as_ptr(), mm.len()) },
+        }
+    }
+    /// Get the buffer as a mutable slice.
+    ///
+    /// This returns [`Error::InvalidBufferOperation`](Error::InvalidBufferOperation) if the buffer is not
+    /// type ```MutMemory```.
+    pub fn as_mut_slice(&mut self) -> Result<&'data mut [u8], Error> {
+        match self {
+            Self::Memory(_) => return Err(Error::InvalidBufferOperation),
+            Self::MutMemory(mm) => unsafe { Ok(slice::from_raw_parts_mut(mm.as_mut_ptr(), mm.len())) },
+        }
+    }
+    /// Get the buffer as a pointer.
+    pub fn as_ptr(&self) -> *const u8 {
+        match self {
+            Self::Memory(m) => m.as_ptr(),
+            Self::MutMemory(mm) => mm.as_ptr(),
+        }
+    }
+    /// Get the buffer as a mutable pointer.
+    ///
+    /// This returns [`Error::InvalidBufferOperation`](Error::InvalidBufferOperation) if the buffer is not
+    /// type ```MutMemory```.
+    pub fn as_mut_ptr(&mut self) -> Result<*mut u8, Error> {
+        match self {
+            Self::Memory(_) => return Err(Error::InvalidBufferOperation),
+            Self::MutMemory(mm) => Ok(mm.as_mut_ptr()),
+        }
+    }
+    /// Check if the buffer is empty.
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Memory(m) => m.is_empty(),
+            Self::MutMemory(mm) => mm.is_empty(),
+        }
+    }
+}
+
+/// Represents the Rust representation of data in the buffer.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum BufferType {
+    Memory,
+    MutMemory,
+}
+
+/// A buffer representing the PE image.
+pub struct Buffer<'data> {
+    data: BufferData<'data>
+}
+impl<'data> Buffer<'data> {
+    /// Creates a new buffer from a slice of memory.
+    pub fn new(memory: &'data [u8]) -> Self {
         Self {
-            data: data.iter().cloned().collect()
+            data: BufferData::Memory(memory)
         }
     }
-    /// Creates a new buffer from disk data.
-    pub fn from_file<P: AsRef<Path>>(filename: P) -> Result<Self, IoError> {
-        match fs::read(filename) {
-            Ok(data) => Ok(Self { data }),
-            Err(e) => Err(e),
+    /// Creates a new mutable buffer from a mutable slice of memory.
+    pub fn new_mut(memory: &'data mut [u8]) -> Self {
+        Self {
+            data: BufferData::MutMemory(memory)
         }
     }
+    
+    /// Gets the type of data this buffer represents.
+    pub fn get_type(&self) -> BufferType {
+        match self.data {
+            BufferData::Memory(_) => BufferType::Memory,
+            BufferData::MutMemory(_) => BufferType::MutMemory,
+        }
+    }
+    
     /// Get the length of the buffer.
     pub fn len(&self) -> usize {
         self.data.len()
     }
-    /// Resize the buffer.
-    pub fn resize(&mut self, size: usize) {
-        self.data.resize(size, 0);
-    }
     /// Get the buffer as a slice.
-    pub fn as_slice(&self) -> &[u8] {
+    pub fn as_slice(&self) -> &'data [u8] {
         self.data.as_slice()
     }
     /// Get the buffer as a mutable slice.
-    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+    ///
+    /// This returns a [`InvalidBufferOperation`](Error::InvalidBufferOperation) error if the buffer is not
+    /// [`BufferType::MutMemory`](BufferType::MutMemory).
+    pub fn as_mut_slice(&mut self) -> Result<&'data mut [u8], Error> {
         self.data.as_mut_slice()
     }
     /// Get the buffer as a pointer.
@@ -180,21 +243,17 @@ impl Buffer {
         self.data.as_ptr()
     }
     /// Get the buffer as a mutable pointer.
-    pub fn as_mut_ptr(&mut self) -> *mut u8 {
+    ///
+    /// This returns a [`InvalidBufferOperation`](Error::InvalidBufferOperation) error if the buffer is not
+    /// [`BufferType::MutMemory`](BufferType::MutMemory).
+    pub fn as_mut_ptr(&mut self) -> Result<*mut u8, Error> {
         self.data.as_mut_ptr()
-    }
-    /// Append a vector of data to the buffer.
-    pub fn append(&mut self, other: &mut Vec<u8>) {
-        self.data.append(other)
     }
     /// Check if the PE file is empty.
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
-    /// Extend the buffer with a data slice.
-    pub fn extend_from_slice(&mut self, other: &[u8]) {
-        self.data.extend_from_slice(other)
-    }
+
     /// Save the buffer to disk with the given filename.
     pub fn save<P: AsRef<Path>>(&self, filename: P) -> Result<(), IoError> {
         fs::write(filename, self.as_slice())
@@ -207,8 +266,11 @@ impl Buffer {
     }
     /// Convert the given offset value to a mutable pointer in the buffer. The function is marked as
     /// unsafe because the offset isn't validated.
-    pub unsafe fn offset_to_mut_ptr(&mut self, offset: Offset) -> *mut u8 {
-        self.as_mut_ptr().add(offset.0 as usize)
+    pub unsafe fn offset_to_mut_ptr(&mut self, offset: Offset) -> Result<*mut u8, Error> {
+        match self.as_mut_ptr() {
+            Ok(p) => Ok(p.add(offset.0 as usize)),
+            Err(e) => Err(e),
+        }
     }
     /// Get the pointer to the end of the file. This pointer is unsafe because it points at the end
     /// of the buffer, which doesn't contain data.
@@ -225,7 +287,7 @@ impl Buffer {
         start <= pos && pos < end
     }
         
-    /// Convert a pointer to an offset. This returns [Error::BadPointer](Error::BadPointer) if the pointer
+    /// Convert a pointer to an offset. This returns [`Error::BadPointer`](Error::BadPointer) if the pointer
     /// isn't in the buffer range.
     pub fn ptr_to_offset(&self, ptr: *const u8) -> Result<Offset, Error> {
         if !self.validate_ptr(ptr) {
@@ -247,6 +309,7 @@ impl Buffer {
     pub fn ref_to_offset<T>(&self, data: &T) -> Result<Offset, Error> {
         self.ptr_to_offset(data as *const T as *const u8)
     }
+    
     /// Produces an MD5 hash of this buffer.
     pub fn md5(&self) -> Vec<u8> {
         self.as_slice().md5()
@@ -270,7 +333,8 @@ impl Buffer {
     /// use exe::headers::{ImageDOSHeader, ImageNTHeaders32, NT_SIGNATURE};
     /// use exe::types::Offset;
     ///
-    /// let buffer = Buffer::from_file("test/compiled.exe").unwrap();
+    /// let file_data = std::fs::read("test/compiled.exe").unwrap();
+    /// let buffer = Buffer::new(file_data.as_slice());
     /// 
     /// let dos_header = buffer.get_ref::<ImageDOSHeader>(Offset(0)).unwrap();
     /// let nt_header = buffer.get_ref::<ImageNTHeaders32>(dos_header.e_lfanew).unwrap();
@@ -300,7 +364,11 @@ impl Buffer {
         }
 
         unsafe {
-            let ptr = self.offset_to_mut_ptr(offset) as *mut T;
+            let ptr = match self.offset_to_mut_ptr(offset) {
+                Ok(p) => p as *mut T,
+                Err(e) => return Err(e),
+            };
+            
             Ok(&mut *ptr)
         }
     }
@@ -310,7 +378,8 @@ impl Buffer {
     /// use exe::buffer::Buffer;
     /// use exe::types::Offset;
     ///
-    /// let buffer = Buffer::from_file("test/compiled.exe").unwrap();
+    /// let file_data = std::fs::read("test/compiled.exe").unwrap();
+    /// let buffer = Buffer::new(file_data.as_slice());
     /// let mz = buffer.get_slice_ref::<u8>(Offset(0), 2).unwrap();
     /// 
     /// assert_eq!(mz, [0x4D, 0x5A]);
@@ -338,7 +407,10 @@ impl Buffer {
         }
 
         unsafe {
-            let ptr = self.offset_to_mut_ptr(offset) as *mut T;
+            let ptr = match self.offset_to_mut_ptr(offset) {
+                Ok(p) => p as *mut T,
+                Err(e) => return Err(e),
+            };
             Ok(slice::from_raw_parts_mut(ptr, count))
         }
     }
@@ -417,7 +489,8 @@ impl Buffer {
     /// use exe::buffer::Buffer;
     /// use exe::types::{Offset, CCharString};
     ///
-    /// let buffer = Buffer::from_file("test/dll.dll").unwrap();
+    /// let file_data = std::fs::read("test/dll.dll").unwrap();
+    /// let buffer = Buffer::new(file_data.as_slice());
     /// let dll_name = buffer.get_cstring(Offset(0x328), false, None).unwrap();
     ///
     /// assert_eq!(dll_name.as_str(), "dll.dll");
@@ -477,7 +550,11 @@ impl Buffer {
         let from_ptr = data.as_ptr();
             
         unsafe {
-            let to_ptr = self.offset_to_mut_ptr(offset);
+            let to_ptr = match self.offset_to_mut_ptr(offset) {
+                Ok(p) => p,
+                Err(e) => return Err(e),
+            };
+            
             ptr::copy(from_ptr, to_ptr, size);
             
             Ok(())

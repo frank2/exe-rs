@@ -5,7 +5,8 @@
 //! use exe::PE;
 //! use exe::types::{ImportDirectory, CCharString};
 //!
-//! let pefile = PE::from_file("test/compiled.exe").unwrap();
+//! let buffer = std::fs::read("test/compiled.exe").unwrap();
+//! let pefile = PE::new_disk(buffer.as_slice());
 //! let import_directory = ImportDirectory::parse(&pefile).unwrap();
 //!
 //! for import in import_directory.descriptors {
@@ -24,22 +25,21 @@ pub mod buffer;
 pub mod headers;
 pub mod types;
 
+pub use crate::buffer::*;
+pub use crate::headers::*;
+pub use crate::types::*;
+
 #[cfg(test)]
 mod tests;
 
-use std::convert::AsRef;
-use std::io::{Error as IoError};
 use std::mem;
-use std::path::Path;
 use std::slice;
-
-use crate::buffer::Buffer;
-use crate::headers::*;
-use crate::types::*;
 
 /// Errors produced by the library.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Error {
+    /// The buffer operation requested is invalid for the type.
+    InvalidBufferOperation,
     /// The PE buffer was too small to complete the operation.
     BufferTooSmall,
     /// The PE file has an invalid DOS signature.
@@ -72,8 +72,8 @@ pub enum Error {
 
 /// An enum to tag the PE file with what its memory map looks like.
 ///
-/// When a PE is loaded, it's ultimately parsed and rewritten before being placed into memory. This
-/// means the image in memory is different from the disk. This is why, for example,
+/// When a PE is loaded by Windows, it's ultimately parsed and rewritten before being placed into
+/// memory. This means the image in memory is different from the disk. This is why, for example,
 /// RVAs and Offsets differ in type-- the RVA represents the offset to the image in
 /// *memory*, whereas the Offset represents the offset to the image on *disk*. This enum
 /// is necessary to maintain a simple translation layer for basic address operations.
@@ -113,66 +113,48 @@ impl Address for PETranslation {
 }
 
 /// Represents a PE file.
-#[derive(Clone, Eq, PartialEq, Debug)]
-pub struct PE {
+pub struct PE<'data> {
     /// The type of buffer the PE file is expecting. See [PEType](PEType) for an explanation.
     pub pe_type: PEType,
-    /// The buffer that holds the data. Various operations such as getting
-    /// references to objects in the data can be found in the buffer object.
-    pub buffer: Buffer,
-    /// The optional filename of the PE file.
-    pub filename: Option<String>,
+    /// The memory buffer that typically points to the backing data.
+    pub buffer: Buffer<'data>,
 }
-impl PE {
-    /// Generates a new, blank PE file. Typically only useful for constructing
-    /// new PE files.
-    pub fn new(size: Option<usize>, pe_type: PEType) -> Self {
+impl<'data> PE<'data> {
+    /// Generates a new PE object from a [`u8`](u8) slice reference.
+    pub fn new(pe_type: PEType, data: &'data [u8]) -> Self {
         Self {
             pe_type: pe_type,
-            buffer: Buffer::new(size),
-            filename: None,
+            buffer: Buffer::new(data),
         }
     }
-    /// Generates a new PE object from a slice of data, marking it as a memory-resident image.
-    pub fn from_data(data: &[u8], pe_type: PEType) -> Self {
+    /// Generates a new mutable PE object from a mutable [`u8`](u8) slice without copying the data.
+    pub fn new_mut(pe_type: PEType, data: &'data mut [u8]) -> Self {
         Self {
             pe_type: pe_type,
-            buffer: Buffer::from_data(data),
-            filename: None,
+            buffer: Buffer::new_mut(data),
         }
     }
-    /// Generates a new PE object from a file on disk.
-    pub fn from_file<P: AsRef<Path>>(filename: P) -> Result<Self, IoError> {
-        match Buffer::from_file(&filename) {
-            Ok(buffer) => Ok(
-                Self {
-                    pe_type: PEType::Disk,
-                    buffer: buffer,
-                    filename: Some(String::from(filename.as_ref().to_str().unwrap()))
-                }
-            ),
-            Err(e) => Err(e),
-        }
+    /// Generates a new PE object from the data slice, marking it as a [`Disk`](PEType::Disk) image.
+    pub fn new_disk(data: &'data [u8]) -> Self {
+        Self::new(PEType::Disk, data)
     }
-    /// Generates a new PE object from a file on disk, marking it as a memory dump (i.e., sets ```pe_type``` to [`PEType::Memory`](PEType::Memory)).
-    pub fn from_memory_dump<P: AsRef<Path>>(filename: P) -> Result<Self, IoError> {
-        match Buffer::from_file(&filename) {
-            Ok(buffer) => Ok(
-                Self {
-                    pe_type: PEType::Memory,
-                    buffer: buffer,
-                    filename: Some(String::from(filename.as_ref().to_str().unwrap()))
-                }
-            ),
-            Err(e) => Err(e),
-        }
+    /// Generates a new mutable PE object from the data slice, marking it as a [`Disk`](PEType::Disk) image.
+    pub fn new_mut_disk(data: &'data mut [u8]) -> Self {
+        Self::new_mut(PEType::Disk, data)
     }
+    /// Generates a new PE object from the data slice, marking it as a [`Memory`](PEType::Memory) image.
+    pub fn new_memory(data: &'data [u8]) -> Self {
+        Self::new(PEType::Memory, data)
+    }
+    /// Generates a new mutable PE object from the data slice, marking it as a [`Memory`](PEType::Memory) image.
+    pub fn new_mut_memory(data: &'data mut [u8]) -> Self {
+        Self::new_mut(PEType::Memory, data)
+    }
+    
     /// Generates a new PE file from a pointer to memory.
     ///
-    /// This pointer is assumed to be pointed at a memory-mapped image (i.e., is [`PEType::Memory`](PEType::Memory)). Because of the nature
-    /// of verifying the given pointer is a PE image, this function also parses the image and verifies it's a PE image. And despite using
-    /// a pointer, this function copies the image from memory, and does not maintain its pointed status.
-    pub unsafe fn from_ptr(ptr: *const u8) -> Result<PE, Error> {
+    /// Because of the nature of verifying the given pointer is a PE image, this function also parses the image and verifies it.
+    pub unsafe fn from_ptr(pe_type: PEType, ptr: *const u8) -> Result<Self, Error> {
         let dos_header = &*(ptr as *const ImageDOSHeader);
 
         if dos_header.e_magic != DOS_SIGNATURE {
@@ -185,7 +167,7 @@ impl PE {
             return Err(Error::InvalidPESignature);
         }
 
-        let mut image_size = 0usize;
+        let image_size;
 
         if nt_header.optional_header.magic == HDR32_MAGIC {
             image_size = nt_header.optional_header.size_of_image as usize;
@@ -198,13 +180,38 @@ impl PE {
             return Err(Error::InvalidNTSignature);
         }
 
-        let data = slice::from_raw_parts(ptr, image_size);
+        Ok(PE::new(pe_type, slice::from_raw_parts(ptr, image_size)))
+    }
+    /// Generates a new mutable PE file from a mutable pointer to memory.
+    ///
+    /// Because of the nature of verifying the given pointer is a PE image, this function also parses the image and verifies it.
+    pub unsafe fn from_mut_ptr(pe_type: PEType, ptr: *mut u8) -> Result<PE<'data>, Error> {
+        let dos_header = &*(ptr as *const ImageDOSHeader);
 
-        Ok(PE {
-            pe_type: PEType::Memory,
-            buffer: Buffer::from_data(data),
-            filename: None,
-        })
+        if dos_header.e_magic != DOS_SIGNATURE {
+            return Err(Error::InvalidDOSSignature);
+        }
+
+        let nt_header = &*(ptr.add(dos_header.e_lfanew.0 as usize) as *const ImageNTHeaders32);
+
+        if nt_header.signature != NT_SIGNATURE {
+            return Err(Error::InvalidPESignature);
+        }
+
+        let image_size;
+
+        if nt_header.optional_header.magic == HDR32_MAGIC {
+            image_size = nt_header.optional_header.size_of_image as usize;
+        }
+        else if nt_header.optional_header.magic == HDR64_MAGIC {
+            let nt_header_64 = &*(ptr.add(dos_header.e_lfanew.0 as usize) as *const ImageNTHeaders64);
+            image_size = nt_header_64.optional_header.size_of_image as usize;
+        }
+        else {
+            return Err(Error::InvalidNTSignature);
+        }
+
+        Ok(PE::new_mut(pe_type, slice::from_raw_parts_mut(ptr, image_size)))
     }
 
     /// Translate an address into a buffer offset relevant to the image type.
@@ -458,7 +465,8 @@ impl PE {
     /// use exe::headers::HDR64_MAGIC;
     /// use exe::types::NTHeaders;
     ///
-    /// let pefile = PE::from_file("test/normal64.exe").unwrap();
+    /// let buffer = std::fs::read("test/normal64.exe").unwrap();
+    /// let pefile = PE::new_disk(buffer.as_slice());
     /// let headers = pefile.get_valid_nt_headers().unwrap();
     ///
     /// let magic = match headers {
@@ -834,7 +842,7 @@ impl PE {
                 NTHeaders::NTHeaders32(h32) => h32.optional_header.file_alignment,
                 NTHeaders::NTHeaders64(h64) => h64.optional_header.file_alignment,
             },
-            Err(e) => return false,
+            Err(_) => return false,
         };
 
         offset.0 % alignment == 0
@@ -847,7 +855,7 @@ impl PE {
                 NTHeaders::NTHeaders32(h32) => h32.optional_header.file_alignment,
                 NTHeaders::NTHeaders64(h64) => h64.optional_header.file_alignment,
             },
-            Err(e) => return false,
+            Err(_) => return false,
         };
 
         rva.0 % alignment == 0

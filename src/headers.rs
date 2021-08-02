@@ -207,7 +207,7 @@ impl ImageFileHeader {
             time_date_stamp: LocalTime.timestamp(0, 0).timestamp() as u32,
             pointer_to_symbol_table: Offset(0),
             number_of_symbols: 0,
-            size_of_optional_header: mem::size_of::<ImageOptionalHeader64>() as u16,
+            size_of_optional_header: mem::size_of::<ImageOptionalHeader64>() as u16 + ((mem::size_of::<ImageDataDirectory>() * 16) as u16),
             characteristics: FileCharacteristics::EXECUTABLE_IMAGE | FileCharacteristics::MACHINE_32BIT,
         }
     }
@@ -1346,7 +1346,10 @@ impl<'data> ImageImportByNameMut<'data> {
         };
 
         unsafe {
-            let mut ptr = pe.buffer.offset_to_mut_ptr(offset);
+            let mut ptr = match pe.buffer.offset_to_mut_ptr(offset) {
+                Ok(p) => p,
+                Err(e) => return Err(e),
+            };
 
             let hint = &mut *(ptr as *mut u16);
             let u16_size = mem::size_of::<u16>();
@@ -1532,7 +1535,10 @@ impl<'data> ImageResourceDirStringMut<'data> {
         };
 
         unsafe {
-            let mut ptr = pe.buffer.offset_to_mut_ptr(offset);
+            let mut ptr = match pe.buffer.offset_to_mut_ptr(offset) {
+                Ok(p) => p,
+                Err(e) => return Err(e),
+            };
 
             let length = &mut *(ptr as *mut u16);
             let u16_size = mem::size_of::<u16>();
@@ -1600,7 +1606,10 @@ impl<'data> ImageResourceDirStringUMut<'data> {
         };
 
         unsafe {
-            let mut ptr = pe.buffer.offset_to_mut_ptr(offset);
+            let mut ptr = match pe.buffer.offset_to_mut_ptr(offset) {
+                Ok(p) => p,
+                Err(e) => return Err(e),
+            };
 
             let length = &mut *(ptr as *mut u16);
             let u16_size = mem::size_of::<u16>();
