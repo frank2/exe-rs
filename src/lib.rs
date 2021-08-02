@@ -32,6 +32,7 @@ pub use crate::types::*;
 #[cfg(test)]
 mod tests;
 
+use std::cmp;
 use std::mem;
 use std::slice;
 
@@ -852,8 +853,8 @@ impl<'data> PE<'data> {
     pub fn is_aligned_to_section(&self, rva: RVA) -> bool {
         let alignment = match self.get_valid_nt_headers() {
             Ok(h) => match h {
-                NTHeaders::NTHeaders32(h32) => h32.optional_header.file_alignment,
-                NTHeaders::NTHeaders64(h64) => h64.optional_header.file_alignment,
+                NTHeaders::NTHeaders32(h32) => h32.optional_header.section_alignment,
+                NTHeaders::NTHeaders64(h64) => h64.optional_header.section_alignment,
             },
             Err(_) => return false,
         };
@@ -1113,5 +1114,102 @@ impl<'data> PE<'data> {
         }
 
         Ok(RVA(dir.virtual_address.0 + offset.0))
+    }
+
+    /// Calculates the size of the image headers.
+    pub fn calculate_header_size(&self) -> Result<usize, Error> {
+        let mut header_size = 0usize;
+
+        let e_lfanew = match self.e_lfanew() {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        header_size = cmp::max(e_lfanew.0 as usize, header_size);
+
+        let data_dir_offset = match self.get_data_directory_offset() {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        header_size = cmp::max(data_dir_offset.0 as usize, header_size);
+
+        let data_dir_size = match self.get_data_directory_size() {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        header_size += data_dir_size * mem::size_of::<ImageDataDirectory>();
+
+        let section_offset = match self.get_section_table_offset() {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        header_size = cmp::max(section_offset.0 as usize, header_size);
+
+        let section_table = match self.get_section_table() {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        header_size += section_table.len() * mem::size_of::<ImageSectionHeader>();
+
+        Ok(header_size)
+    }
+
+    /// Calculate the size of the image as it appears on disk. Note that if there is appended data at the end of the file,
+    /// it will not be factored in.
+    pub fn calculate_disk_size(&self) -> Result<usize, Error> {
+        let mut disk_size = match self.calculate_header_size() {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        let section_table = match self.get_section_table() {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+        
+        for section in section_table {
+            let section_end = (section.pointer_to_raw_data.0 as usize) + (section.size_of_raw_data as usize);
+
+            disk_size = cmp::max(section_end, disk_size);
+        }
+
+        Ok(disk_size)
+    }
+
+    /// Calculate the size of the image as it appears in memory.
+    pub fn calculate_memory_size(&self) -> Result<usize, Error> {
+        let mut memory_size = match self.calculate_header_size() {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        let section_table = match self.get_section_table() {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+        
+        for section in section_table {
+            let section_end = (section.virtual_address.0 as usize) + (section.virtual_size as usize);
+
+            memory_size = cmp::max(section_end, memory_size);
+        }
+
+        let alignment = match self.get_valid_nt_headers() {
+            Ok(h) => match h {
+                NTHeaders::NTHeaders32(h32) => h32.optional_header.section_alignment as usize,
+                NTHeaders::NTHeaders64(h64) => h64.optional_header.section_alignment as usize,
+            }
+            Err(e) => return Err(e),
+        };
+
+        if memory_size % alignment != 0 {
+            memory_size += alignment - (memory_size % alignment);
+        }
+
+        Ok(memory_size)
     }
 }
