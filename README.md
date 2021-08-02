@@ -12,6 +12,7 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 * added functionality to pull the DOS stub out of the image, see ```PE::get_dos_stub```.
 * added a great example of dumping section hashes from a PE file, see ```PE::buffer::HashData``` in the docs.
 * added syntactic sugar for `Offset` objects, buffer operations requiring offsets can now be accessed directly from them with a supplied `PE` object.
+* `PE` image can now calculate disk sizes and memory sizes, see `PE::calculate_disk_size` and `PE::calculate_memory_size`.
 
 ## 0.4
 * added support for resource directories
