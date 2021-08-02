@@ -11,6 +11,7 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 * added functionality to align offsets and RVAs to the file alignment and section alignment of the headers, see ```PE::align_to_file``` and ```ImageSectionHeader::is_aligned_to_file``` for details.
 * added functionality to pull the DOS stub out of the image, see ```PE::get_dos_stub```.
 * added a great example of dumping section hashes from a PE file, see ```PE::buffer::HashData``` in the docs.
+* added syntactic sugar for `Offset` objects, buffer operations requiring offsets can now be accessed directly from them with a supplied `PE` object.
 
 ## 0.4
 * added support for resource directories
