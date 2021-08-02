@@ -79,6 +79,64 @@ pub trait Address {
 #[repr(packed)]
 #[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct Offset(pub u32);
+impl Offset {
+    /// Gets a reference to an object in the [`PE`](PE) object's buffer data. See [`Buffer::get_ref`](crate::buffer::Buffer::get_ref).
+    pub fn get_ref<'data, T>(&self, pe: &'data PE) -> Result<&'data T, Error> {
+        pe.buffer.get_ref::<T>(*self)
+    }
+    /// Gets a mutable reference to an object in the [`PE`](PE) object's buffer data. See [`Buffer::get_mut_ref`](crate::buffer::Buffer::get_mut_ref).
+    pub fn get_mut_ref<'data, T>(&self, pe: &'data mut PE) -> Result<&'data mut T, Error> {
+        pe.buffer.get_mut_ref::<T>(*self)
+    }
+    /// Gets a slice reference in the [`PE`](PE) buffer. See [`Buffer::get_slice_ref`](crate::buffer::Buffer::get_slice_ref).
+    pub fn get_slice_ref<'data, T>(&self, pe: &'data PE, count: usize) -> Result<&'data [T], Error> {
+        pe.buffer.get_slice_ref::<T>(*self, count)
+    }
+    /// Gets a mutable slice reference in the [`PE`](PE) buffer. See [`Buffer::get_mut_slice_ref`](crate::buffer::Buffer::get_mut_slice_ref).
+    pub fn get_mut_slice_ref<'data, T>(&self, pe: &'data mut PE, count: usize) -> Result<&'data mut [T], Error> {
+        pe.buffer.get_mut_slice_ref::<T>(*self, count)
+    }
+    /// Gets the size of a zero-terminated C-string in the data at the offset.
+    pub fn get_cstring_size(&self, pe: &PE, thunk: bool, max_size: Option<usize>) -> Result<usize, Error> {
+        pe.buffer.get_cstring_size(*self, thunk, max_size)
+    }
+    /// Gets the size of a zero-terminated UTF16 string in the data at the offset.
+    pub fn get_widestring_size(&self, pe: &PE, max_size: Option<usize>) -> Result<usize, Error> {
+        pe.buffer.get_widestring_size(*self, max_size)
+    }
+    /// Get a zero-terminated C-string from the data. See [`Buffer::get_cstring`](crate::buffer::Buffer::get_cstring).
+    pub fn get_cstring<'data>(&self, pe: &'data PE, thunk: bool, max_size: Option<usize>) -> Result<&'data [CChar], Error> {
+        pe.buffer.get_cstring(*self, thunk, max_size)
+    }
+    /// Get a mutable zero-terminated C-string from the data. See [`Buffer::get_mut_cstring`](crate::buffer::Buffer::get_mut_cstring).
+    pub fn get_mut_cstring<'data>(&self, pe: &'data mut PE, thunk: bool, max_size: Option<usize>) -> Result<&'data mut [CChar], Error> {
+        pe.buffer.get_mut_cstring(*self, thunk, max_size)
+    }
+    /// Get a zero-terminated C-string from the data. See [`Buffer::get_widestring`](crate::buffer::Buffer::get_widestring).
+    pub fn get_widestring<'data>(&self, pe: &'data PE, max_size: Option<usize>) -> Result<&'data [WChar], Error> {
+        pe.buffer.get_widestring(*self, max_size)
+    }
+    /// Get a mutable zero-terminated C-string from the data. See [`Buffer::get_mut_widestring`](crate::buffer::Buffer::get_mut_widestring).
+    pub fn get_mut_widestring<'data>(&self, pe: &'data mut PE, max_size: Option<usize>) -> Result<&'data mut [WChar], Error> {
+        pe.buffer.get_mut_widestring(*self, max_size)
+    }
+    /// Read arbitrary data from the offset.
+    pub fn read<'data>(&self, pe: &'data PE, size: usize) -> Result<&'data [u8], Error> {
+        pe.buffer.read(*self, size)
+    }
+    /// Read mutable arbitrary data from the offset.
+    pub fn read_mut<'data>(&self, pe: &'data mut PE, size: usize) -> Result<&'data mut [u8], Error> {
+        pe.buffer.read_mut(*self, size)
+    }
+    /// Write arbitrary data to the offset.
+    pub fn write(&self, pe: &mut PE, data: &[u8]) -> Result<(), Error> {
+        pe.buffer.write(*self, data)
+    }
+    /// Write a reference to an object at the offset.
+    pub fn write_ref<T>(&self, pe: &mut PE, data: &T) -> Result<(), Error> {
+        pe.buffer.write_ref::<T>(*self, data)
+    }
+}
 impl Address for Offset {
     fn as_offset(&self, _: &PE) -> Result<Offset, Error> {
         Ok(self.clone())
