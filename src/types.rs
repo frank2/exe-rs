@@ -15,7 +15,7 @@ pub enum Arch {
     X64,
 }
 
-/// Represents a C-style character unit. Basically a wrapper for ```u8```.
+/// Represents a C-style character unit. Basically a wrapper for [`u8`](u8).
 #[repr(packed)]
 #[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct CChar(pub u8);
@@ -23,9 +23,9 @@ pub struct CChar(pub u8);
 /* borrowed from pe-rs */
 /// Syntactic sugar to get functionality out of C-char referenced slices.
 pub trait CCharString {
-    /// Get the zero-terminated representation of this string, or ```None``` if it is not zero-terminated.
+    /// Get the zero-terminated representation of this string, or [`None`](None) if it is not zero-terminated.
     fn zero_terminated(&self) -> Option<&Self>;
-    /// Get the string slice as a ```&str```.
+    /// Get the string slice as a [`&str`](str).
     fn as_str(&self) -> &str;
 }
 impl CCharString for [CChar] {
@@ -41,14 +41,14 @@ impl CCharString for [CChar] {
     }
 }
 
-/// Represents a UTF16 character unit. Basically a wrapper for ```u16```.
+/// Represents a UTF16 character unit. Basically a wrapper for [`u16`](u16).
 #[repr(packed)]
 #[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct WChar(pub u16);
 
 /// Syntactic sugar for dealing with UTF16 referenced slices.
 pub trait WCharString {
-    /// Get the zero-terminated representation of this string, or ```None``` if it is not zero-terminated.
+    /// Get the zero-terminated representation of this string, or [`None`](None) if it is not zero-terminated.
     fn zero_terminated(&self) -> Option<&Self>;
     /// Get the string slice as a [`U16Str`](U16Str).
     fn as_u16_str(&self) -> &U16Str;
@@ -512,7 +512,8 @@ impl Relocation {
 /// use exe::PE;
 /// use exe::types::{RelocationDirectory, RVA};
 ///
-/// let dll = PE::from_file("test/dll.dll").unwrap();
+/// let buffer = std::fs::read("test/dll.dll").unwrap();
+/// let dll = PE::new_disk(buffer.as_slice());
 /// let relocation_dir = RelocationDirectory::parse(&dll).unwrap();
 /// assert_eq!(relocation_dir.entries.len(), 1);
 ///
@@ -574,7 +575,10 @@ impl<'data> RelocationEntryMut<'data> {
         };
 
         unsafe {
-            let ptr = pe.buffer.offset_to_mut_ptr(offset);
+            let ptr = match pe.buffer.offset_to_mut_ptr(offset) {
+                Ok(p) => p,
+                Err(e) => return Err(e),
+            };
 
             Self::parse_unsafe(pe, ptr)
         }
@@ -626,7 +630,8 @@ impl<'data> RelocationEntryMut<'data> {
 /// use exe::PE;
 /// use exe::types::{RelocationDirectory, RelocationValue, RVA};
 ///
-/// let dll = PE::from_file("test/dll.dll").unwrap();
+/// let buffer = std::fs::read("test/dll.dll").unwrap();
+/// let dll = PE::new_disk(buffer.as_slice());
 /// let relocation_dir = RelocationDirectory::parse(&dll).unwrap();
 /// let relocation_data = relocation_dir.relocations(&dll, 0x02000000).unwrap();
 /// let (rva, reloc) = relocation_data[0];
@@ -709,7 +714,10 @@ impl<'data> RelocationDirectory<'data> {
             Err(e) => return Err(e),
         };
 
-        let ptr = pe.buffer.as_mut_ptr();
+        let ptr = match pe.buffer.as_mut_ptr() {
+            Ok(p) => p,
+            Err(e) => return Err(e),
+        };
 
         for (rva, value) in relocations {
             let offset = match pe.translate(PETranslation::Memory(rva)) {
@@ -772,7 +780,10 @@ impl<'data> RelocationDirectoryMut<'data> {
         let mut entries = Vec::<RelocationEntryMut>::new();
 
         unsafe {
-            let mut start_ptr = pe.buffer.offset_to_mut_ptr(start_offset);
+            let mut start_ptr = match pe.buffer.offset_to_mut_ptr(start_offset) {
+                Ok(p) => p,
+                Err(e) => return Err(e),
+            };
             let end_ptr = pe.buffer.offset_to_ptr(end_offset);
             
             while (start_ptr as usize) < (end_ptr as usize) {
@@ -826,7 +837,10 @@ impl<'data> RelocationDirectoryMut<'data> {
             Err(e) => return Err(e),
         };
 
-        let ptr = pe.buffer.as_mut_ptr();
+        let ptr = match pe.buffer.as_mut_ptr() {
+            Ok(p) => p,
+            Err(e) => return Err(e),
+        };
 
         for (rva, value) in relocations {
             let offset = match pe.translate(PETranslation::Memory(rva)) {
@@ -878,7 +892,7 @@ impl FlaggedDword {
     }
 }
 
-/// A ```u32``` wrapper representing offsets into a resource directory.
+/// A [`u32`](u32) wrapper representing offsets into a resource directory.
 #[repr(packed)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ResourceOffset(pub u32);
@@ -940,7 +954,7 @@ pub enum ResourceID {
     Unknown,
 }
 impl ResourceID {
-    /// Convert the ```u32``` value into a ```ResourceID``` value.
+    /// Convert the [`u32`](u32) value into a ```ResourceID``` value.
     pub fn from_u32(u: u32) -> Self {
         match u {
             1 => Self::Cursor,
@@ -1064,7 +1078,10 @@ impl<'data> ResourceNodeMut<'data> {
         }
 
         unsafe {
-            let ptr = pe.buffer.offset_to_mut_ptr(image_offset);
+            let ptr = match pe.buffer.offset_to_mut_ptr(image_offset) {
+                Ok(p) => p,
+                Err(e) => return Err(e),
+            };
 
             Self::parse_unsafe(pe, ptr)
         }
@@ -1229,7 +1246,10 @@ impl<'data> ResourceDirectoryMut<'data> {
         };
 
         unsafe {
-            let ptr = pe.buffer.offset_to_mut_ptr(offset);
+            let ptr = match pe.buffer.offset_to_mut_ptr(offset) {
+                Ok(p) => p,
+                Err(e) => return Err(e),
+            };
         
             let root_node = match ResourceNodeMut::parse_unsafe(pe, ptr) {
                 Ok(r) => r,
