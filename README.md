@@ -6,7 +6,7 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 # Changelog
 
 ## 0.4.1
-* buffers now operate on `u8` slice references! this has affected how PE files are initialized, see [the docs](https://docs.rs/exe) for more details.
+* *buffers now operate on `u8` slice references!* this has affected how PE files are initialized, see [the docs](https://docs.rs/exe) for more details.
 * fixed a bug in default ```ImageFileHeader``` generation where the ```size_of_optional_header``` value was calculated incorrectly.
 * added functionality to align offsets and RVAs to the file alignment and section alignment of the headers, see ```PE::align_to_file``` and ```ImageSectionHeader::is_aligned_to_file``` for details.
 * added functionality to pull the DOS stub out of the image, see ```PE::get_dos_stub```.
