@@ -118,7 +118,7 @@ impl Address for PETranslation {
 
 /// Represents a PE file.
 pub struct PE<'data> {
-    /// The type of buffer the PE file is expecting. See [PEType](PEType) for an explanation.
+    /// The type of buffer the PE file is expecting. See [`PEType`](PEType) for an explanation.
     pub pe_type: PEType,
     /// The memory buffer that typically points to the backing data.
     pub buffer: Buffer<'data>,
