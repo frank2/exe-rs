@@ -1241,23 +1241,28 @@ impl ImageImportDescriptor {
         self.parse_mut_thunk_array(pe, self.first_thunk)
     }
 
-    /// Get the imports represented by this import descriptor. This resolves the import table and returns a series of strings
-    /// representing both [`ImageImportByName`](ImageImportByName) structures as well as import ordinals.
-    pub fn get_imports(&self, pe: &PE) -> Result<Vec<String>, Error> {
-        let mut results = Vec::<String>::new();
-
-        let thunks = match self.get_original_first_thunk(pe) {
-            Ok(t) => t,
+    /// Get the thunk array that represents the imports. This thunk array can either come from the
+    /// OFT or the FT.
+    pub fn get_lookup_thunks<'data>(&self, pe: &'data PE) -> Result<Vec<Thunk<'data>>, Error> {
+        match self.get_original_first_thunk(pe) {
+            Ok(t) => Ok(t),
             Err(e) => {
                 if e != Error::InvalidRVA {
                     return Err(e)
                 }
 
-                match self.get_first_thunk(pe) {
-                    Ok(f) => f,
-                    Err(e) => return Err(e),
-                }
+                self.get_first_thunk(pe)
             },
+        }
+    }
+
+    /// Get the imports represented by this import descriptor. This resolves the import table and returns a series of strings
+    /// representing both [`ImageImportByName`](ImageImportByName) structures as well as import ordinals.
+    pub fn get_imports(&self, pe: &PE) -> Result<Vec<String>, Error> {
+        let mut results = Vec::<String>::new();
+        let thunks = match self.get_lookup_thunks(pe) {
+            Ok(t) => t,
+            Err(e) => return Err(e),
         };
 
         for thunk in thunks {

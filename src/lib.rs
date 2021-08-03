@@ -25,10 +25,12 @@ extern crate chrono;
 pub mod buffer;
 pub mod headers;
 pub mod types;
+pub mod imphash;
 
 pub use crate::buffer::*;
 pub use crate::headers::*;
 pub use crate::types::*;
+pub use crate::imphash::*;
 
 #[cfg(test)]
 mod tests;
@@ -72,6 +74,8 @@ pub enum Error {
     BadDirectory,
     /// The data directory is corrupt and cannot be parsed.
     CorruptDataDirectory,
+    /// The thunk data is unexpected (e.g., export thunks where import thunks are expected).
+    UnexpectedThunkData,
 }
 
 /// An enum to tag the PE file with what its memory map looks like.
@@ -1356,4 +1360,65 @@ impl<'data> PE<'data> {
 
         results
     }
+
+    /// Calculate the imphash of the PE file.
+    pub fn calculate_imphash(&self) -> Result<Vec<u8>, Error> {
+        let imports = match ImportDirectory::parse(&self) {
+            Ok(i) => i,
+            Err(e) => return Err(e),
+        };
+
+        let mut imphash_results = Vec::<String>::new();
+
+        for import in imports.descriptors {
+            let dll_name = match import.get_name(&self) {
+                Ok(n) => n.as_str().to_string().to_ascii_lowercase(),
+                Err(e) => return Err(e),
+            };
+
+            let mut imphash_dll_name = dll_name.clone();
+            let extensions = &["ocx", "sys", "dll"];
+
+            let name_chunks: Vec<String> = dll_name.as_str()
+                .rsplitn(2, '.')
+                .map(|x| x.to_string())
+                .collect();
+
+            if name_chunks.len() > 1 && extensions.contains(&name_chunks[0].as_str()) {
+                imphash_dll_name = name_chunks[1].clone();
+            }
+
+            let thunks = match import.get_lookup_thunks(&self) {
+                Ok(t) => t,
+                Err(e) => return Err(e),
+            };
+
+            for thunk in thunks {
+                let thunk_data = match thunk {
+                    Thunk::Thunk32(t32) => t32.parse_import(),
+                    Thunk::Thunk64(t64) => t64.parse_import(),
+                };
+
+                let import_name = match thunk_data {
+                    ThunkData::Ordinal(x) => imphash_resolve(dll_name.as_str(), x).to_ascii_lowercase(),
+                    ThunkData::ImportByName(rva) => match ImageImportByName::parse(&self, rva) {
+                        Ok(i) => i.name.as_str().to_string().to_ascii_lowercase(),
+                        Err(e) => return Err(e),
+                    },
+                    _ => return Err(Error::UnexpectedThunkData),
+                };
+
+                let mut imphash_name = String::new();
+                imphash_name.push_str(imphash_dll_name.as_str());
+                imphash_name.push('.');
+                imphash_name.push_str(import_name.as_str());
+
+                imphash_results.push(imphash_name.clone());
+            }
+        }
+
+        Ok(imphash_results.join(",").as_str().as_bytes().md5())
+    }
 }
+
+        
