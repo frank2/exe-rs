@@ -15,8 +15,9 @@
 //! }
 //! ```
 //!
-//! Standard PE headers and other types can be found in the [types](types/) module. The
-//! [buffer](buffer/) module contains low-level functionality for handling a PE buffer.
+//! Standard PE headers and other types can be found in the [headers](headers/) module, while
+//! helper types can be found in the [types](types/) module. The [buffer](buffer/) module contains
+//! low-level functionality for handling a PE buffer, such as hashing and collecting pointers.
 //! Further usage examples can be found in the [test file](https://github.com/frank2/exe-rs/blob/main/src/tests.rs).
 
 extern crate chrono;
