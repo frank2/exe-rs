@@ -152,10 +152,10 @@ impl<'data> PE<'data> {
         Self::new_mut(PEType::Memory, data)
     }
     
-    /// Generates a new PE file from a pointer to memory.
+    /// Generates a new [`Memory`](PEType::Memory) PE file from a pointer to memory.
     ///
     /// Because of the nature of verifying the given pointer is a PE image, this function also parses the image and verifies it.
-    pub unsafe fn from_ptr(pe_type: PEType, ptr: *const u8) -> Result<Self, Error> {
+    pub unsafe fn from_ptr(ptr: *const u8) -> Result<Self, Error> {
         let dos_header = &*(ptr as *const ImageDOSHeader);
 
         if dos_header.e_magic != DOS_SIGNATURE {
@@ -181,12 +181,12 @@ impl<'data> PE<'data> {
             return Err(Error::InvalidNTSignature);
         }
 
-        Ok(PE::new(pe_type, slice::from_raw_parts(ptr, image_size)))
+        Ok(PE::new_memory(slice::from_raw_parts(ptr, image_size)))
     }
-    /// Generates a new mutable PE file from a mutable pointer to memory.
+    /// Generates a new mutable [`Memory`](PEType::Memory) PE file from a mutable pointer to memory.
     ///
     /// Because of the nature of verifying the given pointer is a PE image, this function also parses the image and verifies it.
-    pub unsafe fn from_mut_ptr(pe_type: PEType, ptr: *mut u8) -> Result<PE<'data>, Error> {
+    pub unsafe fn from_mut_ptr(ptr: *mut u8) -> Result<PE<'data>, Error> {
         let dos_header = &*(ptr as *const ImageDOSHeader);
 
         if dos_header.e_magic != DOS_SIGNATURE {
@@ -212,7 +212,7 @@ impl<'data> PE<'data> {
             return Err(Error::InvalidNTSignature);
         }
 
-        Ok(PE::new_mut(pe_type, slice::from_raw_parts_mut(ptr, image_size)))
+        Ok(PE::new_mut_memory(slice::from_raw_parts_mut(ptr, image_size)))
     }
 
     /// Translate an address into a buffer offset relevant to the image type.
@@ -1211,5 +1211,70 @@ impl<'data> PE<'data> {
         }
 
         Ok(memory_size)
+    }
+
+    /// Find all embedded images within the PE file. Returns an empty vector if no PE files are found.
+    pub fn find_embedded_images(&self, pe_type: PEType) -> Vec<PE> {
+        let mut results = Vec::<PE>::new();
+        let mut index = 2usize; // skip the initial MZ header
+
+        while index < self.buffer.len() {
+            if index > (u32::MAX as usize) { break; }
+
+            let dos_offset = Offset(index as u32);
+            let mz = match self.buffer.get_ref::<u16>(dos_offset) {
+                Ok(u) => u,
+                Err(_) => { index += 1; continue; },
+            };
+            if *mz != DOS_SIGNATURE { index += 1; continue; }
+
+            let dos_header = match self.buffer.get_ref::<ImageDOSHeader>(dos_offset) {
+                Ok(h) => h,
+                Err(_) => { index += 1; continue; },
+            };
+
+            let e_lfanew = Offset(dos_offset.0 + dos_header.e_lfanew.0);
+
+            let nt_signature = match self.buffer.get_ref::<u32>(e_lfanew) {
+                Ok(s) => s,
+                Err(_) => { index += 1; continue; },
+            };
+
+            if *nt_signature != NT_SIGNATURE { index += 1; continue; }
+
+            // we now have some kind of PE image. whether it's a valid PE image
+            // is yet to be determined. so read to the end of the buffer as a
+            // temporary image to start parsing out the proper image.
+            let eof = self.buffer.len() - index;
+            let temp_data = match self.buffer.read(dos_offset, eof) {
+                Ok(d) => d,
+                Err(_) => { index += 1; continue; },
+            };
+            
+            let pe = PE::new_disk(temp_data);
+
+            let image_size = match pe_type {
+                PEType::Disk => match pe.calculate_disk_size() {
+                    Ok(s) => s,
+                    Err(_) => { index += 1; continue; },
+                },
+                PEType::Memory => match pe.calculate_memory_size() {
+                    Ok(s) => s,
+                    Err(_) => { index += 1; continue; },
+                },
+            };
+            
+            let real_data = match self.buffer.read(dos_offset, image_size) {
+                Ok(d) => d,
+                Err(_) => { index += 1; continue; },
+            };
+                    
+            let real_pe = PE::new(pe_type, real_data);
+
+            results.push(real_pe);
+            index += image_size;
+        }
+
+        results
     }
 }
