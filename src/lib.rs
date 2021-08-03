@@ -131,7 +131,7 @@ impl<'data> PE<'data> {
             buffer: Buffer::new(data),
         }
     }
-    /// Generates a new mutable PE object from a mutable [`u8`](u8) slice without copying the data.
+    /// Generates a new mutable PE object from a mutable [`u8`](u8) slice reference.
     pub fn new_mut(pe_type: PEType, data: &'data mut [u8]) -> Self {
         Self {
             pe_type: pe_type,
