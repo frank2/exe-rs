@@ -121,6 +121,7 @@ impl Address for PETranslation {
 }
 
 /// Represents a PE file.
+#[derive(Clone)]
 pub struct PE<'data> {
     /// The type of buffer the PE file is expecting. See [`PEType`](PEType) for an explanation.
     pub pe_type: PEType,

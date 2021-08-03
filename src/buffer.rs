@@ -10,6 +10,7 @@ use sha1::Sha1;
 
 use sha2::Sha256;
 
+use std::clone::Clone;
 use std::collections::HashMap;
 use std::convert::AsRef;
 use std::fs;
@@ -189,6 +190,20 @@ impl<'data> BufferData<'data> {
         }
     }
 }
+impl<'data> Clone for BufferData<'data> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Memory(m) => unsafe { Self::Memory(slice::from_raw_parts(m.as_ptr(), m.len())) },
+            Self::MutMemory(mm) => unsafe { Self::MutMemory(slice::from_raw_parts_mut(mm.as_ptr() as *mut u8, mm.len())) },
+        }
+    }
+    fn clone_from(&mut self, source: &Self) {
+        *self = match source {
+            Self::Memory(m) => unsafe { Self::Memory(slice::from_raw_parts(m.as_ptr(), m.len())) },
+            Self::MutMemory(mm) => unsafe { Self::MutMemory(slice::from_raw_parts_mut(mm.as_ptr() as *mut u8, mm.len())) },
+        }
+    }
+}
 
 /// Represents the Rust representation of data in the buffer.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -198,6 +213,7 @@ pub enum BufferType {
 }
 
 /// A buffer representing the PE image.
+#[derive(Clone)]
 pub struct Buffer<'data> {
     data: BufferData<'data>
 }
