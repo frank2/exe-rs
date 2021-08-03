@@ -294,7 +294,7 @@ impl<'data> Buffer<'data> {
             return Err(Error::BadPointer);
         }
         
-        let delta = (self.as_ptr() as usize) - (ptr as usize);
+        let delta = (ptr as usize) - (self.as_ptr() as usize);
 
         /* executables greater than 4GB are unsupported */
         if delta > (u32::MAX as usize) {
