@@ -310,6 +310,10 @@ fn test_cff_explorer() {
     assert!(checksum.is_ok());
     assert!(checksum.unwrap());
 
+    let imphash = pefile.calculate_imphash();
+    assert!(imphash.is_ok());
+    assert_eq!(imphash.unwrap(), hex::decode("29307ef77ea94259e99f987498998a8f").unwrap());
+
     assert!(pefile.has_data_directory(ImageDirectoryEntry::Resource));
 
     let data_directory = ResourceDirectory::parse(&pefile);
