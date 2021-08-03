@@ -306,6 +306,10 @@ fn test_cff_explorer() {
     let buffer = fs::read("test/cff_explorer.exe").unwrap();
     let pefile = PE::new_disk(buffer.as_slice());
 
+    let checksum = pefile.validate_checksum();
+    assert!(checksum.is_ok());
+    assert!(checksum.unwrap());
+
     assert!(pefile.has_data_directory(ImageDirectoryEntry::Resource));
 
     let data_directory = ResourceDirectory::parse(&pefile);
@@ -405,6 +409,6 @@ fn test_creation() {
 #[test]
 fn test_pointer() {
     let hmodule = unsafe { GetModuleHandleA(std::ptr::null()) };
-    let memory_module = unsafe { PE::from_ptr(PEType::Memory, hmodule as *const u8) };
+    let memory_module = unsafe { PE::from_ptr(hmodule as *const u8) };
     assert!(memory_module.is_ok());
 }
