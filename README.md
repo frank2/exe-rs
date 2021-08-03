@@ -13,6 +13,7 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 * added a great example of dumping section hashes from a PE file, see ```PE::buffer::HashData``` in the docs.
 * added syntactic sugar for `Offset` objects, buffer operations requiring offsets can now be accessed directly from them with a supplied `PE` object.
 * `PE` image can now calculate disk sizes and memory sizes, see `PE::calculate_disk_size` and `PE::calculate_memory_size`.
+* PE images embedded in a given executable can now be extracted! see `PE::find_embedded_images`. this does not have a corresponding test because it was tested on malware.
 
 ## 0.4
 * added support for resource directories
