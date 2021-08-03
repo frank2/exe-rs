@@ -641,7 +641,7 @@ impl<'data> PE<'data> {
 
         Ok(offset)
     }
-    /// Get the size of the data directory. Rounds down ```number_of_rva_and_sizes``` to 16, which is what
+    /// Get the size of the data directory. Rounds down [`number_of_rva_and_sizes`](ImageOptionalHeader32::number_of_rva_and_sizes) to 16, which is what
     /// the Windows loader does.
     pub fn get_data_directory_size(&self) -> Result<usize, Error> {
         let nt_header = match self.get_valid_nt_headers() {
@@ -664,8 +664,8 @@ impl<'data> PE<'data> {
     }
     /// Get the data directory table.
     ///
-    /// Normally one would expect this to be a part of [ImageOptionalHeader](ImageOptionalHeader32), but
-    /// [ImageOptionalHeader::number_of_rva_and_sizes](ImageOptionalHeader32::number_of_rva_and_sizes) controls
+    /// Normally one would expect this to be a part of [`ImageOptionalHeader`](ImageOptionalHeader32), but
+    /// [`ImageOptionalHeader::number_of_rva_and_sizes`](ImageOptionalHeader32::number_of_rva_and_sizes) controls
     /// the size of the array. Therefore, we can't stick it in the optional header, because that would
     /// produce a variable-sized structure, which Rust doesn't support.
     pub fn get_data_directory_table(&self) -> Result<&[ImageDataDirectory], Error> {
@@ -765,7 +765,7 @@ impl<'data> PE<'data> {
     }
 
     /// Get a reference to a section in the PE file by a given offset. Yields a
-    /// [Error::SectionNotFound](Error::SectionNotFound) error if the offset wasn't found to be in a section.
+    /// [`Error::SectionNotFound`](Error::SectionNotFound) error if the offset wasn't found to be in a section.
     pub fn get_section_by_offset(&self, offset: Offset) -> Result<&ImageSectionHeader, Error> {
         let section_table = match self.get_section_table() {
             Ok(s) => s,
@@ -782,7 +782,7 @@ impl<'data> PE<'data> {
     }
 
     /// Get a mutable reference to a section in the PE file by a given offset. Yields a
-    /// [Error::SectionNotFound](Error::SectionNotFound) error if the offset wasn't found to be in a section.
+    /// [`Error::SectionNotFound`](Error::SectionNotFound) error if the offset wasn't found to be in a section.
     pub fn get_mut_section_by_offset(&mut self, offset: Offset) -> Result<&mut ImageSectionHeader, Error> {
         let section_table = match self.get_mut_section_table() {
             Ok(s) => s,
@@ -799,7 +799,7 @@ impl<'data> PE<'data> {
     }
 
     /// Get a reference to a section in the PE file by a given RVA. Yields a
-    /// [Error::SectionNotFound](Error::SectionNotFound) error if the RVA wasn't found to be in a section.
+    /// [`Error::SectionNotFound`](Error::SectionNotFound) error if the RVA wasn't found to be in a section.
     pub fn get_section_by_rva(&self, rva: RVA) -> Result<&ImageSectionHeader, Error> {
         let section_table = match self.get_section_table() {
             Ok(s) => s,
@@ -816,7 +816,7 @@ impl<'data> PE<'data> {
     }
 
     /// Get a mutable reference to a section in the PE file by a given RVA. Yields a
-    /// [Error::SectionNotFound](Error::SectionNotFound) error if the RVA wasn't found to be in a section.
+    /// [`Error::SectionNotFound`](Error::SectionNotFound) error if the RVA wasn't found to be in a section.
     pub fn get_mut_section_by_rva(&mut self, rva: RVA) -> Result<&mut ImageSectionHeader, Error> {
         let section_table = match self.get_mut_section_table() {
             Ok(s) => s,
@@ -833,7 +833,7 @@ impl<'data> PE<'data> {
     }
 
     /// Get a reference to a section in the PE file by its name. Yields a
-    /// [Error::SectionNotFound](Error::SectionNotFound) error if the name wasn't found in the section table.
+    /// [`Error::SectionNotFound`](Error::SectionNotFound) error if the name wasn't found in the section table.
     pub fn get_section_by_name(&self, name: String) -> Result<&ImageSectionHeader, Error> {
         let sections = match self.get_section_table() {
             Ok(s) => s,
@@ -851,7 +851,7 @@ impl<'data> PE<'data> {
     }
 
     /// Get a mutable reference to a section in the PE file by its name. Yields a
-    /// [Error::SectionNotFound](Error::SectionNotFound) error if the name wasn't found in the section table.
+    /// [`Error::SectionNotFound`](Error::SectionNotFound) error if the name wasn't found in the section table.
     pub fn get_mut_section_by_name(&mut self, name: String) -> Result<&mut ImageSectionHeader, Error> {
         let sections = match self.get_mut_section_table() {
             Ok(s) => s,
@@ -892,7 +892,7 @@ impl<'data> PE<'data> {
     /// Verify that the given VA is a valid VA for this image.
     ///
     /// A VA is validated if it lands between the image base and the end of the image, determined by its size.
-    /// In other words: ```image_base <= VA < (image_base+image_size)```
+    /// In other words: `image_base <= VA < (image_base+image_size)`
     pub fn validate_va(&self, va: VA) -> bool {
         let headers = match self.get_valid_nt_headers() {
             Ok(h) => h,
@@ -1005,7 +1005,7 @@ impl<'data> PE<'data> {
         Ok(new_rva)
     }
 
-    /// Convert an offset to an RVA address. Produces [Error::InvalidRVA](Error::InvalidRVA) if the produced
+    /// Convert an offset to an RVA address. Produces [`Error::InvalidRVA`](Error::InvalidRVA) if the produced
     /// RVA is invalid or if the section it was transposed from no longer contains it.
     pub fn offset_to_rva(&self, offset: Offset) -> Result<RVA, Error> {
         let section = match self.get_section_by_offset(offset) {
@@ -1045,7 +1045,7 @@ impl<'data> PE<'data> {
         self.rva_to_va(rva)
     }
 
-    /// Convert an RVA to an offset address. Produces a [Error::InvalidOffset](Error::InvalidOffset) error if
+    /// Convert an RVA to an offset address. Produces a [`Error::InvalidOffset`](Error::InvalidOffset) error if
     /// the produced offset is invalid or if the section it was transposed from no longer contains it.
     pub fn rva_to_offset(&self, rva: RVA) -> Result<Offset, Error> {
         let section = match self.get_section_by_rva(rva) {
@@ -1075,7 +1075,7 @@ impl<'data> PE<'data> {
 
         Ok(Offset(offset))
     }
-    /// Convert an RVA to a VA address. Produces a [Error::InvalidVA](Error::InvalidVA) error if the produced
+    /// Convert an RVA to a VA address. Produces a [`Error::InvalidVA`](Error::InvalidVA) error if the produced
     /// VA is invalid.
     pub fn rva_to_va(&self, rva: RVA) -> Result<VA, Error> {
         let headers = match self.get_valid_nt_headers() {
@@ -1095,7 +1095,7 @@ impl<'data> PE<'data> {
         Ok(va)
     }
 
-    /// Convert a VA to an RVA. Produces a [Error::InvalidRVA](Error::InvalidRVA) error if the produced RVA
+    /// Convert a VA to an RVA. Produces a [`Error::InvalidRVA`](Error::InvalidRVA) error if the produced RVA
     /// is invalid.
     pub fn va_to_rva(&self, va: VA) -> Result<RVA, Error> {
         let headers = match self.get_valid_nt_headers() {
@@ -1127,8 +1127,8 @@ impl<'data> PE<'data> {
         self.rva_to_offset(rva)
     }
 
-    /// Get the data directory reference represented by the [ImageDirectoryEntry](headers::ImageDirectoryEntry) enum.
-    /// Returns [Error::BadDirectory](Error::BadDirectory) if the given directory is inaccessible due to the directory
+    /// Get the data directory reference represented by the [`ImageDirectoryEntry`](headers::ImageDirectoryEntry) enum.
+    /// Returns [`Error::BadDirectory`](Error::BadDirectory) if the given directory is inaccessible due to the directory
     /// size.
     pub fn get_data_directory(&self, dir: ImageDirectoryEntry) -> Result<&ImageDataDirectory, Error> {
         let directory_table = match self.get_data_directory_table() {
@@ -1143,7 +1143,7 @@ impl<'data> PE<'data> {
 
         Ok(&directory_table[index])
     }
-    /// Get the mutable data directory reference represented by the [ImageDirectoryEntry](headers::ImageDirectoryEntry) enum.
+    /// Get the mutable data directory reference represented by the [`ImageDirectoryEntry`](headers::ImageDirectoryEntry) enum.
     pub fn get_mut_data_directory(&mut self, dir: ImageDirectoryEntry) -> Result<&mut ImageDataDirectory, Error> {
         let directory_table = match self.get_mut_data_directory_table() {
             Ok(d) => d,
