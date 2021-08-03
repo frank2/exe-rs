@@ -32,6 +32,8 @@ pub use crate::types::*;
 #[cfg(test)]
 mod tests;
 
+use byteorder::{LittleEndian, ReadBytesExt};
+
 use std::cmp;
 use std::mem;
 use std::slice;
@@ -522,6 +524,82 @@ impl<'data> PE<'data> {
         else {
             Err(Error::InvalidNTSignature)
         }
+    }
+
+    /// Validate the checksum in the image with the calculated checksum.
+    pub fn validate_checksum(&self) -> Result<bool, Error> {
+        let checksum = match self.get_valid_nt_headers() {
+            Ok(h) => match h {
+                NTHeaders::NTHeaders32(h32) => h32.optional_header.checksum,
+                NTHeaders::NTHeaders64(h64) => h64.optional_header.checksum,
+            },
+            Err(e) => return Err(e),
+        };
+
+        match self.calculate_checksum() {
+            Ok(c) => Ok(c == checksum),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Calculate the checksum of the PE image.
+    pub fn calculate_checksum(&self) -> Result<u32, Error> {
+        let checksum_ref = match self.get_valid_nt_headers() {
+            Ok(h) => match h {
+                NTHeaders::NTHeaders32(h32) => unsafe { &h32.optional_header.checksum },
+                NTHeaders::NTHeaders64(h64) => unsafe { &h64.optional_header.checksum },
+            },
+            Err(e) => return Err(e),
+        };
+
+        let checksum_offset = match self.buffer.ref_to_offset(checksum_ref) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let eof = self.buffer.len();
+        let mut checksum = 0u64;
+
+        for i in (0..eof).step_by(4) {
+            let offset = Offset(i as u32);
+            if offset == checksum_offset { continue; }
+
+            let data: Vec<u8> = match self.buffer.read(offset, 4) {
+                Ok(d) => d.iter().cloned().collect(),
+                Err(e) => {
+                    if e != Error::BufferTooSmall {
+                        return Err(e);
+                    }
+
+                    let real_size = eof - i;
+                    let real_output = match self.buffer.read(offset, real_size) {
+                        Ok(r) => r,
+                        Err(e) => return Err(e),
+                    };
+                        
+                    let mut padded_output = Vec::<u8>::new();
+                    padded_output.extend_from_slice(real_output);
+                    padded_output.append(&mut vec![0u8; 4 - padded_output.len()]);
+
+                    padded_output
+                },
+            };
+
+            let int_val = data.as_slice().read_u32::<LittleEndian>().unwrap();
+            
+            checksum = (checksum & 0xFFFFFFFF) + (int_val as u64) + (checksum >> 32);
+
+            if checksum > (u32::MAX as u64) {
+                checksum = (checksum & 0xFFFFFFFF) + (checksum >> 32);
+            }
+        }
+
+        checksum = (checksum & 0xFFFF) + (checksum >> 16);
+        checksum = checksum + (checksum >> 16);
+        checksum = checksum & 0xFFFF;
+        checksum += eof as u64;
+
+        Ok(checksum as u32)
     }
 
     /// Get the entrypoint of this PE file.
