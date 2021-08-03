@@ -5,6 +5,10 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 
 # Changelog
 
+## 0.5
+### Features
+* implemented the [imphash algorithm](https://www.fireeye.com/blog/threat-research/2014/01/tracking-malware-import-hashing.html), see `PE::calculate_imphash`.
+
 ## 0.4.1
 ### Features
 * **buffers now operate on `u8` slice references!** this has affected how PE files are initialized, see [the docs](https://docs.rs/exe) for more details.
