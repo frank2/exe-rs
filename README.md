@@ -8,6 +8,7 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 ## 0.5
 ### Features
 * implemented the [imphash algorithm](https://www.fireeye.com/blog/threat-research/2014/01/tracking-malware-import-hashing.html), see `PE::calculate_imphash`.
+* buffers and `PE` objects can now be cloned!
 
 ## 0.4.1
 ### Features
