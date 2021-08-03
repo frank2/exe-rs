@@ -7,7 +7,7 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 
 ## 0.4.1
 ### Features
-* *buffers now operate on `u8` slice references!* this has affected how PE files are initialized, see [the docs](https://docs.rs/exe) for more details.
+* **buffers now operate on `u8` slice references!** this has affected how PE files are initialized, see [the docs](https://docs.rs/exe) for more details.
 * added functionality to align offsets and RVAs to the file alignment and section alignment of the headers, see ```PE::align_to_file``` and ```ImageSectionHeader::is_aligned_to_file``` for details.
 * added functionality to pull the DOS stub out of the image, see ```PE::get_dos_stub```.
 * added a great example of dumping section hashes from a PE file, see ```PE::buffer::HashData``` in the docs.
