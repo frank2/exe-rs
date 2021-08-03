@@ -15,6 +15,7 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 * `PE` image can now calculate disk sizes and memory sizes, see `PE::calculate_disk_size` and `PE::calculate_memory_size`.
 * PE images embedded in a given executable can now be extracted! see `PE::find_embedded_images`. this does not have a corresponding test because it was tested on malware.
 * added ability to calculate and validate PE checksums of an image, see `PE::validate_checksum` and `PE::calculate_checksum`.
+* fixed a bug where pointers weren't being calculated correctly into offsets.
 
 ## 0.4
 * added support for resource directories
