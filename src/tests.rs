@@ -92,6 +92,15 @@ fn test_compiled() {
     let msvcrt_expected = vec![ImportData::ImportByName("printf")];
     assert!(msvcrt_imports.is_ok());
     assert_eq!(msvcrt_imports.unwrap(), msvcrt_expected);
+
+    let known_mem_image = std::fs::read("test/compiled_dumped.bin").unwrap();
+    let recreated_image = pefile.recreate_image(PEType::Memory);
+    assert!(recreated_image.is_ok());
+    
+    // due to the IAT, the images are not equal by a few bytes, so we instead
+    // compare the length of the two images, which should be equal if it properly
+    // recreated the image.
+    assert_eq!(known_mem_image.len(), recreated_image.unwrap().len());
 }
 
 #[test]
@@ -166,6 +175,11 @@ fn test_compiled_dumped() {
     let msvcrt_expected = vec![ImportData::ImportByName("printf")];
     assert!(msvcrt_imports.is_ok());
     assert_eq!(msvcrt_imports.unwrap(), msvcrt_expected);
+
+    let known_disk_image = std::fs::read("test/compiled.exe").unwrap();
+    let recreated_image = pefile.recreate_image(PEType::Disk);
+    assert!(recreated_image.is_ok());
+    assert_eq!(known_disk_image.len(), recreated_image.unwrap().len());
 }
 
 #[test]
