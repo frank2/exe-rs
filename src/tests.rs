@@ -55,7 +55,6 @@ fn test_compiled() {
     assert!(pefile.has_data_directory(ImageDirectoryEntry::Import));
     assert!(!pefile.has_data_directory(ImageDirectoryEntry::Export));
     
-
     let import_directory_result = ImportDirectory::parse(&pefile);
     assert!(import_directory_result.is_ok());
 
@@ -81,7 +80,7 @@ fn test_compiled() {
     }
         
     let kernel32_imports = import_directory.descriptors[0].get_imports(&pefile);
-    let kernel32_expected = vec!["ExitProcess".to_string()];
+    let kernel32_expected = vec![ImportData::ImportByName("ExitProcess")];
     assert!(kernel32_imports.is_ok());
     assert_eq!(kernel32_imports.unwrap(), kernel32_expected);
 
@@ -90,7 +89,7 @@ fn test_compiled() {
     assert_eq!(name_1.unwrap().as_str(), "msvcrt.dll");
 
     let msvcrt_imports = import_directory.descriptors[1].get_imports(&pefile);
-    let msvcrt_expected = vec!["printf".to_string()];
+    let msvcrt_expected = vec![ImportData::ImportByName("printf")];
     assert!(msvcrt_imports.is_ok());
     assert_eq!(msvcrt_imports.unwrap(), msvcrt_expected);
 }
@@ -155,7 +154,7 @@ fn test_compiled_dumped() {
     }
         
     let kernel32_imports = import_directory.descriptors[0].get_imports(&pefile);
-    let kernel32_expected = vec!["ExitProcess".to_string()];
+    let kernel32_expected = vec![ImportData::ImportByName("ExitProcess")];
     assert!(kernel32_imports.is_ok());
     assert_eq!(kernel32_imports.unwrap(), kernel32_expected);
 
@@ -164,7 +163,7 @@ fn test_compiled_dumped() {
     assert_eq!(name_1.unwrap().as_str(), "msvcrt.dll");
 
     let msvcrt_imports = import_directory.descriptors[1].get_imports(&pefile);
-    let msvcrt_expected = vec!["printf".to_string()];
+    let msvcrt_expected = vec![ImportData::ImportByName("printf")];
     assert!(msvcrt_imports.is_ok());
     assert_eq!(msvcrt_imports.unwrap(), msvcrt_expected);
 }
@@ -257,7 +256,7 @@ fn test_imports_nothunk() {
 
     let kernel32_imports = import_table.descriptors[0].get_imports(&pefile);
     assert!(kernel32_imports.is_ok());
-    assert_eq!(kernel32_imports.unwrap(), [String::from("ExitProcess")]);
+    assert_eq!(kernel32_imports.unwrap(), [ImportData::ImportByName("ExitProcess")]);
 
     let blank_imports = import_table.descriptors[1].get_imports(&pefile);
     assert!(blank_imports.is_ok());
@@ -265,7 +264,7 @@ fn test_imports_nothunk() {
 
     let msvcrt_imports = import_table.descriptors[2].get_imports(&pefile);
     assert!(msvcrt_imports.is_ok());
-    assert_eq!(msvcrt_imports.unwrap(), [String::from("printf")]);
+    assert_eq!(msvcrt_imports.unwrap(), [ImportData::ImportByName("printf")]);
 }
 
 #[test]
