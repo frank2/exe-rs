@@ -1241,8 +1241,8 @@ impl ImageImportDescriptor {
         self.parse_mut_thunk_array(pe, self.first_thunk)
     }
 
-    /// Get the thunk array that represents the imports. This thunk array can either come from the
-    /// OFT or the FT.
+    /// Get the thunk array that represents the imports, also known as the "import lookup table." This thunk array can
+    /// either come from the `original_first_thunk` value or the `first_thunk` value.
     pub fn get_lookup_thunks<'data>(&self, pe: &'data PE) -> Result<Vec<Thunk<'data>>, Error> {
         match self.get_original_first_thunk(pe) {
             Ok(t) => Ok(t),
@@ -1256,10 +1256,10 @@ impl ImageImportDescriptor {
         }
     }
 
-    /// Get the imports represented by this import descriptor. This resolves the import table and returns a series of strings
-    /// representing both [`ImageImportByName`](ImageImportByName) structures as well as import ordinals.
-    pub fn get_imports(&self, pe: &PE) -> Result<Vec<String>, Error> {
-        let mut results = Vec::<String>::new();
+    /// Get the imports represented by this import descriptor. This resolves the import table and returns a vector
+    /// of [`ImportData`](ImportData) objects.
+    pub fn get_imports<'data>(&self, pe: &'data PE) -> Result<Vec<ImportData<'data>>, Error> {
+        let mut results = Vec::<ImportData<'data>>::new();
         let thunks = match self.get_lookup_thunks(pe) {
             Ok(t) => t,
             Err(e) => return Err(e),
@@ -1272,10 +1272,10 @@ impl ImageImportDescriptor {
             };
 
             match thunk_data {
-                ThunkData::Ordinal(x) => results.push(String::from(format!("#{}", x))),
+                ThunkData::Ordinal(x) => results.push(ImportData::Ordinal(x)),
                 ThunkData::ImportByName(rva) => {
                     match ImageImportByName::parse(pe, rva) {
-                        Ok(i) => results.push(String::from(i.name.as_str())),
+                        Ok(i) => results.push(ImportData::ImportByName(i.name.as_str())),
                         Err(_) => continue,
                     }
                 }

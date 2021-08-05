@@ -3,15 +3,22 @@
 //! Getting started is easy:
 //! ```rust
 //! use exe::PE;
-//! use exe::types::{ImportDirectory, CCharString};
+//! use exe::types::{ImportDirectory, ImportData, CCharString};
 //!
 //! let buffer = std::fs::read("test/compiled.exe").unwrap();
 //! let pefile = PE::new_disk(buffer.as_slice());
 //! let import_directory = ImportDirectory::parse(&pefile).unwrap();
 //!
-//! for import in import_directory.descriptors {
-//!    println!("Module: {}", import.get_name(&pefile).unwrap().as_str());
-//!    println!("Imports: {:?}", import.get_imports(&pefile).unwrap());
+//! for descriptor in import_directory.descriptors {
+//!    println!("Module: {}", descriptor.get_name(&pefile).unwrap().as_str());
+//!    println!("Imports:");
+//!
+//!    for import in descriptor.get_imports(&pefile).unwrap() {
+//!       match import {
+//!          ImportData::Ordinal(x) => println!("   #{}", x),
+//!          ImportData::ImportByName(s) => println!("   {}", s)
+//!       }
+//!    }
 //! }
 //! ```
 //!
@@ -1364,14 +1371,14 @@ impl<'data> PE<'data> {
 
     /// Calculate the imphash of the PE file.
     pub fn calculate_imphash(&self) -> Result<Vec<u8>, Error> {
-        let imports = match ImportDirectory::parse(&self) {
+        let import_directory = match ImportDirectory::parse(&self) {
             Ok(i) => i,
             Err(e) => return Err(e),
         };
 
         let mut imphash_results = Vec::<String>::new();
 
-        for import in imports.descriptors {
+        for import in import_directory.descriptors {
             let dll_name = match import.get_name(&self) {
                 Ok(n) => n.as_str().to_string().to_ascii_lowercase(),
                 Err(e) => return Err(e),
@@ -1389,24 +1396,15 @@ impl<'data> PE<'data> {
                 imphash_dll_name = name_chunks[1].clone();
             }
 
-            let thunks = match import.get_lookup_thunks(&self) {
-                Ok(t) => t,
+            let import_entries = match import.get_imports(&self) {
+                Ok(i) => i,
                 Err(e) => return Err(e),
             };
 
-            for thunk in thunks {
-                let thunk_data = match thunk {
-                    Thunk::Thunk32(t32) => t32.parse_import(),
-                    Thunk::Thunk64(t64) => t64.parse_import(),
-                };
-
-                let import_name = match thunk_data {
-                    ThunkData::Ordinal(x) => imphash_resolve(dll_name.as_str(), x).to_ascii_lowercase(),
-                    ThunkData::ImportByName(rva) => match ImageImportByName::parse(&self, rva) {
-                        Ok(i) => i.name.as_str().to_string().to_ascii_lowercase(),
-                        Err(e) => return Err(e),
-                    },
-                    _ => return Err(Error::UnexpectedThunkData),
+            for import_data in import_entries {
+                let import_name = match import_data {
+                    ImportData::Ordinal(x) => imphash_resolve(dll_name.as_str(), x).to_ascii_lowercase(),
+                    ImportData::ImportByName(s) => s.to_string().to_ascii_lowercase(),
                 };
 
                 let mut imphash_name = String::new();

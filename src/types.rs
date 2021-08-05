@@ -1,5 +1,6 @@
 //! This module contains Rust types to help with the parsing of PE files.
 
+use std::collections::HashMap;
 use std::mem;
 use std::slice;
 
@@ -325,6 +326,13 @@ pub enum ThunkMut<'data> {
 
 pub type ExportDirectory = ImageExportDirectory;
 
+/// An enum representing resolved import data from thunk data.
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub enum ImportData<'data> {
+    Ordinal(u32),
+    ImportByName(&'data str),
+}
+
 /// Represents the import directory in the PE file.
 pub struct ImportDirectory<'data> {
     pub descriptors: &'data [ImageImportDescriptor]
@@ -391,6 +399,26 @@ impl<'data> ImportDirectory<'data> {
         };
 
         Ok(Self { descriptors } )
+    }
+    /// Gets a map of DLL names to function names/ordinals in the import directory.
+    pub fn get_import_map(&self, pe: &'data PE) -> Result<HashMap<&'data str, Vec<ImportData<'data>>>, Error> {
+        let mut results = HashMap::<&'data str, Vec<ImportData<'data>>>::new();
+
+        for import in self.descriptors {
+            let name = match import.get_name(&pe) {
+                Ok(n) => n.as_str(),
+                Err(e) => return Err(e),
+            };
+
+            let imports = match import.get_imports(&pe) {
+                Ok(i) => i,
+                Err(e) => return Err(e),
+            };
+
+            results.insert(name, imports);
+        }
+
+        Ok(results)
     }
 }
 
