@@ -1416,6 +1416,90 @@ impl<'data> PE<'data> {
 
         Ok(imphash_results.join(",").as_str().as_bytes().md5())
     }
-}
 
-        
+    /// Creates a new vector representing either what the image looks like on disk (i.e., a [`PEType::Disk`](PEType::Disk) image)
+    /// or what the image looks like in memory (i.e., a [`PEType::Memory`](PEType::Memory) image).
+    ///
+    /// Note that for [`Memory`](PEType::Memory) images, it does not use [`caluclate_memory_size`](PE::calculate_memory_size).
+    /// It rather relies on the [`size_of_image`](ImageOptionalHeader32::size_of_image) field, as that's what the loader does.
+    pub fn recreate_image(&self, pe_type: PEType) -> Result<Vec<u8>, Error> {
+        let buffer_size = match pe_type {
+            PEType::Disk => match self.calculate_disk_size() {
+                Ok(s) => s,
+                Err(e) => return Err(e),
+            },
+            PEType::Memory => match self.get_valid_nt_headers() {
+                Ok(h) => {
+                    let (mut image_size, alignment) = match h {
+                        NTHeaders::NTHeaders32(h32) => (h32.optional_header.size_of_image as usize, h32.optional_header.section_alignment as usize),
+                        NTHeaders::NTHeaders64(h64) => (h64.optional_header.size_of_image as usize, h64.optional_header.section_alignment as usize),
+                    };
+
+                    if image_size % alignment != 0 {
+                        image_size += alignment - (image_size % alignment);
+                    }
+
+                    image_size
+                },
+                Err(e) => return Err(e),
+            }
+        };
+
+        let mut backing_buffer = vec![0u8; buffer_size];
+        let mut buffer = Buffer::new_mut(backing_buffer.as_mut_slice());
+
+        let header_size = match self.calculate_header_size() {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        let header_data = match self.buffer.read(Offset(0), header_size) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+
+        match buffer.write(Offset(0), header_data) {
+            Ok(()) => (),
+            Err(e) => return Err(e),
+        }
+
+        let section_table = match self.get_section_table() {
+            Ok(t) => t,
+            Err(e) => return Err(e),
+        };
+
+        for section in section_table {
+            let section_data = match section.read(&self) {
+                Ok(d) => d,
+                Err(e) => return Err(e),
+            };
+
+            let section_size = match pe_type {
+                PEType::Disk => section.size_of_raw_data as usize,
+                PEType::Memory => section.virtual_size as usize,
+            };
+            
+            let data_size = section_data.len();
+            let written_size;
+
+            if section_size > data_size {
+                written_size = data_size
+            }
+            else {
+                written_size = section_size
+            }
+
+            let buffer_offset = match pe_type {
+                PEType::Disk => section.pointer_to_raw_data,
+                PEType::Memory => Offset(section.virtual_address.0),
+            };
+
+            match buffer.write(buffer_offset, &section_data[..written_size]) {
+                Ok(()) => (),
+                Err(e) => return Err(e),
+            };
+        }
+
+        Ok(backing_buffer)
+    }
+}
