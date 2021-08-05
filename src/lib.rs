@@ -81,8 +81,6 @@ pub enum Error {
     BadDirectory,
     /// The data directory is corrupt and cannot be parsed.
     CorruptDataDirectory,
-    /// The thunk data is unexpected (e.g., export thunks where import thunks are expected).
-    UnexpectedThunkData,
 }
 
 /// An enum to tag the PE file with what its memory map looks like.
