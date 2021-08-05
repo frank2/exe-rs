@@ -9,6 +9,9 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 ### Features
 * implemented the [imphash algorithm](https://www.fireeye.com/blog/threat-research/2014/01/tracking-malware-import-hashing.html), see `PE::calculate_imphash`.
 * buffers and `PE` objects can now be cloned!
+* added `ImportDirectory::get_import_map`, which calls `get_imports` on all the descriptors and maps them to their DLL name.
+### Bugfixes
+* changed how `ImageImportDescriptor::get_imports` resolves ordinals, thanks to the `ImportData` enum it now resolves in a more sane manner.
 
 ## 0.4.1
 ### Features
