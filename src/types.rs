@@ -794,7 +794,7 @@ impl<'data> RelocationDirectory<'data> {
     }
     /// Grabs the relocation values from [`RelocationDirectory::relocations`](RelocationDirectory::relocations) and
     /// writes them to the PE buffer.
-    fn relocate(&self, pe: &'data mut PE, new_base: u64) -> Result<(), Error> {
+    pub fn relocate(&self, pe: &'data mut PE, new_base: u64) -> Result<(), Error> {
         let relocations = match self.relocations(pe, new_base) {
             Ok(r) => r,
             Err(e) => return Err(e),
@@ -917,7 +917,7 @@ impl<'data> RelocationDirectoryMut<'data> {
     }
     /// Grabs the relocation values from [`RelocationDirectoryMut::relocations`](RelocationDirectoryMut::relocations) and
     /// writes them to the PE buffer.
-    fn relocate(&self, pe: &'data mut PE, new_base: u64) -> Result<(), Error> {
+    pub fn relocate(&self, pe: &'data mut PE, new_base: u64) -> Result<(), Error> {
         let relocations = match self.relocations(pe, new_base) {
             Ok(r) => r,
             Err(e) => return Err(e),
