@@ -964,18 +964,10 @@ impl<'data> PE<'data> {
         let current = offset.0 % alignment;
 
         if current == 0 {
-            if !self.validate_offset(offset) {
-                return Err(Error::InvalidOffset);
-            }
-            
             return Ok(offset);
         }
 
         let new_offset = Offset(offset.0 + (alignment - current));
-
-        if !self.validate_offset(new_offset) {
-            return Err(Error::InvalidOffset);
-        }
 
         Ok(new_offset)
     }
@@ -990,27 +982,13 @@ impl<'data> PE<'data> {
             Err(e) => return Err(e),
         };
 
-        println!("alignment is {}", alignment);
-
         let current = rva.0 % alignment;
 
         if current == 0 {
-            if !self.validate_rva(rva) {
-                return Err(Error::InvalidRVA);
-            }
-            
             return Ok(rva);
         }
 
-        println!("current is {}", current);
-
         let new_rva = RVA(rva.0 + (alignment - current));
-
-        println!("new RVA is {:?}", new_rva);
-
-        if !self.validate_rva(new_rva) {
-            return Err(Error::InvalidRVA);
-        }
 
         Ok(new_rva)
     }
