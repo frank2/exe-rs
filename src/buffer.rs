@@ -580,4 +580,40 @@ impl<'data> Buffer<'data> {
     pub fn write_ref<T>(&mut self, offset: Offset, data: &T) -> Result<(), Error> {
         self.write(offset, ref_to_slice::<T>(data))
     }
+
+    /// Search for a slice of data in the buffer. Returns an empty vector if nothing is found.
+    pub fn search_slice(&self, search: &[u8]) -> Result<Vec<Offset>, Error> {
+        if search.len() > self.len() {
+            return Err(Error::BufferTooSmall);
+        }
+
+        let buffer_data = self.as_slice();
+        let mut offsets = Vec::<Offset>::new();
+
+        for i in 0..(self.len() - search.len()) {
+            if buffer_data[i] == search[0] {
+                offsets.push(Offset(i as u32));
+            }
+        }
+
+        let mut results = Vec::<Offset>::new();
+        
+        for offset in &offsets {
+            let found_slice = match self.read(*offset, search.len()) {
+                Ok(s) => s,
+                Err(e) => return Err(e),
+            };
+
+            if found_slice == search {
+                results.push(*offset);
+            }
+        }
+
+        Ok(results)
+    }
+
+    /// Search for an object reference within the buffer. Returns an empty vector if nothing is found.
+    pub fn search_ref<T>(&self, search: &T) -> Result<Vec<Offset>, Error> {
+        self.search_slice(ref_to_slice::<T>(search))
+    }
 }
