@@ -34,6 +34,15 @@ fn test_compiled() {
     let bad_header = pefile.get_valid_nt_headers_64();
     assert!(bad_header.is_err());
 
+    let e_lfanew_check = pefile.e_lfanew();
+    assert!(e_lfanew_check.is_ok());
+
+    let e_lfanew = e_lfanew_check.unwrap();
+
+    let search = pefile.buffer.search_ref(&NT_SIGNATURE);
+    assert!(search.is_ok());
+    assert_eq!(search.unwrap(), vec![e_lfanew]);
+
     let get_headers = pefile.get_valid_nt_headers_32();
     assert!(get_headers.is_ok());
 
