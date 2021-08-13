@@ -593,6 +593,34 @@ pub struct ImageDataDirectory {
     pub virtual_address: RVA,
     pub size: u32,
 }
+impl ImageDataDirectory {
+    /// Parse an object at the given data directory
+    pub fn cast<'data, T>(&self, pe: &'data PE) -> Result<&'data T, Error> {
+        if self.virtual_address.0 == 0 || !pe.validate_rva(self.virtual_address) {
+            return Err(Error::InvalidRVA);
+        }
+
+        let offset = match pe.translate(PETranslation::Memory(self.virtual_address)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        pe.buffer.get_ref::<T>(offset)
+    }
+    /// Parse a mutable object at the given data directory
+    pub fn cast_mut<'data, T>(&self, pe: &'data mut PE) -> Result<&'data mut T, Error> {
+        if self.virtual_address.0 == 0 || !pe.validate_rva(self.virtual_address) {
+            return Err(Error::InvalidRVA);
+        }
+
+        let offset = match pe.translate(PETranslation::Memory(self.virtual_address)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        pe.buffer.get_mut_ref::<T>(offset)
+    }
+}
 
 #[repr(C)]
 #[derive(Clone, Eq, PartialEq, Debug)]
@@ -612,21 +640,7 @@ pub struct ImageExportDirectory {
 impl ImageExportDirectory {
     /// Parse the export table in the PE file.
     pub fn parse<'data>(pe: &'data PE) -> Result<&'data ImageExportDirectory, Error> {
-        let dir = match pe.get_data_directory(ImageDirectoryEntry::Export) {
-            Ok(d) => d,
-            Err(e) => return Err(e),
-        };
-
-        if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
-            return Err(Error::InvalidRVA);
-        }
-
-        let offset = match pe.translate(PETranslation::Memory(dir.virtual_address)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
-        pe.buffer.get_ref::<ImageExportDirectory>(offset)
+        pe.cast_directory::<Self>(ImageDirectoryEntry::Export)
     }
 
     /// Parse a mutable export table in the PE file.
@@ -1373,21 +1387,249 @@ pub struct ImageDebugDirectory {
 }
 impl ImageDebugDirectory {
     /// Parse the debug directory in the PE file.
-    pub fn parse<'data>(pe: &'data PE) -> Result<&'data ImageDebugDirectory, Error> {
-        let dir = match pe.get_data_directory(ImageDirectoryEntry::Debug) {
-            Ok(d) => d,
-            Err(e) => return Err(e),
-        };
+    pub fn parse<'data>(pe: &'data PE) -> Result<&'data Self, Error> {
+        pe.cast_directory::<Self>(ImageDirectoryEntry::Debug)
+    }
+}
+    
+#[repr(C)]
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub struct ImageTLSDirectory32 {
+    pub start_address_of_raw_data: VA32,
+    pub end_address_of_raw_data: VA32,
+    pub address_of_index: VA32,
+    pub address_of_callbacks: VA32,
+    pub size_of_zero_fill: u32,
+    pub characteristics: u32,
+}
+impl ImageTLSDirectory32 {
+    /// Get the 32-bit TLS directory from the [`PE`](PE) object.
+    pub fn parse<'data>(pe: &'data PE) -> Result<&'data Self, Error> {
+        pe.cast_directory::<Self>(ImageDirectoryEntry::TLS)
+    }
 
-        if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
-            return Err(Error::InvalidRVA);
-        }
+    /// Get a mutable 32-bit TLS directory from the [`PE`](PE) object.
+    pub fn parse_mut<'data>(pe: &'data mut PE) -> Result<&'data mut Self, Error> {
+        pe.cast_directory_mut::<Self>(ImageDirectoryEntry::TLS)
+    }
 
-        let offset = match pe.translate(PETranslation::Memory(dir.virtual_address)) {
+    /// Get the size of the raw data buffer.
+    pub fn get_raw_data_size(&self) -> usize {
+        (self.end_address_of_raw_data.0 - self.start_address_of_raw_data.0) as usize
+    }
+
+    /// Read a slice of the raw data buffer.
+    pub fn read<'data>(&self, pe: &'data PE) -> Result<&'data [u8], Error> {
+        let size = self.get_raw_data_size();
+        let offset = match self.start_address_of_raw_data.as_offset(pe) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
 
-        pe.buffer.get_ref::<ImageDebugDirectory>(offset)
+        pe.buffer.read(offset, size)
+    }
+
+    /// Read a mutable slice of the raw data buffer.
+    pub fn read_mut<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [u8], Error> {
+        let size = self.get_raw_data_size();
+        let offset = match self.start_address_of_raw_data.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        pe.buffer.read_mut(offset, size)
+    }
+
+    /// Write to the raw data buffer. Returns a [`Error::BufferTooSmall`](Error::BufferTooSmall) error if the
+    /// given data overflows the buffer space.
+    pub fn write(&self, pe: &mut PE, data: &[u8]) -> Result<(), Error> {
+        let size = self.get_raw_data_size();
+        let offset = match self.start_address_of_raw_data.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        if data.len() > size {
+            return Err(Error::BufferTooSmall);
+        }
+
+        pe.buffer.write(offset, data)
+    }
+
+    /// Get the size of the callback array pointed to by this directory.
+    pub fn get_callback_size(&self, pe: &PE) -> Result<usize, Error> {
+        let offset = match self.address_of_callbacks.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let mut result = 0usize;
+        let mut scan_offset = offset.clone();
+
+        loop {
+            let callback = match pe.buffer.get_ref::<VA32>(scan_offset) {
+                Ok(c) => c,
+                Err(e) => return Err(e),
+            };
+            
+            scan_offset.0 += mem::size_of::<VA32>() as u32;
+
+            if callback.0 == 0 {
+                return Ok(result);
+            }
+
+            result += 1;
+        }
+    }
+
+    /// Get the callbacks array from the TLS directory.
+    pub fn get_callbacks<'data>(&self, pe: &'data PE) -> Result<&'data [VA32], Error> {
+        let offset = match self.address_of_callbacks.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let size = match self.get_callback_size(pe) {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        pe.buffer.get_slice_ref::<VA32>(offset, size)
+    }
+
+    /// Get a mutable array of the callbacks in this TLS directory.
+    pub fn get_mut_callbacks<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [VA32], Error> {
+        let offset = match self.address_of_callbacks.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let size = match self.get_callback_size(pe) {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        pe.buffer.get_mut_slice_ref::<VA32>(offset, size)
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub struct ImageTLSDirectory64 {
+    pub start_address_of_raw_data: VA64,
+    pub end_address_of_raw_data: VA64,
+    pub address_of_index: VA64,
+    pub address_of_callbacks: VA64,
+    pub size_of_zero_fill: u32,
+    pub characteristics: u32,
+}
+impl ImageTLSDirectory64 {
+    /// Get the 64-bit TLS directory from the [`PE`](PE) object.
+    pub fn parse<'data>(pe: &'data PE) -> Result<&'data Self, Error> {
+        pe.cast_directory::<Self>(ImageDirectoryEntry::TLS)
+    }
+
+    /// Get a mutable 64-bit TLS directory from the [`PE`](PE) object.
+    pub fn parse_mut<'data>(pe: &'data mut PE) -> Result<&'data mut Self, Error> {
+        pe.cast_directory_mut::<Self>(ImageDirectoryEntry::TLS)
+    }
+
+    /// Get the size of the raw data buffer.
+    pub fn get_raw_data_size(&self) -> usize {
+        (self.end_address_of_raw_data.0 - self.start_address_of_raw_data.0) as usize
+    }
+
+    /// Read a slice of the raw data buffer.
+    pub fn read<'data>(&self, pe: &'data PE) -> Result<&'data [u8], Error> {
+        let size = self.get_raw_data_size();
+        let offset = match self.start_address_of_raw_data.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        pe.buffer.read(offset, size)
+    }
+
+    /// Read a mutable slice of the raw data buffer.
+    pub fn read_mut<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [u8], Error> {
+        let size = self.get_raw_data_size();
+        let offset = match self.start_address_of_raw_data.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        pe.buffer.read_mut(offset, size)
+    }
+
+    /// Write to the raw data buffer. Returns a [`Error::BufferTooSmall`](Error::BufferTooSmall) error if the
+    /// given data overflows the buffer space.
+    pub fn write(&self, pe: &mut PE, data: &[u8]) -> Result<(), Error> {
+        let size = self.get_raw_data_size();
+        let offset = match self.start_address_of_raw_data.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        if data.len() > size {
+            return Err(Error::BufferTooSmall);
+        }
+
+        pe.buffer.write(offset, data)
+    }
+
+    /// Get the size of the callback array pointed to by this directory.
+    pub fn get_callback_size(&self, pe: &PE) -> Result<usize, Error> {
+        let offset = match self.address_of_callbacks.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let mut result = 0usize;
+        let mut scan_offset = offset.clone();
+
+        loop {
+            let callback = match pe.buffer.get_ref::<VA64>(scan_offset) {
+                Ok(c) => c,
+                Err(e) => return Err(e),
+            };
+            
+            scan_offset.0 += mem::size_of::<VA64>() as u32;
+
+            if callback.0 == 0 {
+                return Ok(result);
+            }
+
+            result += 1;
+        }
+    }
+
+    /// Get the callbacks array from the TLS directory.
+    pub fn get_callbacks<'data>(&self, pe: &'data PE) -> Result<&'data [VA64], Error> {
+        let offset = match self.address_of_callbacks.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let size = match self.get_callback_size(pe) {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        pe.buffer.get_slice_ref::<VA64>(offset, size)
+    }
+
+    /// Get a mutable array of the callbacks in this TLS directory.
+    pub fn get_mut_callbacks<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [VA64], Error> {
+        let offset = match self.address_of_callbacks.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let size = match self.get_callback_size(pe) {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        pe.buffer.get_mut_slice_ref::<VA64>(offset, size)
     }
 }

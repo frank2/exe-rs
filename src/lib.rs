@@ -706,6 +706,71 @@ impl<'data> PE<'data> {
         self.buffer.get_mut_slice_ref::<ImageDataDirectory>(offset, size)
     }
 
+    /// Get the data directory reference represented by the [`ImageDirectoryEntry`](headers::ImageDirectoryEntry) enum.
+    /// Returns [`Error::BadDirectory`](Error::BadDirectory) if the given directory is inaccessible due to the directory
+    /// size.
+    pub fn get_data_directory(&self, dir: ImageDirectoryEntry) -> Result<&ImageDataDirectory, Error> {
+        let directory_table = match self.get_data_directory_table() {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+        let index = dir as usize;
+
+        if index >= directory_table.len() {
+            return Err(Error::BadDirectory);
+        }
+
+        Ok(&directory_table[index])
+    }
+    /// Get the mutable data directory reference represented by the [`ImageDirectoryEntry`](headers::ImageDirectoryEntry) enum.
+    pub fn get_mut_data_directory(&mut self, dir: ImageDirectoryEntry) -> Result<&mut ImageDataDirectory, Error> {
+        let directory_table = match self.get_mut_data_directory_table() {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+        let index = dir as usize;
+
+        if index >= directory_table.len() {
+            return Err(Error::BadDirectory);
+        }
+
+        Ok(&mut directory_table[index])
+    }
+    /// Check whether or not this PE file has a given data directory.
+    ///
+    /// A PE file "has" a data directory if the following conditions are met:
+    /// * the directory is present in the data directory array
+    /// * the RVA is nonzero
+    /// * the RVA is valid
+    pub fn has_data_directory(&self, dir: ImageDirectoryEntry) -> bool {
+        let dir_obj = match self.get_data_directory(dir) {
+            Ok(d) => d,
+            Err(_) => return false,
+        };
+
+        if dir_obj.virtual_address.0 == 0 { return false; }
+
+        self.validate_rva(dir_obj.virtual_address)
+    }
+    /// Parse an object at the given data directory identified by [`ImageDirectoryEntry`](ImageDirectoryEntry).
+    pub fn cast_directory<T>(&self, dir: ImageDirectoryEntry) -> Result<&T, Error> {
+        let directory = match self.get_data_directory(dir) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+
+        directory.cast::<T>(self)
+    }
+    /// Parse a mutable object at the given data directory identified by [`ImageDirectoryEntry`](ImageDirectoryEntry).
+    pub fn cast_directory_mut<T>(&mut self, dir: ImageDirectoryEntry) -> Result<&mut T, Error> {
+        let directory = match self.get_data_directory(dir) {
+            Ok(d) => d.clone(),
+            Err(e) => return Err(e),
+        };
+
+        directory.cast_mut::<T>(self)
+    }
+
     /// Get the offset to the section table within the PE file.
     pub fn get_section_table_offset(&self) -> Result<Offset, Error> {
         let e_lfanew = match self.e_lfanew() {
@@ -1113,53 +1178,6 @@ impl<'data> PE<'data> {
         };
 
         self.rva_to_offset(rva)
-    }
-
-    /// Get the data directory reference represented by the [`ImageDirectoryEntry`](headers::ImageDirectoryEntry) enum.
-    /// Returns [`Error::BadDirectory`](Error::BadDirectory) if the given directory is inaccessible due to the directory
-    /// size.
-    pub fn get_data_directory(&self, dir: ImageDirectoryEntry) -> Result<&ImageDataDirectory, Error> {
-        let directory_table = match self.get_data_directory_table() {
-            Ok(d) => d,
-            Err(e) => return Err(e),
-        };
-        let index = dir as usize;
-
-        if index >= directory_table.len() {
-            return Err(Error::BadDirectory);
-        }
-
-        Ok(&directory_table[index])
-    }
-    /// Get the mutable data directory reference represented by the [`ImageDirectoryEntry`](headers::ImageDirectoryEntry) enum.
-    pub fn get_mut_data_directory(&mut self, dir: ImageDirectoryEntry) -> Result<&mut ImageDataDirectory, Error> {
-        let directory_table = match self.get_mut_data_directory_table() {
-            Ok(d) => d,
-            Err(e) => return Err(e),
-        };
-        let index = dir as usize;
-
-        if index >= directory_table.len() {
-            return Err(Error::BadDirectory);
-        }
-
-        Ok(&mut directory_table[index])
-    }
-    /// Check whether or not this PE file has a given data directory.
-    ///
-    /// A PE file "has" a data directory if the following conditions are met:
-    /// * the directory is present in the data directory array
-    /// * the RVA is nonzero
-    /// * the RVA is valid
-    pub fn has_data_directory(&self, dir: ImageDirectoryEntry) -> bool {
-        let dir_obj = match self.get_data_directory(dir) {
-            Ok(d) => d,
-            Err(_) => return false,
-        };
-
-        if dir_obj.virtual_address.0 == 0 { return false; }
-
-        self.validate_rva(dir_obj.virtual_address)
     }
 
     /// Get an [`RVA`](RVA) object relative to the resource directory.

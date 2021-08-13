@@ -1418,3 +1418,53 @@ impl<'data> ResourceDirectoryMut<'data> {
 }
 
 pub type DebugDirectory = ImageDebugDirectory;
+
+/// Represents either a 32-bit or a 64-bit TLS directory.
+pub enum TLSDirectory<'data> {
+    TLS32(&'data ImageTLSDirectory32),
+    TLS64(&'data ImageTLSDirectory64),
+}
+impl<'data> TLSDirectory<'data> {
+    pub fn parse(pe: &'data PE) -> Result<Self, Error> {
+        let arch = match pe.get_arch() {
+            Ok(a) => a,
+            Err(e) => return Err(e),
+        };
+
+        match arch {
+            Arch::X86 => match ImageTLSDirectory32::parse(pe) {
+                Ok(tls32) => Ok(TLSDirectory::TLS32(tls32)),
+                Err(e) => return Err(e),
+            },
+            Arch::X64 => match ImageTLSDirectory64::parse(pe) {
+                Ok(tls64) => Ok(TLSDirectory::TLS64(tls64)),
+                Err(e) => return Err(e),
+            },
+        }
+    }
+}
+
+/// Represents a mutable 32-bit or a 64-bit TLS directory.
+pub enum TLSDirectoryMut<'data> {
+    TLS32(&'data mut ImageTLSDirectory32),
+    TLS64(&'data mut ImageTLSDirectory64),
+}
+impl<'data> TLSDirectoryMut<'data> {
+    pub fn parse(pe: &'data mut PE) -> Result<Self, Error> {
+        let arch = match pe.get_arch() {
+            Ok(a) => a,
+            Err(e) => return Err(e),
+        };
+
+        match arch {
+            Arch::X86 => match ImageTLSDirectory32::parse_mut(pe) {
+                Ok(tls32) => Ok(TLSDirectoryMut::TLS32(tls32)),
+                Err(e) => return Err(e),
+            },
+            Arch::X64 => match ImageTLSDirectory64::parse_mut(pe) {
+                Ok(tls64) => Ok(TLSDirectoryMut::TLS64(tls64)),
+                Err(e) => return Err(e),
+            },
+        }
+    }
+}
