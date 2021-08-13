@@ -301,6 +301,18 @@ fn test_no_dd() {
 }
 
 #[test]
+fn test_hello_world() {
+    let buffer = fs::read("test/hello_world.exe").unwrap();
+    let pefile = PE::new_disk(buffer.as_slice());
+
+    let debug_directory_check = DebugDirectory::parse(&pefile);
+    assert!(debug_directory_check.is_ok());
+
+    let debug_directory = debug_directory_check.unwrap();
+    assert_eq!(ImageDebugType::from_u32(debug_directory.type_), ImageDebugType::CodeView);
+}
+
+#[test]
 fn test_hello_world_packed() {
     let buffer = fs::read("test/hello_world_packed.exe").unwrap();
     let pefile = PE::new_disk(buffer.as_slice());
