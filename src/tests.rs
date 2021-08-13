@@ -336,6 +336,28 @@ fn test_hello_world_packed() {
 }
 
 #[test]
+fn test_hello_world_rust() {
+    let buffer = fs::read("test/hello_world_rust.exe").unwrap();
+    let pefile = PE::new_disk(buffer.as_slice());
+
+    let tls_directory_check = TLSDirectory::parse(&pefile);
+    assert!(tls_directory_check.is_ok());
+
+    if let TLSDirectory::TLS64(tls_directory) = tls_directory_check.unwrap() {
+        let raw_data = tls_directory.read(&pefile);
+        assert!(raw_data.is_ok());
+        assert_eq!(raw_data.unwrap(), vec![0u8; tls_directory.get_raw_data_size()].as_slice());
+
+        let callbacks = tls_directory.get_callbacks(&pefile);
+        assert!(callbacks.is_ok());
+        assert_eq!(callbacks.unwrap(), &[VA64(0x14000cf00)]);
+    }
+    else {
+        panic!("couldn't get TLS directory");
+    }
+}
+
+#[test]
 fn test_cff_explorer() {
     let buffer = fs::read("test/cff_explorer.exe").unwrap();
     let pefile = PE::new_disk(buffer.as_slice());
