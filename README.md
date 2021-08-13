@@ -17,6 +17,7 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 * changed how `ImageImportDescriptor::get_imports` resolves ordinals, thanks to the `ImportData` enum it now resolves in a more sane manner.
 * forgot to make a function public, oops! `RelocationDirectory::relocate` is now visible and callable.
 * alignments have no need to be validated, validation checks removed from alignment functions.
+* headers are now `#[repr(C)]` instead of `#[repr(packed)]`, allowing for deriving of traits such as Debug, Eq and Clone.
 
 ## 0.4.1
 ### Features
