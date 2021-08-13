@@ -557,8 +557,8 @@ impl<'data> PE<'data> {
     pub fn calculate_checksum(&self) -> Result<u32, Error> {
         let checksum_ref = match self.get_valid_nt_headers() {
             Ok(h) => match h {
-                NTHeaders::NTHeaders32(h32) => unsafe { &h32.optional_header.checksum },
-                NTHeaders::NTHeaders64(h64) => unsafe { &h64.optional_header.checksum },
+                NTHeaders::NTHeaders32(h32) => &h32.optional_header.checksum,
+                NTHeaders::NTHeaders64(h64) => &h64.optional_header.checksum,
             },
             Err(e) => return Err(e),
         };
