@@ -12,6 +12,7 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 * added `ImportDirectory::get_import_map`, which calls `get_imports` on all the descriptors and maps them to their DLL name.
 * added ability to convert an image from a disk image to a memory image and vice versa, see `PE::recreate_image`.
 * added ability to search for byte strings in buffer, see `Buffer::search_slice` and `Buffer::search_ref`.
+* implemented the Debug directory, see `headers::ImageDebugDirectory`.
 ### Bugfixes
 * changed how `ImageImportDescriptor::get_imports` resolves ordinals, thanks to the `ImportData` enum it now resolves in a more sane manner.
 * forgot to make a function public, oops! `RelocationDirectory::relocate` is now visible and callable.
