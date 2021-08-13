@@ -1359,6 +1359,7 @@ pub enum ImageDebugType {
     Borland = 9,
 }
 impl ImageDebugType {
+    /// Convert the [`u32`](u32) value to an `ImageDebugType` enum variant.
     pub fn from_u32(u: u32) -> Self {
         match u {
             1 => Self::COFF,
