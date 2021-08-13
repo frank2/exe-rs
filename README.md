@@ -13,6 +13,7 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 * added ability to convert an image from a disk image to a memory image and vice versa, see `PE::recreate_image`.
 * added ability to search for byte strings in buffer, see `Buffer::search_slice` and `Buffer::search_ref`.
 * implemented the Debug directory, see `headers::ImageDebugDirectory`.
+* implemented the TLS directory, see `types::TLSDirectory`, `headers::ImageTLSDirectory32` and `headers::ImageTLSDirectory64`.
 ### Bugfixes
 * changed how `ImageImportDescriptor::get_imports` resolves ordinals, thanks to the `ImportData` enum it now resolves in a more sane manner.
 * forgot to make a function public, oops! `RelocationDirectory::relocate` is now visible and callable.
