@@ -1687,3 +1687,85 @@ impl ImageResourceDataEntry {
         pe.buffer.write(offset, data)
     }
 }
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum ImageDebugType {
+    Unknown = 0,
+    COFF = 1,
+    CodeView = 2,
+    FPO = 3,
+    Misc = 4,
+    Exception = 5,
+    FixUp = 6,
+    Borland = 9,
+}
+impl ImageDebugType {
+    pub fn from_u32(u: u32) -> Self {
+        match u {
+            1 => Self::COFF,
+            2 => Self::CodeView,
+            3 => Self::FPO,
+            4 => Self::Misc,
+            5 => Self::Exception,
+            6 => Self::FixUp,
+            9 => Self::Borland,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+#[repr(packed)]
+pub struct ImageDebugDirectory {
+    pub characteristics: u32,
+    pub time_date_stamp: u32,
+    pub major_version: u16,
+    pub minor_version: u16,
+    pub type_: u32,
+    pub size_of_data: u32,
+    pub address_of_raw_data: RVA,
+    pub pointer_to_raw_data: Offset,
+}
+impl ImageDebugDirectory {
+    /// Parse the debug directory in the PE file.
+    pub fn parse<'data>(pe: &'data PE) -> Result<&'data ImageDebugDirectory, Error> {
+        let dir = match pe.get_data_directory(ImageDirectoryEntry::Debug) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+
+        if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
+            return Err(Error::InvalidRVA);
+        }
+
+        let offset = match pe.translate(PETranslation::Memory(dir.virtual_address)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        pe.buffer.get_ref::<ImageDebugDirectory>(offset)
+    }
+}
+impl Clone for ImageDebugDirectory {
+    fn clone(&self) -> Self {
+        Self {
+            characteristics: self.characteristics,
+            time_date_stamp: self.time_date_stamp,
+            major_version: self.major_version,
+            minor_version: self.minor_version,
+            type_: self.type_,
+            size_of_data: self.size_of_data,
+            address_of_raw_data: self.address_of_raw_data.clone(),
+            pointer_to_raw_data: self.pointer_to_raw_data.clone(),
+        }
+    }
+    fn clone_from(&mut self, source: &Self) {
+        self.characteristics = source.characteristics;
+        self.time_date_stamp = source.time_date_stamp;
+        self.major_version = source.major_version;
+        self.minor_version = source.minor_version;
+        self.type_ = source.type_;
+        self.size_of_data = source.size_of_data;
+        self.address_of_raw_data = source.address_of_raw_data.clone();
+        self.pointer_to_raw_data = source.pointer_to_raw_data.clone();
+    }
+}

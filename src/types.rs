@@ -1258,7 +1258,7 @@ impl<'data> ResourceDirectory<'data> {
                 ResourceDirectoryData::Data(_) => return Err(Error::CorruptDataDirectory),
                 ResourceDirectoryData::Directory(d) => d,
             };
-            
+
             let id_node = match ResourceNode::parse(pe, id_offset) {
                 Ok(n) => n,
                 Err(e) => return Err(e),
@@ -1416,3 +1416,5 @@ impl<'data> ResourceDirectoryMut<'data> {
             .collect()
     }
 }
+
+pub type DebugDirectory = ImageDebugDirectory;
