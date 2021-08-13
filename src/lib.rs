@@ -233,7 +233,7 @@ impl<'data> PE<'data> {
     /// This differs from [`rva_to_offset`](PE::rva_to_offset) because it does not directly rely on the section table.
     /// Rather, if the image is a memory image, it treats [`RVA`](RVA)s as offsets, because that's what they are in memory.
     /// Otherwise, it converts the [`RVA`](RVA) into an offset via the section table. The reverse goes for if
-    /// the PE image is a disk image and an [Offset](Offset) is provided.
+    /// the PE image is a disk image and an [`Offset`](Offset) is provided.
     pub fn translate(&self, addr: PETranslation) -> Result<Offset, Error> {
         match self.pe_type {
             PEType::Disk => match addr {
