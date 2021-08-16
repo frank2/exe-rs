@@ -25,7 +25,7 @@ use crate::types::{Offset, CChar, WChar};
 
 /// Get a slice of ```u8``` that represents the underlying data of the object. Useful when combined with
 /// the [`HashData`](HashData) or [`Entropy`](Entropy) traits.
-pub fn ref_to_slice<T>(data: &T) -> &[u8] {
+pub fn ref_to_bytes<T>(data: &T) -> &[u8] {
     let ptr = data as *const T as *const u8;
     let size = mem::size_of::<T>();
 
@@ -34,10 +34,30 @@ pub fn ref_to_slice<T>(data: &T) -> &[u8] {
     }
 }
 
+/// Get a slice of `u8` that represents the underlying data of the given slice.
+pub fn slice_ref_to_bytes<T>(data: &[T]) -> &[u8] {
+    let ptr = &data[0] as *const T as *const u8;
+    let size = mem::size_of::<T>() * data.len();
+
+    unsafe {
+        slice::from_raw_parts(ptr, size)
+    }
+}
+
 /// Get a mutable slice of ```u8``` that represents the underlying data of the object.
-pub fn ref_to_mut_slice<T>(data: &mut T) -> &mut [u8] {
+pub fn ref_to_mut_bytes<T>(data: &mut T) -> &mut [u8] {
     let ptr = data as *mut T as *mut u8;
     let size = mem::size_of::<T>();
+
+    unsafe {
+        slice::from_raw_parts_mut(ptr, size)
+    }
+}
+
+/// Get a mutable slice of `u8` that represents the underlying data of the given slice.
+pub fn slice_ref_to_mut_bytes<T>(data: &[T]) -> &mut [u8] {
+    let ptr = &data[0] as *const T as *mut T as *mut u8;
+    let size = mem::size_of::<T>() * data.len();
 
     unsafe {
         slice::from_raw_parts_mut(ptr, size)
@@ -578,7 +598,11 @@ impl<'data> Buffer<'data> {
     }
     /// Write an object reference to the buffer.
     pub fn write_ref<T>(&mut self, offset: Offset, data: &T) -> Result<(), Error> {
-        self.write(offset, ref_to_slice::<T>(data))
+        self.write(offset, ref_to_bytes::<T>(data))
+    }
+    /// Write a slice reference to the buffer.
+    pub fn write_slice_ref<T>(&mut self, offset: Offset, data: &[T]) -> Result<(), Error> {
+        self.write(offset, slice_ref_to_bytes::<T>(data))
     }
 
     /// Search for a slice of data in the buffer. Returns an empty vector if nothing is found.
@@ -614,6 +638,6 @@ impl<'data> Buffer<'data> {
 
     /// Search for an object reference within the buffer. Returns an empty vector if nothing is found.
     pub fn search_ref<T>(&self, search: &T) -> Result<Vec<Offset>, Error> {
-        self.search_slice(ref_to_slice::<T>(search))
+        self.search_slice(ref_to_bytes::<T>(search))
     }
 }
