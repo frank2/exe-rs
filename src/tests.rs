@@ -472,3 +472,20 @@ fn test_pointer() {
     let memory_module = unsafe { PE::from_ptr(hmodule as *const u8) };
     assert!(memory_module.is_ok());
 }
+
+#[test]
+fn test_add_relocation() {
+    let buffer_ro = fs::read("test/dll.dll").unwrap();
+    let pefile_ro = PE::new_disk(buffer_ro.as_slice());
+    
+    let mut buffer = buffer_ro.clone();
+    let mut pefile = PE::new_mut_disk(buffer.as_mut_slice());
+
+    let mut relocation_directory = RelocationDirectory::parse(&pefile_ro).unwrap();
+    let add_result = relocation_directory.add_relocation(&mut pefile, RVA(0x11C0));
+    assert!(add_result.is_ok());
+
+    let reparsed = RelocationDirectory::parse(&pefile).unwrap();
+    let relocations = reparsed.relocations(&pefile, 0x02000000).unwrap();
+    assert_eq!(relocations[relocations.len()-1], (RVA(0x11C0), RelocationValue::Relocation32(0x01000000)));
+}
