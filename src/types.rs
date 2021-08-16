@@ -471,6 +471,15 @@ pub enum RelocationValue {
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct Relocation(pub u16);
 impl Relocation {
+    /// Create a new relocation entry.
+    pub fn new(relocation_type: ImageRelBased, offset: u16) -> Self {
+        let mut result = Self(0);
+        
+        result.set_type(relocation_type);
+        result.set_offset(offset);
+
+        result
+    }
     /// Get the type of this relocation.
     pub fn get_type(&self) -> ImageRelBased {
         match self.0 >> 12 {
@@ -619,7 +628,6 @@ impl<'data> RelocationEntry<'data> {
     /// Parse a relocation entry at the given RVA.
     pub fn parse(pe: &'data PE, rva: RVA) -> Result<Self, Error> {
         let relocation_size = mem::size_of::<ImageBaseRelocation>();
-        let word_size = mem::size_of::<u16>();
 
         let offset = match pe.translate(PETranslation::Memory(rva)) {
             Ok(o) => o,
@@ -632,7 +640,7 @@ impl<'data> RelocationEntry<'data> {
         };
             
         let block_addr = Offset( ((offset.0 as usize) + relocation_size) as u32);
-        let block_size = ( (base_relocation.size_of_block as usize) - relocation_size) / word_size;
+        let block_size = base_relocation.relocations();
         let relocations = match pe.buffer.get_slice_ref::<Relocation>(block_addr, block_size) {
             Ok(r) => r,
             Err(e) => return Err(e),
@@ -640,10 +648,30 @@ impl<'data> RelocationEntry<'data> {
 
         Ok(Self { base_relocation, relocations })
     }
-    /// Parse a relocation table with the given data directory.
-    /// Get the size of this relocation entry in bytes.
-    pub fn size(&self) -> usize {
-        mem::size_of::<ImageBaseRelocation>() + (self.relocations.len() * mem::size_of::<Relocation>())
+    /// Create a `RelocationEntry` object at the given RVA.
+    pub fn create(pe: &'data mut PE, rva: RVA, base_relocation: &ImageBaseRelocation, relocations: &[Relocation]) -> Result<Self, Error> {
+        let mut offset = match rva.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        match pe.buffer.write_ref(offset, base_relocation) {
+            Ok(()) => (),
+            Err(e) => return Err(e),
+        }
+
+        offset.0 += mem::size_of::<ImageBaseRelocation>() as u32;
+
+        match pe.buffer.write_slice_ref(offset, relocations) {
+            Ok(()) => (),
+            Err(e) => return Err(e),
+        }
+
+        Self::parse(pe, rva)
+    }
+    /// Calculate the block size of this relocation entry.
+    pub fn block_size(&self) -> u32 {
+        ImageBaseRelocation::calculate_block_size(self.relocations.len())
     }
 }
 
@@ -700,10 +728,31 @@ impl<'data> RelocationEntryMut<'data> {
 
         Ok(Self { base_relocation, relocations })
     }
+    /// Create a `RelocationEntryMut` object at the given RVA.
+    pub fn create(pe: &'data mut PE, rva: RVA, base_relocation: &ImageBaseRelocation, relocations: &[Relocation]) -> Result<Self, Error> {
+        let mut offset = match rva.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
 
-    /// Get the size of this relocation entry in bytes.
-    pub fn size(&self) -> usize {
-        mem::size_of::<ImageBaseRelocation>() + (self.relocations.len() * mem::size_of::<Relocation>())
+        match pe.buffer.write_ref(offset, base_relocation) {
+            Ok(()) => (),
+            Err(e) => return Err(e),
+        }
+
+        offset.0 += mem::size_of::<ImageBaseRelocation>() as u32;
+
+        match pe.buffer.write_slice_ref(offset, relocations) {
+            Ok(()) => (),
+            Err(e) => return Err(e),
+        }
+
+        Self::parse(pe, rva)
+    }
+
+    /// Calculate the block size of this relocation entry.
+    pub fn block_size(&self) -> u32 {
+        ImageBaseRelocation::calculate_block_size(self.relocations.len())
     }
 }
 
@@ -754,7 +803,7 @@ impl<'data> RelocationDirectory<'data> {
                 Ok(r) => r,
                 Err(e) => return Err(e),
             };
-            let size = entry.size();
+            let size = entry.block_size();
             
             entries.push(entry);
             start_addr.0 += size as u32;
@@ -829,6 +878,46 @@ impl<'data> RelocationDirectory<'data> {
 
         Ok(())
     }
+
+    /// Add a given [`RVA`](RVA) as a relocation entry.
+    pub fn add_relocation(&mut self, pe: &'data mut PE, rva: RVA) -> Result<&RelocationEntry<'data>, Error> {
+        let dir = match pe.get_data_directory(ImageDirectoryEntry::BaseReloc) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+        
+        if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
+            return Err(Error::InvalidRVA);
+        }
+
+        let start_addr = dir.virtual_address.clone();
+        let end_addr = RVA(start_addr.0 + dir.size);
+        let base_reloc = ImageBaseRelocation { virtual_address: RVA(rva.0 & 0xFFFFF000), size_of_block: ImageBaseRelocation::calculate_block_size(1) };
+
+        let relocation = match pe.get_arch() {
+            Ok(a) => match a {
+                Arch::X86 => Relocation::new(ImageRelBased::HighLow, (rva.0 & 0xFFF) as u16),
+                Arch::X64 => Relocation::new(ImageRelBased::Dir64, (rva.0 & 0xFFF) as u16),
+            },
+            Err(e) => return Err(e),
+        };
+
+        let mut_dir = match pe.get_mut_data_directory(ImageDirectoryEntry::BaseReloc) {
+            Ok(m) => m,
+            Err(e) => return Err(e),
+        };
+
+        mut_dir.size += base_reloc.size_of_block;
+
+        let entry = match RelocationEntry::create(pe, end_addr, &base_reloc, &[relocation]) {
+            Ok(r) => r,
+            Err(e) => return Err(e),
+        };
+
+        self.entries.push(entry);
+
+        Ok(&self.entries[self.entries.len()-1])
+    }
 }
 
 /// Represents a mutable relocation directory.
@@ -878,7 +967,7 @@ impl<'data> RelocationDirectoryMut<'data> {
                     Err(e) => return Err(e),
                 };
             
-                start_ptr = start_ptr.add(entry.size());
+                start_ptr = start_ptr.add(entry.block_size() as usize);
                 entries.push(entry);
             }
         }
@@ -951,6 +1040,46 @@ impl<'data> RelocationDirectoryMut<'data> {
         }
 
         Ok(())
+    }
+
+    /// Add a given [`RVA`](RVA) as a mutable relocation entry.
+    pub fn add_relocation(&mut self, pe: &'data mut PE, rva: RVA) -> Result<&RelocationEntryMut<'data>, Error> {
+        let dir = match pe.get_data_directory(ImageDirectoryEntry::BaseReloc) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+        
+        if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
+            return Err(Error::InvalidRVA);
+        }
+
+        let start_addr = dir.virtual_address.clone();
+        let end_addr = RVA(start_addr.0 + dir.size);
+        let base_reloc = ImageBaseRelocation { virtual_address: RVA(rva.0 & 0xFFFFF000), size_of_block: ImageBaseRelocation::calculate_block_size(1) };
+
+        let relocation = match pe.get_arch() {
+            Ok(a) => match a {
+                Arch::X86 => Relocation::new(ImageRelBased::HighLow, (rva.0 & 0xFFF) as u16),
+                Arch::X64 => Relocation::new(ImageRelBased::Dir64, (rva.0 & 0xFFF) as u16),
+            },
+            Err(e) => return Err(e),
+        };
+
+        let mut_dir = match pe.get_mut_data_directory(ImageDirectoryEntry::BaseReloc) {
+            Ok(m) => m,
+            Err(e) => return Err(e),
+        };
+
+        mut_dir.size += base_reloc.size_of_block;
+
+        let entry = match RelocationEntryMut::create(pe, end_addr, &base_reloc, &[relocation]) {
+            Ok(r) => r,
+            Err(e) => return Err(e),
+        };
+
+        self.entries.push(entry);
+
+        Ok(&self.entries[self.entries.len()-1])
     }
 }
 

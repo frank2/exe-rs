@@ -7,7 +7,6 @@
 
 use bitflags::bitflags;
 
-use chrono::offset::{Offset as ChronoOffset};
 use chrono::offset::TimeZone;
 use chrono::{Local as LocalTime};
 
@@ -1100,6 +1099,23 @@ pub enum ImageRelBased {
 pub struct ImageBaseRelocation {
     pub virtual_address: RVA,
     pub size_of_block: u32,
+}
+impl ImageBaseRelocation {
+    /// Calculate the size of a relocation block with `blocks` entries.
+    pub fn calculate_block_size(blocks: usize) -> u32 {
+        let relocation_size = mem::size_of::<Self>();
+        let word_size = mem::size_of::<u16>();
+
+        (relocation_size + (blocks * word_size)) as u32
+    }
+
+    /// Get the number of relocation entries in this block.
+    pub fn relocations(&self) -> usize {
+        let relocation_size = mem::size_of::<Self>();
+        let word_size = mem::size_of::<u16>();
+
+        ((self.size_of_block as usize) - relocation_size) / word_size
+    }
 }
 
 #[repr(C)]
