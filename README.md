@@ -11,6 +11,7 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 * added the ability to add arbitrary relocations to a relocation table, see `RelocationDirectory::add_relocation`.
 ### Bugfixes
 * renamed `ref_to_slice` to `ref_to_bytes` to be more clear
+
 ## 0.4.2
 ### Features
 * implemented the [imphash algorithm](https://www.fireeye.com/blog/threat-research/2014/01/tracking-malware-import-hashing.html), see `PE::calculate_imphash`.
