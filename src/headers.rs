@@ -565,6 +565,23 @@ impl ImageSectionHeader {
         pe.buffer.write(offset, data)
     }
 }
+impl Default for ImageSectionHeader {
+    fn default() -> Self {
+        Self {
+            name: [CChar(0); 8],
+            virtual_size: 0,
+            virtual_address: RVA(0),
+            size_of_raw_data: 0,
+            pointer_to_raw_data: Offset(0),
+            pointer_to_relocations: Offset(0),
+            pointer_to_linenumbers: Offset(0),
+            number_of_relocations: 0,
+            number_of_linenumbers: 0,
+            characteristics: SectionCharacteristics::empty(),
+        }
+    }
+}
+    
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum ImageDirectoryEntry {
