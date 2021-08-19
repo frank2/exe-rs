@@ -404,65 +404,69 @@ fn test_creation() {
     let nt_result = created_file.buffer.write_ref(created_file.e_lfanew().unwrap(), &ImageNTHeaders64::default());
     assert!(nt_result.is_ok());
 
-    let nt_headers = created_file.get_valid_mut_nt_headers();
+    let nt_headers_mut = created_file.get_valid_mut_nt_headers();
+    assert!(nt_headers_mut.is_ok());
+
+    if let NTHeadersMut::NTHeaders64(nt_headers_64) = nt_headers_mut.unwrap() {
+        assert_eq!(nt_headers_64.file_header.number_of_sections, 0);
+        nt_headers_64.optional_header.size_of_image = 0x4000;
+    }
+    else {
+        panic!("couldn't get mutable NT headers");
+    }
+
+    let mut new_section = ImageSectionHeader::default();
+    
+    new_section.set_name(Some(".text"));
+    assert_eq!(new_section.name.as_str(), ".text");
+
+    let created_section_check = created_file.append_section(&new_section);
+    assert!(created_section_check.is_ok());
+
+    let created_section = created_section_check.unwrap();
+    assert_eq!(created_section.pointer_to_raw_data, Offset(0x400));
+    assert_eq!(created_section.virtual_address, RVA(0x1000));
+
+    let data: &[u8] = &[0x48, 0x31, 0xC0, 0xC3]; // xor rax,rax / ret
+    
+    created_section.virtual_size = 0x1000;
+    created_section.size_of_raw_data = data.len() as u32;
+    created_section.characteristics = SectionCharacteristics::MEM_EXECUTE
+        | SectionCharacteristics::MEM_READ
+        | SectionCharacteristics::CNT_CODE;
+
+    // clone the section to stop mutable borrowing of created_file
+    let cloned_section = created_section.clone();
+    assert!(cloned_section.is_aligned_to_file(&created_file));
+    assert!(cloned_section.is_aligned_to_section(&created_file));
+    
+    let nt_headers = created_file.get_valid_nt_headers();
     assert!(nt_headers.is_ok());
 
-    if let NTHeadersMut::NTHeaders64(nt_headers_64) = nt_headers.unwrap() {
-        nt_headers_64.file_header.number_of_sections = 1;
-        nt_headers_64.optional_header.size_of_image = 0x4000;
-
-        let section_offset_result = created_file.align_to_file(Offset(0x200));
-        assert!(section_offset_result.is_ok());
-
-        let section_offset = section_offset_result.unwrap();
-        assert_eq!(section_offset, Offset(0x400));
-
-        let section_rva_result = created_file.align_to_section(RVA(0x800));
-        assert!(section_rva_result.is_ok());
-
-        let section_rva = section_rva_result.unwrap();
-        assert_eq!(section_rva, RVA(0x1000));
-        
-        let section_table_check = created_file.get_mut_section_table();
-        assert!(section_table_check.is_ok());
-
-        let section_table = section_table_check.unwrap();
-        assert_eq!(section_table.len(), 1);
-
-        section_table[0].set_name(Some(".text"));
-        assert_eq!(section_table[0].name.as_str(), ".text");
-
-        let data: &[u8] = &[0x48, 0x31, 0xC0, 0xC3]; // xor rax,rax / ret
-        section_table[0].virtual_address = section_rva;
-        section_table[0].virtual_size = 0x1000;
-        section_table[0].pointer_to_raw_data = section_offset;
-        section_table[0].size_of_raw_data = data.len() as u32;
-        section_table[0].characteristics = SectionCharacteristics::MEM_EXECUTE
-            | SectionCharacteristics::MEM_READ
-            | SectionCharacteristics::CNT_CODE;
-
-        // clone the section so we don't need to rely on borrowing the mutable reference
-        let section = section_table[0].clone();
-        assert!(section.is_aligned_to_file(&created_file));
-        assert!(section.is_aligned_to_section(&created_file));
-        
-        let section_offset = section.data_offset(created_file.pe_type);
-        assert_eq!(section_offset, Offset(0x400));
-
-        let write_result = section.write(&mut created_file, data);
-        assert!(write_result.is_ok());
-
-        let read_result = section.read(&created_file);
-        assert!(read_result.is_ok());
-        assert_eq!(read_result.unwrap(), data);
-
-        let alt_read_result = created_file.buffer.read(section_offset, data.len());
-        assert!(alt_read_result.is_ok());
-        assert_eq!(alt_read_result.unwrap(), data);
+    if let NTHeaders::NTHeaders64(nt_headers_64) = nt_headers.unwrap() {
+        assert_eq!(nt_headers_64.file_header.number_of_sections, 1);
     }
     else {
         panic!("couldn't get NT headers");
     }
+
+    let section_table = created_file.get_section_table();
+    assert!(section_table.is_ok());
+    assert_eq!(section_table.unwrap()[0], cloned_section);
+
+    let section_offset = cloned_section.data_offset(created_file.pe_type);
+    assert_eq!(section_offset, Offset(0x400));
+
+    let write_result = cloned_section.write(&mut created_file, data);
+    assert!(write_result.is_ok());
+
+    let read_result = cloned_section.read(&created_file);
+    assert!(read_result.is_ok());
+    assert_eq!(read_result.unwrap(), data);
+
+    let alt_read_result = created_file.buffer.read(section_offset, data.len());
+    assert!(alt_read_result.is_ok());
+    assert_eq!(alt_read_result.unwrap(), data);
 }
 
 #[cfg(windows)]
