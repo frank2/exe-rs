@@ -17,7 +17,7 @@ pub enum Arch {
 }
 
 /// Represents a C-style character unit. Basically a wrapper for [`u8`](u8).
-#[repr(packed)]
+#[repr(C)]
 #[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct CChar(pub u8);
 
@@ -43,7 +43,7 @@ impl CCharString for [CChar] {
 }
 
 /// Represents a UTF16 character unit. Basically a wrapper for [`u16`](u16).
-#[repr(packed)]
+#[repr(C)]
 #[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct WChar(pub u16);
 
@@ -77,7 +77,7 @@ pub trait Address {
 }
 
 /// Represents a file offset in the image. This typically represents an address of the file on disk versus the file in memory.
-#[repr(packed)]
+#[repr(C)]
 #[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct Offset(pub u32);
 impl Offset {
@@ -151,7 +151,7 @@ impl Address for Offset {
 }
 
 /// Represents a relative virtual address (i.e., RVA). This address typically points to data in memory versus data on disk.
-#[repr(packed)]
+#[repr(C)]
 #[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct RVA(pub u32);
 impl Address for RVA {
@@ -167,7 +167,7 @@ impl Address for RVA {
 }
 
 /// Represents a 32-bit virtual address (i.e., VA). This address typically points directly to active memory.
-#[repr(packed)]
+#[repr(C)]
 #[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct VA32(pub u32);
 impl Address for VA32 {
@@ -183,7 +183,7 @@ impl Address for VA32 {
 }
 
 /// Represents a 64-bit virtual address (i.e., VA). This address typically points directly to active memory.
-#[repr(packed)]
+#[repr(C)]
 #[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct VA64(pub u64);
 impl Address for VA64 {
