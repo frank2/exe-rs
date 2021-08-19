@@ -13,6 +13,7 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 * added the ability to add and append sections to the PE's section table, see `PE::add_section` and `PE::append_section`.
 ### Bugfixes
 * renamed `ref_to_slice` to `ref_to_bytes` to be more clear
+* marked objects still marked with `#[repr(packed)]` with `#[repr(C)]`
 
 ## 0.4.2
 ### Features
