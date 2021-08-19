@@ -942,6 +942,79 @@ impl<'data> PE<'data> {
 
         Err(Error::SectionNotFound)
     }
+    /// Add a given section header to the section table. Returns a mutable reference to the section header as it exists
+    /// in the section table.
+    pub fn add_section(&mut self, section: &ImageSectionHeader) -> Result<&mut ImageSectionHeader, Error> {
+        match self.get_valid_mut_nt_headers() {
+            Ok(ref mut h) => match h {
+                NTHeadersMut::NTHeaders32(ref mut h32) => h32.file_header.number_of_sections += 1,
+                NTHeadersMut::NTHeaders64(ref mut h64) => h64.file_header.number_of_sections += 1,
+            },
+            Err(e) => return Err(e),
+        }
+
+        let section_table = match self.get_mut_section_table() {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        section_table[section_table.len()-1].clone_from(section);
+
+        Ok(&mut section_table[section_table.len()-1])
+    }
+    /// Append a given section header to the end of the PE sections. This function differs from [`add_section`](PE::add_section) by setting the
+    /// new section's [`pointer_to_raw_data`](ImageSectionHeader::pointer_to_raw_data) and [`virtual_address`](ImageSectionHeader::virtual_address)
+    /// to the end of the previous section's boundaries.
+    ///
+    /// Returns a mutable reference to the new section as it exists in the section table.
+    pub fn append_section(&mut self, section: &ImageSectionHeader) -> Result<&mut ImageSectionHeader, Error> {
+        let section_table_ro = match self.get_section_table() {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        let last_section_file_size;
+        let last_section_virtual_size;
+        let last_offset;
+        let last_rva;
+
+        if section_table_ro.len() == 0 {
+            last_section_file_size = match self.calculate_header_size() {
+                Ok(s) => s as u32,
+                Err(e) => return Err(e),
+            };
+            last_section_virtual_size = last_section_file_size;
+            last_offset = Offset(0);
+            last_rva = RVA(0);
+        }
+        else {
+            let last_section = section_table_ro[section_table_ro.len()-1].clone();
+            last_section_file_size = last_section.size_of_raw_data;
+            last_section_virtual_size = last_section.virtual_size;
+            last_offset = last_section.pointer_to_raw_data.clone();
+            last_rva = last_section.virtual_address.clone();
+        }
+
+        let next_offset = match self.align_to_file(Offset(last_offset.0 + last_section_file_size)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let next_rva = match self.align_to_section(RVA(last_rva.0 + last_section_virtual_size)) {
+            Ok(r) => r,
+            Err(e) => return Err(e),
+        };
+
+        let added_section = match self.add_section(section) {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        added_section.pointer_to_raw_data = next_offset;
+        added_section.virtual_address = next_rva;
+
+        Ok(added_section)
+    }
 
     /// Verify that the given offset is a valid offset.
     ///
