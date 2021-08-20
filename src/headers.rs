@@ -1425,6 +1425,27 @@ impl ImageDebugDirectory {
         pe.cast_directory::<Self>(ImageDirectoryEntry::Debug)
     }
 }
+
+bitflags! {
+    /// A series of bitflags representing TLS directory characteristics.
+    pub struct TLSCharacteristics: u32 {
+        const ALIGN_1BYTES           = 0x00100000;
+        const ALIGN_2BYTES           = 0x00200000;
+        const ALIGN_4BYTES           = 0x00300000;
+        const ALIGN_8BYTES           = 0x00400000;
+        const ALIGN_16BYTES          = 0x00500000;
+        const ALIGN_32BYTES          = 0x00600000;
+        const ALIGN_64BYTES          = 0x00700000;
+        const ALIGN_128BYTES         = 0x00800000;
+        const ALIGN_256BYTES         = 0x00900000;
+        const ALIGN_512BYTES         = 0x00A00000;
+        const ALIGN_1024BYTES        = 0x00B00000;
+        const ALIGN_2048BYTES        = 0x00C00000;
+        const ALIGN_4096BYTES        = 0x00D00000;
+        const ALIGN_8192BYTES        = 0x00E00000;
+        const ALIGN_MASK             = 0x00F00000;
+    }
+}
     
 #[repr(C)]
 #[derive(Clone, Eq, PartialEq, Debug)]
@@ -1434,7 +1455,7 @@ pub struct ImageTLSDirectory32 {
     pub address_of_index: VA32,
     pub address_of_callbacks: VA32,
     pub size_of_zero_fill: u32,
-    pub characteristics: u32,
+    pub characteristics: TLSCharacteristics,
 }
 impl ImageTLSDirectory32 {
     /// Get the 32-bit TLS directory from the [`PE`](PE) object.
@@ -1555,7 +1576,7 @@ pub struct ImageTLSDirectory64 {
     pub address_of_index: VA64,
     pub address_of_callbacks: VA64,
     pub size_of_zero_fill: u32,
-    pub characteristics: u32,
+    pub characteristics: TLSCharacteristics,
 }
 impl ImageTLSDirectory64 {
     /// Get the 64-bit TLS directory from the [`PE`](PE) object.
