@@ -14,6 +14,7 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 ### Bugfixes
 * renamed `ref_to_slice` to `ref_to_bytes` to be more clear
 * marked objects still marked with `#[repr(packed)]` with `#[repr(C)]`
+* tracked down TLS directory characteristics and made a bitflag structure, see `headers::TLSCharacteristics`
 
 ## 0.4.2
 ### Features
