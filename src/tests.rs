@@ -34,6 +34,10 @@ fn test_compiled() {
     let bad_header = pefile.get_valid_nt_headers_64();
     assert!(bad_header.is_err());
 
+    let mz_check = Offset(0).as_ptr(&pefile);
+    assert!(mz_check.is_ok());
+    assert_eq!(unsafe { *(mz_check.unwrap() as *const u16) }, DOS_SIGNATURE);
+
     let e_lfanew_check = pefile.e_lfanew();
     assert!(e_lfanew_check.is_ok());
 
