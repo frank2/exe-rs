@@ -74,6 +74,8 @@ pub trait Address {
     fn as_rva(&self, pe: &PE) -> Result<RVA, Error>;
     /// Convert the address to a VA value.
     fn as_va(&self, pe: &PE) -> Result<VA, Error>;
+    /// Convert the address to a pointer.
+    fn as_ptr(&self, pe: &PE) -> Result<*const u8, Error>;
 }
 
 /// Represents a file offset in the image. This typically represents an address of the file on disk versus the file in memory.
@@ -148,6 +150,9 @@ impl Address for Offset {
     fn as_va(&self, pe: &PE) -> Result<VA, Error> {
         pe.offset_to_va(*self)
     }
+    fn as_ptr(&self, pe: &PE) -> Result<*const u8, Error> {
+        unsafe { Ok(pe.buffer.offset_to_ptr(*self)) }
+    }
 }
 
 /// Represents a relative virtual address (i.e., RVA). This address typically points to data in memory versus data on disk.
@@ -163,6 +168,14 @@ impl Address for RVA {
     }
     fn as_va(&self, pe: &PE) -> Result<VA, Error> {
         pe.rva_to_va(*self)
+    }
+    fn as_ptr(&self, pe: &PE) -> Result<*const u8, Error> {
+        let offset = match self.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        offset.as_ptr(pe)
     }
 }
 
@@ -180,6 +193,14 @@ impl Address for VA32 {
     fn as_va(&self, _: &PE) -> Result<VA, Error> {
         Ok(VA::VA32(self.clone()))
     }
+    fn as_ptr(&self, pe: &PE) -> Result<*const u8, Error> {
+        let offset = match self.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        offset.as_ptr(pe)
+    }
 }
 
 /// Represents a 64-bit virtual address (i.e., VA). This address typically points directly to active memory.
@@ -195,6 +216,14 @@ impl Address for VA64 {
     }
     fn as_va(&self, _: &PE) -> Result<VA, Error> {
         Ok(VA::VA64(self.clone()))
+    }
+    fn as_ptr(&self, pe: &PE) -> Result<*const u8, Error> {
+        let offset = match self.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        offset.as_ptr(pe)
     }
 }
 
@@ -213,6 +242,14 @@ impl Address for VA {
     }
     fn as_va(&self, _: &PE) -> Result<VA, Error> {
         Ok(self.clone())
+    }
+    fn as_ptr(&self, pe: &PE) -> Result<*const u8, Error> {
+        let offset = match self.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        offset.as_ptr(pe)
     }
 }
 
@@ -1136,6 +1173,14 @@ impl Address for ResourceOffset {
         };
 
         rva.as_va(pe)
+    }
+    fn as_ptr(&self, pe: &PE) -> Result<*const u8, Error> {
+        let offset = match self.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        offset.as_ptr(pe)
     }
 }
 

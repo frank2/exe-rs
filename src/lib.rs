@@ -123,6 +123,14 @@ impl Address for PETranslation {
             Self::Memory(r) => r.as_va(pe),
         }
     }
+    fn as_ptr(&self, pe: &PE) -> Result<*const u8, Error> {
+        let offset = match self.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        offset.as_ptr(pe)
+    }
 }
 
 /// Represents a PE file.
