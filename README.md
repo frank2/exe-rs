@@ -11,7 +11,7 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 * added the ability to add arbitrary relocations to a relocation table, see `RelocationDirectory::add_relocation`.
 * `ImageSectionHeader` now implements the Default trait.
 * added the ability to add and append sections to the PE's section table, see `PE::add_section` and `PE::append_section`.
-* added the ability to convert objects with the `Address` trait (e.g., `Offset`, `RVA`, `VA`, etc.) to convert directly to pointers, see `Address::as_ptr`.
+* added the ability to convert objects with the `Address` trait (e.g., `Offset`, `RVA`, `VA`, etc.) to pointers, see `Address::as_ptr`.
 ### Bugfixes
 * renamed `ref_to_slice` to `ref_to_bytes` to be more clear
 * marked objects still marked with `#[repr(packed)]` with `#[repr(C)]`
