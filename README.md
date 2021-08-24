@@ -5,7 +5,7 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 
 # Changelog
 
-## 0.5.0
+## 0.4.3
 ### Features
 * added ability to turn a slice of type `T` into an array of bytes, see `Buffer::slice_ref_to_bytes`.
 * added the ability to add arbitrary relocations to a relocation table, see `RelocationDirectory::add_relocation`.
