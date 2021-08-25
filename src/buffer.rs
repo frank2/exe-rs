@@ -289,6 +289,10 @@ impl<'data> Buffer<'data> {
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
+    /// Convert this buffer into a [`Vec`](std::vec::Vec)<[`u8`](u8)> object.
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.data.as_slice().to_vec()
+    }
 
     /// Save the buffer to disk with the given filename.
     pub fn save<P: AsRef<Path>>(&self, filename: P) -> Result<(), IoError> {
