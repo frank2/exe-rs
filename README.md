@@ -13,6 +13,7 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 * added the ability to add and append sections to the PE's section table, see `PE::add_section` and `PE::append_section`.
 * added the ability to convert objects with the `Address` trait (e.g., `Offset`, `RVA`, `VA`, etc.) to pointers, see `Address::as_ptr`.
 * added the `PEImage` object, a wrapper for `PE` objects which contains owned data in a backing vector, see the docs for more.
+* `Buffer` objects now implement the `Index` trait.
 ### Bugfixes
 * renamed `ref_to_slice` to `ref_to_bytes` to be more clear
 * marked objects still marked with `#[repr(packed)]` with `#[repr(C)]`
