@@ -641,12 +641,11 @@ impl Relocation {
 /// It can be used to calculate what exactly gets rewritten and where before data is modified.
 ///
 /// ```rust
-/// use exe::PE;
+/// use exe::PEImage;
 /// use exe::types::{RelocationDirectory, RVA};
 ///
-/// let buffer = std::fs::read("test/dll.dll").unwrap();
-/// let dll = PE::new_disk(buffer.as_slice());
-/// let relocation_dir = RelocationDirectory::parse(&dll).unwrap();
+/// let dll = PEImage::from_disk_file("test/dll.dll").unwrap();
+/// let relocation_dir = RelocationDirectory::parse(&dll.pe).unwrap();
 /// assert_eq!(relocation_dir.entries.len(), 1);
 ///
 /// let entry = &relocation_dir.entries[0];
@@ -799,13 +798,12 @@ impl<'data> RelocationEntryMut<'data> {
 /// to memory.
 ///
 /// ```rust
-/// use exe::PE;
+/// use exe::PEImage;
 /// use exe::types::{RelocationDirectory, RelocationValue, RVA};
 ///
-/// let buffer = std::fs::read("test/dll.dll").unwrap();
-/// let dll = PE::new_disk(buffer.as_slice());
-/// let relocation_dir = RelocationDirectory::parse(&dll).unwrap();
-/// let relocation_data = relocation_dir.relocations(&dll, 0x02000000).unwrap();
+/// let dll = PEImage::from_disk_file("test/dll.dll").unwrap();
+/// let relocation_dir = RelocationDirectory::parse(&dll.pe).unwrap();
+/// let relocation_data = relocation_dir.relocations(&dll.pe, 0x02000000).unwrap();
 /// let (rva, reloc) = relocation_data[0];
 ///
 /// assert_eq!(rva, RVA(0x1008));
