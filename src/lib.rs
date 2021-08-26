@@ -2,18 +2,17 @@
 //!
 //! Getting started is easy:
 //! ```rust
-//! use exe::PE;
+//! use exe::PEImage;
 //! use exe::types::{ImportDirectory, ImportData, CCharString};
 //!
-//! let buffer = std::fs::read("test/compiled.exe").unwrap();
-//! let pefile = PE::new_disk(buffer.as_slice());
-//! let import_directory = ImportDirectory::parse(&pefile).unwrap();
+//! let image = PEImage::from_disk_file("test/compiled.exe").unwrap();
+//! let import_directory = ImportDirectory::parse(&image.pe).unwrap();
 //!
 //! for descriptor in import_directory.descriptors {
-//!    println!("Module: {}", descriptor.get_name(&pefile).unwrap().as_str());
+//!    println!("Module: {}", descriptor.get_name(&image.pe).unwrap().as_str());
 //!    println!("Imports:");
 //!
-//!    for import in descriptor.get_imports(&pefile).unwrap() {
+//!    for import in descriptor.get_imports(&image.pe).unwrap() {
 //!       match import {
 //!          ImportData::Ordinal(x) => println!("   #{}", x),
 //!          ImportData::ImportByName(s) => println!("   {}", s)
@@ -44,8 +43,16 @@ mod tests;
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
+use hex;
+
+use std::clone::Clone;
 use std::cmp;
+use std::convert::AsRef;
+use std::fs;
+use std::io::{Error as IoError};
 use std::mem;
+use std::ops::{Index, IndexMut};
+use std::path::Path;
 use std::slice;
 
 /// Errors produced by the library.
@@ -87,8 +94,8 @@ pub enum Error {
 ///
 /// When a PE is loaded by Windows, it's ultimately parsed and rewritten before being placed into
 /// memory. This means the image in memory is different from the disk. This is why, for example,
-/// RVAs and Offsets differ in type-- the RVA represents the offset to the image in
-/// *memory*, whereas the Offset represents the offset to the image on *disk*. This enum
+/// [`RVA`](RVA)s and [`Offset`](Offset)s differ in type-- the `RVA` represents the offset to the image in
+/// *memory*, whereas the `Offset` represents the offset to the image on *disk*. This enum
 /// is necessary to maintain a simple translation layer for basic address operations.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum PEType {
@@ -96,7 +103,7 @@ pub enum PEType {
     Memory,
 }
 
-/// An enum to translate between RVA and Offset addresses.
+/// An enum to translate between [`RVA`](RVA) and [`Offset`](Offset) addresses.
 ///
 /// This typically never gets exposed beyond the [`translate`](PE::translate) function. See [`PEType`](PEType)
 /// for an explanation of why this is here.
@@ -133,10 +140,10 @@ impl Address for PETranslation {
     }
 }
 
-/// Represents a PE file.
+/// Represents PE data.
 #[derive(Clone)]
 pub struct PE<'data> {
-    /// The type of buffer the PE file is expecting. See [`PEType`](PEType) for an explanation.
+    /// The type of memory layout the object is expecting. See [`PEType`](PEType) for an explanation.
     pub pe_type: PEType,
     /// The memory buffer that typically points to the backing data.
     pub buffer: Buffer<'data>,
@@ -172,7 +179,6 @@ impl<'data> PE<'data> {
     pub fn new_mut_memory(data: &'data mut [u8]) -> Self {
         Self::new_mut(PEType::Memory, data)
     }
-    
     /// Generates a new [`Memory`](PEType::Memory) PE file from a pointer to memory.
     ///
     /// Because of the nature of verifying the given pointer is a PE image, this function also parses the image and verifies it.
@@ -234,6 +240,11 @@ impl<'data> PE<'data> {
         }
 
         Ok(PE::new_mut_memory(slice::from_raw_parts_mut(ptr, image_size)))
+    }
+
+    /// Turn the `PE` object into an owned [`PEImage`](PEImage) object.
+    pub fn to_image(&self) -> PEImage {
+        PEImage::from_data(self.pe_type, self.buffer.as_slice())
     }
 
     /// Translate an address into a buffer offset relevant to the image type.
@@ -483,13 +494,12 @@ impl<'data> PE<'data> {
     /// validating the headers.
     ///
     /// ```rust
-    /// use exe::PE;
+    /// use exe::PEImage;
     /// use exe::headers::HDR64_MAGIC;
     /// use exe::types::NTHeaders;
     ///
-    /// let buffer = std::fs::read("test/normal64.exe").unwrap();
-    /// let pefile = PE::new_disk(buffer.as_slice());
-    /// let headers = pefile.get_valid_nt_headers().unwrap();
+    /// let image = PEImage::from_disk_file("test/normal64.exe").unwrap();
+    /// let headers = image.pe.get_valid_nt_headers().unwrap();
     ///
     /// let magic = match headers {
     ///    NTHeaders::NTHeaders32(hdr32) => hdr32.optional_header.magic,
@@ -1578,5 +1588,268 @@ impl<'data> PE<'data> {
         }
 
         Ok(backing_buffer)
+    }
+}
+
+/// Represents a [`PE`](PE) object with owned data.
+pub struct PEImage<'data> {
+    data: Vec<u8>,
+    pub filename: Option<String>,
+    pub pe: PE<'data>,
+}
+impl<'data> PEImage<'data> {
+    /// Creates a new `PEImage` object with a mutable [`PE`](PE) object, initializing a backing buffer with the given size.
+    pub fn new(pe_type: PEType, size: usize) -> Self {
+        let mut data = vec![0u8; size];
+        
+        // vectors ultimately operate on a ptr/size basis like slices, so this is safe from moving
+        let pe = PE::new_mut(pe_type, unsafe { slice::from_raw_parts_mut(data.as_mut_ptr(), size) });
+
+        Self {
+            data,
+            pe,
+            filename: None
+        }
+    }
+    /// Creates a new `PEImage` object with a mutable [`PE`](PE) object as type [`Disk`](PEType::Disk), initializing a vector of the given size.
+    pub fn new_disk(size: usize) -> Self {
+        Self::new(PEType::Disk, size)
+    }
+    /// Creates a new `PEImage` object with a mutable [`PE`](PE) object as type [`Memory`](PEType::Memory), initializing a vector of the given size.
+    pub fn new_memory(size: usize) -> Self {
+        Self::new(PEType::Memory, size)
+    }
+    /// Creates a new `PEImage` object with the given file's data.
+    pub fn from_file<P: AsRef<Path>>(pe_type: PEType, filename: P) -> Result<Self, IoError> {
+        let file_path = filename.as_ref();
+        let mut data = match fs::read(file_path) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+        let pe = PE::new_mut(pe_type, unsafe { slice::from_raw_parts_mut(data.as_mut_ptr(), data.len()) });
+
+        Ok(Self {
+            data,
+            pe,
+            filename: Some(file_path.to_string_lossy().to_string()),
+        })
+    }
+    /// Creates a new `PEImage` object with the given file's data, marking it as a [`Disk`](PEType::Disk) image.
+    pub fn from_disk_file<P: AsRef<Path>>(filename: P) -> Result<Self, IoError> {
+        Self::from_file(PEType::Disk, filename)
+    }
+    /// Creates a new `PEImage` object with the given file's data, marking it as a [`Memory`](PEType::Memory) image.
+    pub fn from_memory_file<P: AsRef<Path>>(filename: P) -> Result<Self, IoError> {
+        Self::from_file(PEType::Memory, filename)
+    }
+    /// Creates a new `PEImage` object from the given slice object.
+    ///
+    /// Note that this does not act like the constructors for [`PE`](PE) objects, in the sense that it just uses the slice directly.
+    /// Rather, it clones the slice and creates a new backing vector. To operate on slices directly, use the [`PE`](PE) object.
+    pub fn from_data(pe_type: PEType, data: &[u8]) -> Self {
+        let mut data = data.to_vec();
+        let pe = PE::new_mut(pe_type, unsafe { slice::from_raw_parts_mut(data.as_mut_ptr(), data.len()) });
+
+        Self {
+            data,
+            pe,
+            filename: None,
+        }
+    }
+    /// Creates a new `PEImage` object from the given slice object, marking it as a [`Disk`](PEType::Disk) image.
+    pub fn from_disk_data(data: &[u8]) -> Self {
+        Self::from_data(PEType::Disk, data)
+    }
+    /// Creates a new `PEImage` object from the given slice object, marking it as a [`Memory`](PEType::Memory) image.
+    pub fn from_memory_data(data: &[u8]) -> Self {
+        Self::from_data(PEType::Memory, data)
+    }
+    
+    fn reset_pe(&mut self) {
+        self.pe = PE::new_mut(self.pe.pe_type, unsafe { slice::from_raw_parts_mut(self.data.as_mut_ptr(), self.data.len()) });
+    }
+
+    /// Sets the backing vector of the object.
+    ///
+    /// The slice is cloned into a vector and not operated on directly. To operate directly on a slice, use the [`PE`](PE) object.
+    pub fn set_data(&mut self, new_data: &[u8]) {
+        self.data = new_data.to_vec();
+        self.reset_pe();
+    }
+    /// Sets the filename of the object.
+    pub fn set_filename(&mut self, filename: Option<String>) {
+        self.filename = filename.clone();
+    }
+
+    /// Shorten the backing vector to the first `size` elements.
+    pub fn truncate(&mut self, size: usize) {
+        self.data.truncate(size);
+        self.reset_pe();
+    }
+    /// Get a slice of the backing vector.
+    pub fn as_slice(&self) -> &[u8] {
+        self.pe.buffer.as_slice()
+    }
+    /// Get a mutable slice of the backing vector.
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        self.pe.buffer.as_mut_slice().unwrap()
+    }
+    /// Get a pointer to the backing vector.
+    pub fn as_ptr(&self) -> *const u8 {
+        self.pe.buffer.as_ptr()
+    }
+    /// Get a mutable pointer to the backing vector.
+    pub fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.pe.buffer.as_mut_ptr().unwrap()
+    }
+    /// Append data to the end of the buffer.
+    pub fn append(&mut self, other: &mut Vec<u8>) {
+        self.data.append(other);
+        self.reset_pe();
+    }
+    /// Return the length of the buffer.
+    pub fn len(&self) -> usize {
+        self.pe.buffer.len()
+    }
+    /// Resize the underlying data vector, padding any unallocated data with 0.
+    pub fn resize(&mut self, new_size: usize) {
+        self.data.resize(new_size, 0u8);
+        self.reset_pe();
+    }
+    /// Extend the underlying data vector with the given slice of `u8`.
+    pub fn extend_from_slice(&mut self, other: &[u8]) {
+        self.data.extend_from_slice(other);
+        self.reset_pe();
+    }
+    /// Save the data to the `filename` in the object. If `filename` is [`None`](None), the SHA256 value of the current
+    /// buffer is calculated and saved as a `.exe` file in the current directory.
+    pub fn save(&self) -> Result<(), IoError> {
+        let filename = match &self.filename {
+            Some(f) => f.clone(),
+            None => format!("{}.exe", hex::encode(self.sha256())).to_string(),
+        };
+
+        self.pe.buffer.save(filename)
+    }
+    /// Save the data to the given filename rather than the filename of the object.
+    pub fn save_as<P: AsRef<Path>>(&self, filename: P) -> Result<(), IoError> {
+        self.pe.buffer.save(filename)
+    }
+    /// Check if the vector is empty.
+    pub fn is_empty(&self) -> bool {
+        self.pe.buffer.is_empty()
+    }
+    /// Produces an MD5 hash of this image.
+    pub fn md5(&self) -> Vec<u8> {
+        self.pe.buffer.md5()
+    }
+    /// Produces an SHA1 hash of this image.
+    pub fn sha1(&self) -> Vec<u8> {
+        self.pe.buffer.sha1()
+    }
+    /// Produces an SHA256 hash of this image.
+    pub fn sha256(&self) -> Vec<u8> {
+        self.pe.buffer.sha256()
+    }
+    /// Produces the entropy of the image.
+    pub fn entropy(&self) -> f64 {
+        self.pe.buffer.entropy()
+    }
+    /// Gets a reference to an object in the image. See [`Buffer::get_ref`](Buffer::get_ref) for more details.
+    pub fn get_ref<T>(&self, offset: Offset) -> Result<&T, Error> {
+        self.pe.buffer.get_ref::<T>(offset)
+    }
+    /// Gets a mutable reference to an object in the image.
+    pub fn get_mut_ref<T>(&mut self, offset: Offset) -> Result<&mut T, Error> {
+        self.pe.buffer.get_mut_ref::<T>(offset)
+    }
+    /// Gets a slice reference of data in the buffer. See [`Buffer::get_slice_ref`](Buffer::get_slice_ref) for more details.
+    pub fn get_slice_ref<T>(&self, offset: Offset, count: usize) -> Result<&[T], Error> {
+        self.pe.buffer.get_slice_ref::<T>(offset, count)
+    }
+    /// Gets a mutable slice reference of data in the buffer.
+    pub fn get_mut_slice_ref<T>(&mut self, offset: Offset, count: usize) -> Result<&mut [T], Error> {
+        self.pe.buffer.get_mut_slice_ref::<T>(offset, count)
+    }
+    /// Get the size of a zero-terminated C-string in the data.
+    pub fn get_cstring_size(&self, offset: Offset, thunk: bool, max_size: Option<usize>) -> Result<usize, Error> {
+        self.pe.buffer.get_cstring_size(offset, thunk, max_size)
+    }
+    /// Gets the size of a zero-terminated UTF16 string in the data.
+    pub fn get_widestring_size(&self, offset: Offset, max_size: Option<usize>) -> Result<usize, Error> {
+        self.pe.buffer.get_widestring_size(offset, max_size)
+    }
+    /// Get a zero-terminated C-string from the data. See [`Buffer::get_cstring`](Buffer::get_cstring) for more details.
+    pub fn get_cstring(&self, offset: Offset, thunk: bool, max_size: Option<usize>) -> Result<&[CChar], Error> {
+        self.pe.buffer.get_cstring(offset, thunk, max_size)
+    }
+    /// Get a mutable zero-terminated C-string from the data.
+    pub fn get_mut_cstring(&mut self, offset: Offset, thunk: bool, max_size: Option<usize>) -> Result<&mut [CChar], Error> {
+        self.pe.buffer.get_mut_cstring(offset, thunk, max_size)
+    }
+    /// Get a zero-terminated UTF16 string from the data.
+    pub fn get_widestring(&self, offset: Offset, max_size: Option<usize>) -> Result<&[WChar], Error> {
+        self.pe.buffer.get_widestring(offset, max_size)
+    }
+    /// Get a mutable zero-terminated UTF16 string from the data.
+    pub fn get_mut_widestring(&mut self, offset: Offset, max_size: Option<usize>) -> Result<&mut [WChar], Error> {
+        self.pe.buffer.get_mut_widestring(offset, max_size)
+    }
+    /// Read arbitrary data from the image.
+    pub fn read(&self, offset: Offset, size: usize) -> Result<&[u8], Error> {
+        self.pe.buffer.read(offset, size)
+    }
+    /// Read mutable arbitrary data from the image.
+    pub fn read_mut(&mut self, offset: Offset, size: usize) -> Result<&mut [u8], Error> {
+        self.pe.buffer.read_mut(offset, size)
+    }
+    /// Write arbitrary data to the image.
+    pub fn write(&mut self, offset: Offset, data: &[u8]) -> Result<(), Error> {
+        self.pe.buffer.write(offset, data)
+    }
+    /// Write an object reference to the image.
+    pub fn write_ref<T>(&mut self, offset: Offset, data: &T) -> Result<(), Error> {
+        self.pe.buffer.write_ref::<T>(offset, data)
+    }
+    /// Write a slice reference to the image.
+    pub fn write_slice_ref<T>(&mut self, offset: Offset, data: &[T]) -> Result<(), Error> {
+        self.pe.buffer.write_slice_ref::<T>(offset, data)
+    }
+    /// Search for a slice of data in the image. Returns an empty vector if nothing is found.
+    pub fn search_slice(&self, search: &[u8]) -> Result<Vec<Offset>, Error> {
+        self.pe.buffer.search_slice(search)
+    }
+    /// Search for an object reference within the image. Returns an empty vector if nothing is found.
+    pub fn search_ref<T>(&self, search: &T) -> Result<Vec<Offset>, Error> {
+        self.pe.buffer.search_ref::<T>(search)
+    }
+}
+impl<'data> Clone for PEImage<'data> {
+    fn clone(&self) -> Self {
+        let mut data = self.data.clone();
+        let pe = PE::new_mut(self.pe.pe_type, unsafe { slice::from_raw_parts_mut(data.as_mut_ptr(), data.len()) });
+        
+        Self {
+            data,
+            pe,
+            filename: self.filename.clone(),
+        }
+    }
+    fn clone_from(&mut self, other: &Self) {
+        self.data = other.data.clone();
+        self.pe = PE::new_mut(self.pe.pe_type, unsafe { slice::from_raw_parts_mut(self.data.as_mut_ptr(), self.data.len()) });
+        self.filename = other.filename.clone();
+    }
+}
+impl<'data, Idx: slice::SliceIndex<[u8]>> Index<Idx> for PEImage<'data> {
+    type Output = Idx::Output;
+
+    fn index(&self, index: Idx) -> &Self::Output {
+        self.data.index(index)
+    }
+}
+impl<'data, Idx: slice::SliceIndex<[u8]>> IndexMut<Idx> for PEImage<'data> {
+    fn index_mut(&mut self, index: Idx) -> &mut Self::Output {
+        self.data.index_mut(index)
     }
 }
