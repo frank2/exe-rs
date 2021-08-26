@@ -225,6 +225,24 @@ impl<'data> Clone for BufferData<'data> {
         }
     }
 }
+impl<'data, Idx: slice::SliceIndex<[u8]>> Index<Idx> for BufferData<'data> {
+    type Output = Idx::Output;
+
+    fn index(&self, index: Idx) -> &Self::Output {
+        match self {
+            BufferData::Memory(m) => m.index(index),
+            BufferData::MutMemory(mm) => mm.index(index),
+        }
+    }
+}
+impl<'data, Idx: slice::SliceIndex<[u8]>> IndexMut<Idx> for BufferData<'data> {
+    fn index_mut(&mut self, index: Idx) -> &mut Self::Output {
+        match self {
+            BufferData::Memory(_) => panic!("buffer is not mutable and IndexMut::index_mut doesn't handle errors"),
+            BufferData::MutMemory(mm) => mm.index_mut(index),
+        }
+    }
+}
 
 /// Represents the Rust representation of data in the buffer.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
