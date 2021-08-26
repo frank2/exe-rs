@@ -16,6 +16,7 @@ use std::convert::AsRef;
 use std::fs;
 use std::io::{Error as IoError, Cursor};
 use std::mem;
+use std::ops::{Index, IndexMut};
 use std::path::Path;
 use std::ptr;
 use std::slice;
@@ -643,5 +644,17 @@ impl<'data> Buffer<'data> {
     /// Search for an object reference within the buffer. Returns an empty vector if nothing is found.
     pub fn search_ref<T>(&self, search: &T) -> Result<Vec<Offset>, Error> {
         self.search_slice(ref_to_bytes::<T>(search))
+    }
+}
+impl<'data, Idx: slice::SliceIndex<[u8]>> Index<Idx> for Buffer<'data> {
+    type Output = Idx::Output;
+
+    fn index(&self, index: Idx) -> &Self::Output {
+        self.data.index(index)
+    }
+}
+impl<'data, Idx: slice::SliceIndex<[u8]>> IndexMut<Idx> for Buffer<'data> {
+    fn index_mut(&mut self, index: Idx) -> &mut Self::Output {
+        self.data.index_mut(index)
     }
 }
