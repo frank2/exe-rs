@@ -21,6 +21,12 @@ fn test_compiled() {
     let sha256 = pefile.pe.buffer.sha256();
     assert_eq!(sha256, hex::decode("56202fe96d3493d03e77210d751f8e2a16ee7ee962b0ec1f6f830cce6c894540").unwrap());
 
+    let dos_magic = &pefile[0..2];
+    assert_eq!(dos_magic, &[0x4d, 0x5a]);
+
+    let dos_magic_buffer = &pefile.pe.buffer[0..2];
+    assert_eq!(dos_magic_buffer, &[0x4d, 0x5a]);
+
     let dos_stub = pefile.pe.get_dos_stub();
     assert!(dos_stub.is_ok());
     assert_eq!(dos_stub.unwrap(), hex::decode("0E1FBA0E00B409CD21B8014CCD21546869732070726F6772616D2063616E6E6F742062652072756E20696E20444F53206D6F64652E0D0D0A24000000000000005D5C6DC1193D0392193D0392193D0392972210921E3D0392E51D1192183D039252696368193D03920000000000000000").unwrap());
