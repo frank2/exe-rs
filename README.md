@@ -14,6 +14,8 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 * added the ability to convert objects with the `Address` trait (e.g., `Offset`, `RVA`, `VA`, etc.) to pointers, see `Address::as_ptr`.
 * added the `PEImage` object, a wrapper for `PE` objects which contains owned data in a backing vector, see the docs for more.
 * `Buffer` objects now implement the `Index` trait.
+* [`VS_VERSIONINFO`](https://docs.microsoft.com/en-us/windows/win32/menurc/vs-versioninfo) has been implemented, see `types::VSVersionInfo` and similarly named structures.
+* added an alignment function, see `buffer::align`.
 ### Bugfixes
 * renamed `ref_to_slice` to `ref_to_bytes` to be more clear
 * marked objects still marked with `#[repr(packed)]` with `#[repr(C)]`
