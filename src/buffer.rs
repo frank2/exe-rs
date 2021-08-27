@@ -24,6 +24,16 @@ use std::slice;
 use crate::Error;
 use crate::types::{Offset, CChar, WChar};
 
+/// Aligns a given `value` to the boundary specified by `boundary`.
+pub fn align(value: usize, boundary: usize) -> usize {
+    if value % boundary == 0 {
+        value
+    }
+    else {
+        value + (boundary - (value % boundary))
+    }
+}
+
 /// Get a slice of ```u8``` that represents the underlying data of the object. Useful when combined with
 /// the [`HashData`](HashData) or [`Entropy`](Entropy) traits.
 pub fn ref_to_bytes<T>(data: &T) -> &[u8] {
