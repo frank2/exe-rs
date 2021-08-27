@@ -386,6 +386,40 @@ fn test_cff_explorer() {
 
     let fonts = resource_table.filter_by_type(ResourceID::Font);
     assert_eq!(fonts.len(), 0);
+
+    let vs_version_check = VSVersionInfo::parse(&pefile.pe);
+    assert!(vs_version_check.is_ok());
+
+    let vs_version = vs_version_check.unwrap();
+
+    if let Some(string_file_info) = vs_version.string_file_info {
+        let lang_key = string_file_info.children[0].key_as_u32();
+        assert!(lang_key.is_ok());
+        assert_eq!(lang_key.unwrap(), 0x40904e4);
+
+        let lang_id = string_file_info.children[0].get_lang_id();
+        assert!(lang_id.is_ok());
+        assert_eq!(lang_id.unwrap(), 0x409);
+
+        let codepage = string_file_info.children[0].get_code_page();
+        assert!(codepage.is_ok());
+        assert_eq!(codepage.unwrap(), 0x4e4);
+
+        let expected: HashMap<String, String> = [("ProductVersion".to_string(), "8.0.0.0".to_string()),
+                                                 ("OriginalFilename".to_string(), "CFF Explorer.exe".to_string()),
+                                                 ("FileDescription".to_string(), "Common File Format Explorer".to_string()),
+                                                 ("FileVersion".to_string(), "8.0.0.0".to_string()),
+                                                 ("ProductName".to_string(), "CFF Explorer".to_string()),
+                                                 ("CompanyName".to_string(), "Daniel Pistelli".to_string()),
+                                                 ("InternalName".to_string(), "CFF Explorer.exe".to_string()),
+                                                 ("LegalCopyright".to_string(), "© 2012 Daniel Pistelli.  All rights reserved.".to_string())
+        ].iter().cloned().collect();
+        let string_map = string_file_info.children[0].string_map();
+        assert_eq!(string_map, expected);
+    }
+    else {
+        panic!("couldn't get string file info");
+    }
 }
 
 #[test]
