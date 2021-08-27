@@ -1117,13 +1117,7 @@ impl<'data> PE<'data> {
             Err(e) => return Err(e),
         };
 
-        let current = offset.0 % alignment;
-
-        if current == 0 {
-            return Ok(offset);
-        }
-
-        let new_offset = Offset(offset.0 + (alignment - current));
+        let new_offset = Offset(align(offset.0 as usize, alignment as usize) as u32);
 
         Ok(new_offset)
     }
@@ -1138,13 +1132,7 @@ impl<'data> PE<'data> {
             Err(e) => return Err(e),
         };
 
-        let current = rva.0 % alignment;
-
-        if current == 0 {
-            return Ok(rva);
-        }
-
-        let new_rva = RVA(rva.0 + (alignment - current));
+        let new_rva = RVA(align(rva.0 as usize, alignment as usize) as u32);
 
         Ok(new_rva)
     }
