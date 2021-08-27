@@ -1,5 +1,7 @@
 //! This module contains Rust types to help with the parsing of PE files.
 
+use bitflags::bitflags;
+
 use std::collections::HashMap;
 use std::mem;
 use std::slice;
@@ -8,6 +10,7 @@ use widestring::U16Str;
 
 use crate::{PE, PETranslation, Error};
 use crate::headers::*;
+use crate::buffer::align;
 
 /// Represents the architecture of the PE image.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -1638,5 +1641,761 @@ impl<'data> TLSDirectoryMut<'data> {
                 Err(e) => return Err(e),
             },
         }
+    }
+}
+
+bitflags! {
+    /// A series of bitflags representing the file flags for the [`VS_FIXEDFILEINFO`](https://docs.microsoft.com/en-us/windows/win32/api/verrsrc/ns-verrsrc-vs_fixedfileinfo)
+    /// structure.
+    pub struct VSFileFlags: u32 {
+        const DEBUG = 0x00000001;
+        const PRERELEASE = 0x00000002;
+        const PATCHED = 0x00000004;
+        const PRIVATEBUILD = 0x00000008;
+        const INFOINFERRED = 0x00000010;
+        const SPECIALBUILD = 0x00000020;
+    }
+}
+
+/// An enum representing the OS flags for the [`VS_FIXEDFILEINFO`](https://docs.microsoft.com/en-us/windows/win32/api/verrsrc/ns-verrsrc-vs_fixedfileinfo)
+/// structure.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum VSFileOS {
+    Unknown = 0x00000000,
+    Windows16 = 0x00000001,
+    PM16 = 0x00000002,
+    PM32 = 0x00000003,
+    Windows32 = 0x00000004,
+    DOS = 0x00010000,
+    DOSWindows16 = 0x00010001,
+    DOSWindows32 = 0x00010004,
+    OS216 = 0x00020000,
+    OS216PM16 = 0x00020002,
+    OS232 = 0x00030000,
+    OS232PM32 = 0x00030003,
+    NT = 0x00040000,
+    NTWindows32 = 0x00040004,
+}
+impl VSFileOS {
+    pub fn from_u32(u: u32) -> Self {
+        match u {
+            0x00000001 => Self::Windows16,
+            0x00000002 => Self::PM16,
+            0x00000003 => Self::PM32,
+            0x00000004 => Self::Windows32,
+            0x00010000 => Self::DOS,
+            0x00010001 => Self::DOSWindows16,
+            0x00010004 => Self::DOSWindows32,
+            0x00020000 => Self::OS216,
+            0x00020002 => Self::OS216PM16,
+            0x00030000 => Self::OS232,
+            0x00030003 => Self::OS232PM32,
+            0x00040000 => Self::NT,
+            0x00040004 => Self::NTWindows32,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// An enum representing the file type for the [`VS_FIXEDFILEINFO`](https://docs.microsoft.com/en-us/windows/win32/api/verrsrc/ns-verrsrc-vs_fixedfileinfo)
+/// structure.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum VSFileType {
+    Unknown = 0x00000000,
+    App = 0x00000001,
+    DLL = 0x00000002,
+    Drv = 0x00000003,
+    Font = 0x00000004,
+    VXD = 0x00000005,
+    StaticLib = 0x00000007,
+}
+impl VSFileType {
+    pub fn from_u32(u: u32) -> Self {
+        match u {
+            0x00000001 => Self::App,
+            0x00000002 => Self::DLL,
+            0x00000003 => Self::Drv,
+            0x00000004 => Self::Font,
+            0x00000005 => Self::VXD,
+            0x00000007 => Self::StaticLib,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// An enum representing the file subtype for drivers in the [`VS_FIXEDFILEINFO`](https://docs.microsoft.com/en-us/windows/win32/api/verrsrc/ns-verrsrc-vs_fixedfileinfo)
+/// structure.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum VSFileSubtypeDrv {
+    Unknown = 0x00000000,
+    Printer = 0x00000001,
+    Keyboard = 0x00000002,
+    Language = 0x00000003,
+    Display = 0x00000004,
+    Mouse = 0x00000005,
+    Network = 0x00000006,
+    System = 0x00000007,
+    Installable = 0x00000008,
+    Sound = 0x00000009,
+    Comm = 0x0000000A,
+    VersionedPrinter = 0x0000000C,
+}
+impl VSFileSubtypeDrv {
+    pub fn from_u32(u: u32) -> Self {
+        match u {
+            0x00000001 => Self::Printer,
+            0x00000002 => Self::Keyboard,
+            0x00000003 => Self::Language,
+            0x00000004 => Self::Display,
+            0x00000005 => Self::Mouse,
+            0x00000006 => Self::Network,
+            0x00000007 => Self::System,
+            0x00000008 => Self::Installable,
+            0x00000009 => Self::Sound,
+            0x0000000A => Self::Comm,
+            0x0000000C => Self::VersionedPrinter,
+            _ => Self::Unknown,
+        }
+    }
+}
+    
+/// An enum representing the file subtype for fonts in the [`VS_FIXEDFILEINFO`](https://docs.microsoft.com/en-us/windows/win32/api/verrsrc/ns-verrsrc-vs_fixedfileinfo)
+/// structure.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum VSFileSubtypeFont {
+    Unknown = 0x00000000,
+    Raster = 0x00000001,
+    Vector = 0x00000002,
+    TrueType = 0x00000003,
+}
+impl VSFileSubtypeFont {
+    pub fn from_u32(u: u32) -> Self {
+        match u {
+            0x00000001 => Self::Raster,
+            0x00000002 => Self::Vector,
+            0x00000003 => Self::TrueType,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// Represents a [`VS_FIXEDFILEINFO`](https://docs.microsoft.com/en-us/windows/win32/api/verrsrc/ns-verrsrc-vs_fixedfileinfo) structure.
+#[repr(C)]
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub struct VSFixedFileInfo {
+    pub signature: u32,
+    pub struct_version: u32,
+    pub file_version_ms: u32,
+    pub file_version_ls: u32,
+    pub product_version_ms: u32,
+    pub product_version_ls: u32,
+    pub file_flags_mask: u32,
+    pub file_flags: VSFileFlags,
+    pub file_os: u32,
+    pub file_type: u32,
+    pub file_subtype: u32,
+    pub file_date_ms: u32,
+    pub file_date_ls: u32,
+}
+
+/// Represents a [`String`](https://docs.microsoft.com/en-us/windows/win32/menurc/string-str) structure.
+pub struct VSString<'data> {
+    pub length: &'data u16,
+    pub value_length: &'data u16,
+    pub type_: &'data u16,
+    pub key: &'data [WChar],
+    pub value: &'data [WChar],
+}
+impl<'data> VSString<'data> {
+    /// Parse a `VSString` object at the given [`RVA`](RVA).
+    pub fn parse(pe: &'data PE, rva: RVA) -> Result<Self, Error> {
+        let mut consumed = 0usize;
+        let mut offset = match rva.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let length = match pe.buffer.get_ref::<u16>(offset) {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+        consumed += mem::size_of::<u16>();
+        offset.0 += mem::size_of::<u16>() as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        let value_length = match pe.buffer.get_ref::<u16>(offset) {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+        consumed += mem::size_of::<u16>();
+        offset.0 += mem::size_of::<u16>() as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        let type_value = match pe.buffer.get_ref::<u16>(offset) {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+        consumed += mem::size_of::<u16>();
+        offset.0 += mem::size_of::<u16>() as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        let key = match pe.buffer.get_widestring(offset, None) {
+            Ok(w) => w,
+            Err(e) => return Err(e),
+        };
+        let key_size = key.len() * mem::size_of::<WChar>();
+        consumed += key_size;
+        offset.0 += key_size as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        offset.0 = align(offset.0 as usize, 4) as u32;
+        
+        let value = match pe.buffer.get_widestring(offset, None) {
+            Ok(w) => w,
+            Err(e) => return Err(e),
+        };
+        let value_size = value.len() * mem::size_of::<WChar>();
+        consumed += value_size;
+        offset.0 += value_size as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        Ok(Self {
+            length,
+            value_length,
+            type_: type_value,
+            key,
+            value,
+        })
+    }
+}
+
+/// Represents a [`StringTable`](https://docs.microsoft.com/en-us/windows/win32/menurc/stringtable) structure.
+pub struct VSStringTable<'data> {
+    pub length: &'data u16,
+    pub value_length: &'data u16,
+    pub type_: &'data u16,
+    pub key: &'data [WChar],
+    pub children: Vec<VSString<'data>>,
+}
+impl<'data> VSStringTable<'data> {
+    /// Parse a `VSStringTable` structure at the given RVA.
+    pub fn parse(pe: &'data PE, rva: RVA) -> Result<Self, Error> {
+        let mut consumed = 0usize;
+        let mut offset = match rva.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let base_offset = offset.clone();
+        let length = match pe.buffer.get_ref::<u16>(offset) {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+        
+        consumed += mem::size_of::<u16>();
+        offset.0 += mem::size_of::<u16>() as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        let value_length = match pe.buffer.get_ref::<u16>(offset) {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+        
+        consumed += mem::size_of::<u16>();
+        offset.0 += mem::size_of::<u16>() as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        let type_value = match pe.buffer.get_ref::<u16>(offset) {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+        
+        consumed += mem::size_of::<u16>();
+        offset.0 += mem::size_of::<u16>() as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        let key = match pe.buffer.get_widestring(offset, None) {
+            Ok(w) => w,
+            Err(e) => return Err(e),
+        };
+        
+        let key_size = key.len() * mem::size_of::<WChar>();
+        consumed += key_size;
+        offset.0 += key_size as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        offset.0 = align(offset.0 as usize, 4) as u32;
+
+        let mut children = Vec::<VSString>::new();
+
+        while consumed < (*length as usize) {
+            let rva = match offset.as_rva(&pe) {
+                Ok(r) => r,
+                Err(e) => return Err(e),
+            };
+            
+            let child = match VSString::parse(&pe, rva) {
+                Ok(c) => c,
+                Err(e) => return Err(e),
+            };
+
+            offset.0 += *child.length as u32;
+            offset.0 = align(offset.0 as usize, 4) as u32;
+            consumed = (offset.0 - base_offset.0) as usize;
+            children.push(child);
+        }
+        
+        Ok(Self {
+            length,
+            value_length,
+            type_: type_value,
+            key,
+            children,
+        })
+    }
+    /// Grab the key data as a u32 value. Useful for grabbing the code page and language ID from the text representation.
+    pub fn key_as_u32(&self) -> Result<u32, std::num::ParseIntError> {
+        let key_str = self.key.as_u16_str().to_string_lossy();
+
+        u32::from_str_radix(key_str.as_str(), 16)
+    }
+    /// Grab the codepage value of this string table.
+    pub fn get_code_page(&self) -> Result<u16, std::num::ParseIntError> {
+        let key_val = match self.key_as_u32() {
+            Ok(k) => k,
+            Err(e) => return Err(e),
+        };
+
+        Ok((key_val & 0xFFFF) as u16)
+    }
+    /// Grab the codepage value of this string table.
+    pub fn get_lang_id(&self) -> Result<u16, std::num::ParseIntError> {
+        let key_val = match self.key_as_u32() {
+            Ok(k) => k,
+            Err(e) => return Err(e),
+        };
+
+        Ok((key_val >> 16) as u16)
+    }
+    /// Grab the string table data as a key/value [`HashMap`](HashMap) value.
+    pub fn string_map(&self) -> HashMap<String, String> {
+        let mut result = HashMap::<String, String>::new();
+
+        for entry in &self.children {
+            result.insert(entry.key.as_u16_str().to_string_lossy(), entry.value.as_u16_str().to_string_lossy());
+        }
+
+        result
+    }
+}
+
+/// Represents a [`StringFileInfo`](https://docs.microsoft.com/en-us/windows/win32/menurc/stringfileinfo) structure.
+pub struct VSStringFileInfo<'data> {
+    pub length: &'data u16,
+    pub value_length: &'data u16,
+    pub type_: &'data u16,
+    pub key: &'data [WChar],
+    pub children: Vec<VSStringTable<'data>>,
+}
+impl<'data> VSStringFileInfo<'data> {
+    /// Parse a `VSStringFileInfo` structure at the given [`RVA`](RVA).
+    pub fn parse(pe: &'data PE, rva: RVA) -> Result<Self, Error> {
+        let mut consumed = 0usize;
+        let mut offset = match rva.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let base_offset = offset.clone();
+        let length = match pe.buffer.get_ref::<u16>(offset) {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+        
+        consumed += mem::size_of::<u16>();
+        offset.0 += mem::size_of::<u16>() as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        let value_length = match pe.buffer.get_ref::<u16>(offset) {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+        
+        consumed += mem::size_of::<u16>();
+        offset.0 += mem::size_of::<u16>() as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        let type_value = match pe.buffer.get_ref::<u16>(offset) {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+        
+        consumed += mem::size_of::<u16>();
+        offset.0 += mem::size_of::<u16>() as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        let key = match pe.buffer.get_widestring(offset, None) {
+            Ok(w) => w,
+            Err(e) => return Err(e),
+        };
+        
+        let key_size = key.len() * mem::size_of::<WChar>();
+        consumed += key_size;
+        offset.0 += key_size as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        offset.0 = align(offset.0 as usize, 4) as u32;
+
+        let mut children = Vec::<VSStringTable>::new();
+
+        while consumed < (*length as usize) {
+            let rva = match offset.as_rva(&pe) {
+                Ok(r) => r,
+                Err(e) => return Err(e),
+            };
+            
+            let child = match VSStringTable::parse(&pe, rva) {
+                Ok(c) => c,
+                Err(e) => return Err(e),
+            };
+
+            offset.0 += *child.length as u32;
+            offset.0 = align(offset.0 as usize, 4) as u32;
+            consumed = (offset.0 - base_offset.0) as usize;
+            children.push(child);
+        }
+        
+        Ok(Self {
+            length,
+            value_length,
+            type_: type_value,
+            key,
+            children,
+        })
+    }
+}
+
+/// Represents a DWORD in the [`VSVar`](VSVar) structure which contains a language ID and a language codepage.
+#[repr(C)]
+pub struct VarDword {
+    lang_id: u16,
+    codepage: u16,
+}
+
+/// Represents a [`Var`](https://docs.microsoft.com/en-us/windows/win32/menurc/var-str) structure.
+pub struct VSVar<'data> {
+    pub length: &'data u16,
+    pub value_length: &'data u16,
+    pub type_: &'data u16,
+    pub key: &'data [WChar],
+    pub children: Vec<&'data VarDword>,
+}
+impl<'data> VSVar<'data> {
+    /// Parse a `VSVar` structure at the given [`RVA`](RVA).
+    pub fn parse(pe: &'data PE, rva: RVA) -> Result<Self, Error> {
+        let mut consumed = 0usize;
+        let mut offset = match rva.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let base_offset = offset.clone();
+        let length = match pe.buffer.get_ref::<u16>(offset) {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+        
+        consumed += mem::size_of::<u16>();
+        offset.0 += mem::size_of::<u16>() as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        let value_length = match pe.buffer.get_ref::<u16>(offset) {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+        
+        consumed += mem::size_of::<u16>();
+        offset.0 += mem::size_of::<u16>() as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        let type_value = match pe.buffer.get_ref::<u16>(offset) {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+        
+        consumed += mem::size_of::<u16>();
+        offset.0 += mem::size_of::<u16>() as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        let key = match pe.buffer.get_widestring(offset, None) {
+            Ok(w) => w,
+            Err(e) => return Err(e),
+        };
+        
+        let key_size = key.len() * mem::size_of::<WChar>();
+        consumed += key_size;
+        offset.0 += key_size as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        offset.0 = align(offset.0 as usize, 4) as u32;
+
+        let mut children = Vec::<&'data VarDword>::new();
+
+        while consumed < (*length as usize) {
+            let child = match pe.buffer.get_ref::<VarDword>(offset) {
+                Ok(c) => c,
+                Err(e) => return Err(e),
+            };
+
+            offset.0 += mem::size_of::<VarDword>() as u32;
+            offset.0 = align(offset.0 as usize, 4) as u32;
+            consumed = (offset.0 - base_offset.0) as usize;
+            children.push(child);
+        }
+        
+        Ok(Self {
+            length,
+            value_length,
+            type_: type_value,
+            key,
+            children,
+        })
+    }
+}
+
+/// Represents a [`VarFileInfo`](https://docs.microsoft.com/en-us/windows/win32/menurc/varfileinfo) structure.
+pub struct VSVarFileInfo<'data> {
+    pub length: &'data u16,
+    pub value_length: &'data u16,
+    pub type_: &'data u16,
+    pub key: &'data [WChar],
+    pub children: Vec<VSVar<'data>>,
+}
+impl<'data> VSVarFileInfo<'data> {
+    /// Parse a `VSVarFileInfo` structure at the given [`RVA`](RVA).
+    pub fn parse(pe: &'data PE, rva: RVA) -> Result<Self, Error> {
+        let mut consumed = 0usize;
+        let mut offset = match rva.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let base_offset = offset.clone();
+        let length = match pe.buffer.get_ref::<u16>(offset) {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+        
+        consumed += mem::size_of::<u16>();
+        offset.0 += mem::size_of::<u16>() as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        let value_length = match pe.buffer.get_ref::<u16>(offset) {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+        
+        consumed += mem::size_of::<u16>();
+        offset.0 += mem::size_of::<u16>() as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        let type_value = match pe.buffer.get_ref::<u16>(offset) {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+        
+        consumed += mem::size_of::<u16>();
+        offset.0 += mem::size_of::<u16>() as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        let key = match pe.buffer.get_widestring(offset, None) {
+            Ok(w) => w,
+            Err(e) => return Err(e),
+        };
+        
+        let key_size = key.len() * mem::size_of::<WChar>();
+        consumed += key_size;
+        offset.0 += key_size as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        offset.0 = align(offset.0 as usize, 4) as u32;
+
+        let mut children = Vec::<VSVar>::new();
+
+        while consumed < (*length as usize) {
+            let rva = match offset.as_rva(&pe) {
+                Ok(r) => r,
+                Err(e) => return Err(e),
+            };
+            
+            let child = match VSVar::parse(&pe, rva) {
+                Ok(c) => c,
+                Err(e) => return Err(e),
+            };
+
+            offset.0 += *child.length as u32;
+            offset.0 = align(offset.0 as usize, 4) as u32;
+            consumed = (offset.0 - base_offset.0) as usize;
+            children.push(child);
+        }
+        
+        Ok(Self {
+            length,
+            value_length,
+            type_: type_value,
+            key,
+            children,
+        })
+    }
+}
+
+/// Represents a [`VS_VERSIONINFO`](https://docs.microsoft.com/en-us/windows/win32/menurc/vs-versioninfo) structure.
+pub struct VSVersionInfo<'data> {
+    pub length: &'data u16,
+    pub value_length: &'data u16,
+    pub type_: &'data u16,
+    pub key: &'data [WChar],
+    pub value: Option<&'data VSFixedFileInfo>,
+    pub string_file_info: Option<VSStringFileInfo<'data>>,
+    pub var_file_info: Option<VSVarFileInfo<'data>>,
+}
+impl<'data> VSVersionInfo<'data> {
+    /// Parse a `VSVersionInfo` structure from the given [`PE`](PE)'s resource directory. This will return
+    /// [`Error::CorruptDataDirectory`](Error::CorruptDataDirectory) if it can't find the [`Version`](ResourceID::Version) resource.
+    pub fn parse(pe: &'data PE) -> Result<Self, Error> {
+        let resource_dir = match ResourceDirectory::parse(pe) {
+            Ok(r) => r,
+            Err(e) => return Err(e),
+        };
+
+        let version_rsrc = resource_dir.filter_by_type(ResourceID::Version);
+        if version_rsrc.len() == 0 { return Err(Error::CorruptDataDirectory); }
+
+        let rsrc_node = match version_rsrc[0].get_data_entry(pe) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
+        
+        let mut consumed = 0usize;
+        let mut offset = match rsrc_node.offset_to_data.as_offset(pe) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let base_offset = offset.clone();
+        let length = match pe.buffer.get_ref::<u16>(offset) {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+        
+        consumed += mem::size_of::<u16>();
+        offset.0 += mem::size_of::<u16>() as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        let value_length = match pe.buffer.get_ref::<u16>(offset) {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+        
+        consumed += mem::size_of::<u16>();
+        offset.0 += mem::size_of::<u16>() as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        let type_value = match pe.buffer.get_ref::<u16>(offset) {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+        
+        consumed += mem::size_of::<u16>();
+        offset.0 += mem::size_of::<u16>() as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        let key = match pe.buffer.get_widestring(offset, None) {
+            Ok(w) => w,
+            Err(e) => return Err(e),
+        };
+        
+        let key_size = key.len() * mem::size_of::<WChar>();
+        consumed += key_size;
+        offset.0 += key_size as u32;
+        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+        offset.0 = align(offset.0 as usize, 4) as u32;
+
+        let value;
+        
+        if *value_length == 0 {
+            value = None;
+        }
+        else
+        {
+            value = match pe.buffer.get_ref::<VSFixedFileInfo>(offset) {
+                Ok(v) => Some(v),
+                Err(e) => return Err(e),
+            };
+            
+            let struct_size = mem::size_of::<VSFixedFileInfo>();
+            offset.0 += struct_size as u32;
+            consumed = (offset.0 - base_offset.0) as usize;
+            if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+        }
+
+        offset.0 = align(offset.0 as usize, 4) as u32;
+        let string_file_info;
+
+        if consumed >= *length as usize {
+            string_file_info = None;
+        }
+        else {
+            let rva = match offset.as_rva(pe) {
+                Ok(r) => r,
+                Err(e) => return Err(e),
+            };
+
+            let string_file_info_tmp = match VSStringFileInfo::parse(pe, rva) {
+                Ok(s) => s,
+                Err(e) => return Err(e),
+            };
+
+            offset.0 += *string_file_info_tmp.length as u32;
+            consumed = (offset.0 - base_offset.0) as usize;
+            if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+            string_file_info = Some(string_file_info_tmp);
+        }
+
+        offset.0 = align(offset.0 as usize, 4) as u32;
+        let var_file_info;
+
+        if consumed >= *length as usize {
+            var_file_info = None;
+        }
+        else {
+            let rva = match offset.as_rva(pe) {
+                Ok(r) => r,
+                Err(e) => return Err(e),
+            };
+            
+            let var_file_info_tmp = match VSVarFileInfo::parse(pe, rva) {
+                Ok(s) => s,
+                Err(e) => return Err(e),
+            };
+
+            offset.0 += *var_file_info_tmp.length as u32;
+            consumed = (offset.0 - base_offset.0) as usize;
+            if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+
+            var_file_info = Some(var_file_info_tmp);
+        }
+        
+        Ok(Self {
+            length,
+            value_length,
+            type_: type_value,
+            key,
+            value,
+            string_file_info,
+            var_file_info,
+        })
     }
 }
