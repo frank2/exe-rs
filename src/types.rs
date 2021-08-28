@@ -728,11 +728,7 @@ impl<'data> RelocationEntryMut<'data> {
         };
 
         unsafe {
-            let ptr = match pe.buffer.offset_to_mut_ptr(offset) {
-                Ok(p) => p,
-                Err(e) => return Err(e),
-            };
-
+            let ptr = pe.buffer.offset_to_mut_ptr(offset);
             Self::parse_unsafe(pe, ptr)
         }
     }
@@ -887,10 +883,7 @@ impl<'data> RelocationDirectory<'data> {
             Err(e) => return Err(e),
         };
 
-        let ptr = match pe.buffer.as_mut_ptr() {
-            Ok(p) => p,
-            Err(e) => return Err(e),
-        };
+        let ptr = pe.buffer.as_mut_ptr();
 
         for (rva, value) in relocations {
             let offset = match pe.translate(PETranslation::Memory(rva)) {
@@ -993,10 +986,7 @@ impl<'data> RelocationDirectoryMut<'data> {
         let mut entries = Vec::<RelocationEntryMut>::new();
 
         unsafe {
-            let mut start_ptr = match pe.buffer.offset_to_mut_ptr(start_offset) {
-                Ok(p) => p,
-                Err(e) => return Err(e),
-            };
+            let mut start_ptr = pe.buffer.offset_to_mut_ptr(start_offset);
             let end_ptr = pe.buffer.offset_to_ptr(end_offset);
             
             while (start_ptr as usize) < (end_ptr as usize) {
@@ -1050,10 +1040,7 @@ impl<'data> RelocationDirectoryMut<'data> {
             Err(e) => return Err(e),
         };
 
-        let ptr = match pe.buffer.as_mut_ptr() {
-            Ok(p) => p,
-            Err(e) => return Err(e),
-        };
+        let ptr = pe.buffer.as_mut_ptr();
 
         for (rva, value) in relocations {
             let offset = match pe.translate(PETranslation::Memory(rva)) {
@@ -1323,7 +1310,7 @@ impl<'data> ResourceNodeMut<'data> {
     ///
     /// If the offset goes outside the bounds of the directory, a [`Error::BufferTooSmall`](Error::BufferTooSmall) error
     /// is returned.
-    pub fn parse(pe: &'data mut PE, offset: ResourceOffset) -> Result<ResourceNodeMut<'data>, Error> {
+    pub fn parse(pe: &'data mut PE, offset: ResourceOffset) -> Result<Self, Error> {
         let resolved_offset = match offset.resolve(pe) {
             Ok(o) => o,
             Err(e) => return Err(e),
@@ -1339,10 +1326,7 @@ impl<'data> ResourceNodeMut<'data> {
         }
 
         unsafe {
-            let ptr = match pe.buffer.offset_to_mut_ptr(image_offset) {
-                Ok(p) => p,
-                Err(e) => return Err(e),
-            };
+            let ptr = pe.buffer.offset_to_mut_ptr(image_offset);
 
             Self::parse_unsafe(pe, ptr)
         }
@@ -1507,10 +1491,7 @@ impl<'data> ResourceDirectoryMut<'data> {
         };
 
         unsafe {
-            let ptr = match pe.buffer.offset_to_mut_ptr(offset) {
-                Ok(p) => p,
-                Err(e) => return Err(e),
-            };
+            let ptr = pe.buffer.offset_to_mut_ptr(offset);
         
             let root_node = match ResourceNodeMut::parse_unsafe(pe, ptr) {
                 Ok(r) => r,

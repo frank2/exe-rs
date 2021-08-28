@@ -164,170 +164,77 @@ impl Entropy for [u8] {
     }
 }
 
-/// An enum for simultaneously handling mutable and immutable memory.
-pub enum BufferData<'data> {
-    /// Represents an immutable [`u8`](u8) buffer.
-    Memory(&'data [u8]),
-    /// Represents a mutable [`u8`](u8) buffer.
-    MutMemory(&'data mut [u8]),
-}
-impl<'data> BufferData<'data> {
-    /// Get the length of this buffer.
-    pub fn len(&self) -> usize {
-        match self {
-            Self::Memory(m) => m.len(),
-            Self::MutMemory(mm) => mm.len(),
-        }
-    }
-    /// Get the buffer as an immutable slice.
-    pub fn as_slice(&self) -> &'data [u8] {
-        match self {
-            Self::Memory(m) => m,
-            Self::MutMemory(mm) => unsafe { slice::from_raw_parts(mm.as_ptr(), mm.len()) },
-        }
-    }
-    /// Get the buffer as a mutable slice.
-    ///
-    /// This returns [`Error::InvalidBufferOperation`](Error::InvalidBufferOperation) if the buffer is not
-    /// type ```MutMemory```.
-    pub fn as_mut_slice(&mut self) -> Result<&'data mut [u8], Error> {
-        match self {
-            Self::Memory(_) => return Err(Error::InvalidBufferOperation),
-            Self::MutMemory(mm) => unsafe { Ok(slice::from_raw_parts_mut(mm.as_mut_ptr(), mm.len())) },
-        }
-    }
-    /// Get the buffer as a pointer.
-    pub fn as_ptr(&self) -> *const u8 {
-        match self {
-            Self::Memory(m) => m.as_ptr(),
-            Self::MutMemory(mm) => mm.as_ptr(),
-        }
-    }
-    /// Get the buffer as a mutable pointer.
-    ///
-    /// This returns [`Error::InvalidBufferOperation`](Error::InvalidBufferOperation) if the buffer is not
-    /// type ```MutMemory```.
-    pub fn as_mut_ptr(&mut self) -> Result<*mut u8, Error> {
-        match self {
-            Self::Memory(_) => return Err(Error::InvalidBufferOperation),
-            Self::MutMemory(mm) => Ok(mm.as_mut_ptr()),
-        }
-    }
-    /// Check if the buffer is empty.
-    pub fn is_empty(&self) -> bool {
-        match self {
-            Self::Memory(m) => m.is_empty(),
-            Self::MutMemory(mm) => mm.is_empty(),
-        }
-    }
-}
-impl<'data> Clone for BufferData<'data> {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Memory(m) => unsafe { Self::Memory(slice::from_raw_parts(m.as_ptr(), m.len())) },
-            Self::MutMemory(mm) => unsafe { Self::MutMemory(slice::from_raw_parts_mut(mm.as_ptr() as *mut u8, mm.len())) },
-        }
-    }
-    fn clone_from(&mut self, source: &Self) {
-        *self = match source {
-            Self::Memory(m) => unsafe { Self::Memory(slice::from_raw_parts(m.as_ptr(), m.len())) },
-            Self::MutMemory(mm) => unsafe { Self::MutMemory(slice::from_raw_parts_mut(mm.as_ptr() as *mut u8, mm.len())) },
-        }
-    }
-}
-impl<'data, Idx: slice::SliceIndex<[u8]>> Index<Idx> for BufferData<'data> {
-    type Output = Idx::Output;
-
-    fn index(&self, index: Idx) -> &Self::Output {
-        match self {
-            BufferData::Memory(m) => m.index(index),
-            BufferData::MutMemory(mm) => mm.index(index),
-        }
-    }
-}
-impl<'data, Idx: slice::SliceIndex<[u8]>> IndexMut<Idx> for BufferData<'data> {
-    fn index_mut(&mut self, index: Idx) -> &mut Self::Output {
-        match self {
-            BufferData::Memory(_) => panic!("buffer is not mutable and IndexMut::index_mut doesn't handle errors"),
-            BufferData::MutMemory(mm) => mm.index_mut(index),
-        }
-    }
-}
-
-/// Represents the Rust representation of data in the buffer.
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum BufferType {
-    Memory,
-    MutMemory,
-}
-
 /// A buffer representing the PE image.
 #[derive(Clone)]
-pub struct Buffer<'data> {
-    data: BufferData<'data>
+pub struct Buffer {
+    data: *const u8,
+    length: usize,
 }
-impl<'data> Buffer<'data> {
+impl Buffer {
     /// Creates a new buffer from a slice of memory.
-    pub fn new(memory: &'data [u8]) -> Self {
+    pub fn new(memory: &[u8]) -> Self {
         Self {
-            data: BufferData::Memory(memory)
+            data: memory.as_ptr(),
+            length: memory.len(),
         }
     }
     /// Creates a new mutable buffer from a mutable slice of memory.
-    pub fn new_mut(memory: &'data mut [u8]) -> Self {
+    pub fn new_mut(memory: &mut [u8]) -> Self {
         Self {
-            data: BufferData::MutMemory(memory)
+            data: memory.as_ptr(), // we can always make it mutable later
+            length: memory.len(),
         }
     }
-    
-    /// Gets the type of data this buffer represents.
-    pub fn get_type(&self) -> BufferType {
-        match self.data {
-            BufferData::Memory(_) => BufferType::Memory,
-            BufferData::MutMemory(_) => BufferType::MutMemory,
+    /// Creates a new buffer from a pointer and a length argument.
+    pub fn from_raw_parts(ptr: *const u8, size: usize) -> Self {
+        Self {
+            data: ptr,
+            length: size,
         }
     }
-    
+    /// Creates a new buffer from a mutable pointer and a length argument.
+    pub fn from_raw_parts_mut(ptr: *mut u8, size: usize) -> Self {
+        Self {
+            data: ptr as *const u8,
+            length: size,
+        }
+    }
+
     /// Get the length of the buffer.
     pub fn len(&self) -> usize {
-        self.data.len()
+        self.length
     }
     /// Get the buffer as a slice.
-    pub fn as_slice(&self) -> &'data [u8] {
-        self.data.as_slice()
+    pub fn as_slice(&self) -> &[u8] {
+        unsafe { slice::from_raw_parts(self.data, self.length) }
     }
+    
     /// Get the buffer as a mutable slice.
-    ///
-    /// This returns a [`InvalidBufferOperation`](Error::InvalidBufferOperation) error if the buffer is not
-    /// [`BufferType::MutMemory`](BufferType::MutMemory).
-    pub fn as_mut_slice(&mut self) -> Result<&'data mut [u8], Error> {
-        self.data.as_mut_slice()
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        unsafe { slice::from_raw_parts_mut(self.data as *mut u8, self.length) }
     }
     /// Get the buffer as a pointer.
     pub fn as_ptr(&self) -> *const u8 {
-        self.data.as_ptr()
+        self.data
     }
     /// Get the buffer as a mutable pointer.
-    ///
-    /// This returns a [`InvalidBufferOperation`](Error::InvalidBufferOperation) error if the buffer is not
-    /// [`BufferType::MutMemory`](BufferType::MutMemory).
-    pub fn as_mut_ptr(&mut self) -> Result<*mut u8, Error> {
-        self.data.as_mut_ptr()
+    pub fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.data as *mut u8
     }
     /// Check if the PE file is empty.
     pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
+        self.length == 0
     }
     /// Convert this buffer into a [`Vec`](std::vec::Vec)<[`u8`](u8)> object.
     pub fn to_vec(&self) -> Vec<u8> {
-        self.data.as_slice().to_vec()
+        self.as_slice().to_vec()
     }
 
     /// Save the buffer to disk with the given filename.
     pub fn save<P: AsRef<Path>>(&self, filename: P) -> Result<(), IoError> {
         fs::write(filename, self.as_slice())
     }
-        
+
     /// Convert the given offset value to a pointer in the buffer. The function is marked as
     /// unsafe because the offset isn't validated.
     pub unsafe fn offset_to_ptr(&self, offset: Offset) -> *const u8 {
@@ -335,11 +242,8 @@ impl<'data> Buffer<'data> {
     }
     /// Convert the given offset value to a mutable pointer in the buffer. The function is marked as
     /// unsafe because the offset isn't validated.
-    pub unsafe fn offset_to_mut_ptr(&mut self, offset: Offset) -> Result<*mut u8, Error> {
-        match self.as_mut_ptr() {
-            Ok(p) => Ok(p.add(offset.0 as usize)),
-            Err(e) => Err(e),
-        }
+    pub unsafe fn offset_to_mut_ptr(&mut self, offset: Offset) -> *mut u8 {
+        self.as_mut_ptr().add(offset.0 as usize)
     }
     /// Get the pointer to the end of the file. This pointer is unsafe because it points at the end
     /// of the buffer, which doesn't contain data.
@@ -355,7 +259,7 @@ impl<'data> Buffer<'data> {
 
         start <= pos && pos < end
     }
-        
+
     /// Convert a pointer to an offset. This returns [`Error::BadPointer`](Error::BadPointer) if the pointer
     /// isn't in the buffer range.
     pub fn ptr_to_offset(&self, ptr: *const u8) -> Result<Offset, Error> {
@@ -433,13 +337,18 @@ impl<'data> Buffer<'data> {
         }
 
         unsafe {
-            let ptr = match self.offset_to_mut_ptr(offset) {
-                Ok(p) => p as *mut T,
-                Err(e) => return Err(e),
-            };
-            
-            Ok(&mut *ptr)
+            let ptr = self.offset_to_mut_ptr(offset);
+            Ok(&mut *(ptr as *const T as *mut T))
         }
+    }
+    /// Converts a reference of type `T` into a mutable reference.
+    pub fn make_mut_ref<T>(&mut self, data: &T) -> Result<&mut T, Error> {
+        let offset = match self.ref_to_offset(data) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        self.get_mut_ref(offset)
     }
     /// Gets a slice reference of data in the buffer. This is how to get arrays from the buffer.
     ///
@@ -476,12 +385,18 @@ impl<'data> Buffer<'data> {
         }
 
         unsafe {
-            let ptr = match self.offset_to_mut_ptr(offset) {
-                Ok(p) => p as *mut T,
-                Err(e) => return Err(e),
-            };
-            Ok(slice::from_raw_parts_mut(ptr, count))
+            let ptr = self.offset_to_mut_ptr(offset);
+            Ok(slice::from_raw_parts_mut(ptr as *const T as *mut T, count))
         }
+    }
+    /// Converts a slice reference of type `T` into a mutable slice reference.
+    pub fn make_mut_slice_ref<T>(&mut self, data: &[T]) -> Result<&mut [T], Error> {
+        let offset = match self.ptr_to_offset(data.as_ptr() as *const u8) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        self.get_mut_slice_ref::<T>(offset, data.len())
     }
     /// Get the size of a zero-terminated C-string in the data.
     pub fn get_cstring_size(&self, offset: Offset, thunk: bool, max_size: Option<usize>) -> Result<usize, Error> {
@@ -619,11 +534,7 @@ impl<'data> Buffer<'data> {
         let from_ptr = data.as_ptr();
             
         unsafe {
-            let to_ptr = match self.offset_to_mut_ptr(offset) {
-                Ok(p) => p,
-                Err(e) => return Err(e),
-            };
-            
+            let to_ptr = self.offset_to_mut_ptr(offset);
             ptr::copy(from_ptr, to_ptr, size);
             
             Ok(())
@@ -674,15 +585,15 @@ impl<'data> Buffer<'data> {
         self.search_slice(ref_to_bytes::<T>(search))
     }
 }
-impl<'data, Idx: slice::SliceIndex<[u8]>> Index<Idx> for Buffer<'data> {
+impl<Idx: slice::SliceIndex<[u8]>> Index<Idx> for Buffer {
     type Output = Idx::Output;
 
     fn index(&self, index: Idx) -> &Self::Output {
-        self.data.index(index)
+        self.as_slice().index(index)
     }
 }
-impl<'data, Idx: slice::SliceIndex<[u8]>> IndexMut<Idx> for Buffer<'data> {
+impl<Idx: slice::SliceIndex<[u8]>> IndexMut<Idx> for Buffer {
     fn index_mut(&mut self, index: Idx) -> &mut Self::Output {
-        self.data.index_mut(index)
+        self.as_mut_slice().index_mut(index)
     }
 }

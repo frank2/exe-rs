@@ -1066,10 +1066,7 @@ impl<'data> ImageImportByNameMut<'data> {
         };
 
         unsafe {
-            let mut ptr = match pe.buffer.offset_to_mut_ptr(offset) {
-                Ok(p) => p,
-                Err(e) => return Err(e),
-            };
+            let mut ptr = pe.buffer.offset_to_mut_ptr(offset);
 
             let hint = &mut *(ptr as *mut u16);
             let u16_size = mem::size_of::<u16>();
@@ -1231,11 +1228,7 @@ impl<'data> ImageResourceDirStringMut<'data> {
         };
 
         unsafe {
-            let mut ptr = match pe.buffer.offset_to_mut_ptr(offset) {
-                Ok(p) => p,
-                Err(e) => return Err(e),
-            };
-
+            let mut ptr = pe.buffer.offset_to_mut_ptr(offset);
             let length = &mut *(ptr as *mut u16);
             let u16_size = mem::size_of::<u16>();
 
@@ -1302,11 +1295,7 @@ impl<'data> ImageResourceDirStringUMut<'data> {
         };
 
         unsafe {
-            let mut ptr = match pe.buffer.offset_to_mut_ptr(offset) {
-                Ok(p) => p,
-                Err(e) => return Err(e),
-            };
-
+            let mut ptr = pe.buffer.offset_to_mut_ptr(offset);
             let length = &mut *(ptr as *mut u16);
             let u16_size = mem::size_of::<u16>();
 

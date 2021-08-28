@@ -142,41 +142,41 @@ impl Address for PETranslation {
 
 /// Represents PE data.
 #[derive(Clone)]
-pub struct PE<'data> {
+pub struct PE {
     /// The type of memory layout the object is expecting. See [`PEType`](PEType) for an explanation.
     pub pe_type: PEType,
     /// The memory buffer that typically points to the backing data.
-    pub buffer: Buffer<'data>,
+    pub buffer: Buffer,
 }
-impl<'data> PE<'data> {
+impl PE {
     /// Generates a new PE object from a [`u8`](u8) slice reference.
-    pub fn new(pe_type: PEType, data: &'data [u8]) -> Self {
+    pub fn new(pe_type: PEType, data: &[u8]) -> Self {
         Self {
             pe_type: pe_type,
             buffer: Buffer::new(data),
         }
     }
     /// Generates a new mutable PE object from a mutable [`u8`](u8) slice reference.
-    pub fn new_mut(pe_type: PEType, data: &'data mut [u8]) -> Self {
+    pub fn new_mut(pe_type: PEType, data: &mut [u8]) -> Self {
         Self {
             pe_type: pe_type,
             buffer: Buffer::new_mut(data),
         }
     }
     /// Generates a new PE object from the data slice, marking it as a [`Disk`](PEType::Disk) image.
-    pub fn new_disk(data: &'data [u8]) -> Self {
+    pub fn new_disk(data: &[u8]) -> Self {
         Self::new(PEType::Disk, data)
     }
     /// Generates a new mutable PE object from the data slice, marking it as a [`Disk`](PEType::Disk) image.
-    pub fn new_mut_disk(data: &'data mut [u8]) -> Self {
+    pub fn new_mut_disk(data: &mut [u8]) -> Self {
         Self::new_mut(PEType::Disk, data)
     }
     /// Generates a new PE object from the data slice, marking it as a [`Memory`](PEType::Memory) image.
-    pub fn new_memory(data: &'data [u8]) -> Self {
+    pub fn new_memory(data: &[u8]) -> Self {
         Self::new(PEType::Memory, data)
     }
     /// Generates a new mutable PE object from the data slice, marking it as a [`Memory`](PEType::Memory) image.
-    pub fn new_mut_memory(data: &'data mut [u8]) -> Self {
+    pub fn new_mut_memory(data: &mut [u8]) -> Self {
         Self::new_mut(PEType::Memory, data)
     }
     /// Generates a new [`Memory`](PEType::Memory) PE file from a pointer to memory.
@@ -208,12 +208,15 @@ impl<'data> PE<'data> {
             return Err(Error::InvalidNTSignature);
         }
 
-        Ok(PE::new_memory(slice::from_raw_parts(ptr, image_size)))
+        Ok(Self {
+            pe_type: PEType::Memory,
+            buffer: Buffer::from_raw_parts(ptr, image_size),
+        })
     }
     /// Generates a new mutable [`Memory`](PEType::Memory) PE file from a mutable pointer to memory.
     ///
     /// Because of the nature of verifying the given pointer is a PE image, this function also parses the image and verifies it.
-    pub unsafe fn from_mut_ptr(ptr: *mut u8) -> Result<PE<'data>, Error> {
+    pub unsafe fn from_mut_ptr(ptr: *mut u8) -> Result<Self, Error> {
         let dos_header = &*(ptr as *const ImageDOSHeader);
 
         if dos_header.e_magic != DOS_SIGNATURE {
@@ -239,7 +242,10 @@ impl<'data> PE<'data> {
             return Err(Error::InvalidNTSignature);
         }
 
-        Ok(PE::new_mut_memory(slice::from_raw_parts_mut(ptr, image_size)))
+        Ok(Self {
+            pe_type: PEType::Memory,
+            buffer: Buffer::from_raw_parts_mut(ptr, image_size),
+        })
     }
 
     /// Turn the `PE` object into an owned [`PEImage`](PEImage) object.
@@ -1580,12 +1586,12 @@ impl<'data> PE<'data> {
 }
 
 /// Represents a [`PE`](PE) object with owned data.
-pub struct PEImage<'data> {
+pub struct PEImage {
     data: Vec<u8>,
     pub filename: Option<String>,
-    pub pe: PE<'data>,
+    pub pe: PE,
 }
-impl<'data> PEImage<'data> {
+impl PEImage {
     /// Creates a new `PEImage` object with a mutable [`PE`](PE) object, initializing a backing buffer with the given size.
     pub fn new(pe_type: PEType, size: usize) -> Self {
         let mut data = vec![0u8; size];
@@ -1680,7 +1686,7 @@ impl<'data> PEImage<'data> {
     }
     /// Get a mutable slice of the backing vector.
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        self.pe.buffer.as_mut_slice().unwrap()
+        self.pe.buffer.as_mut_slice()
     }
     /// Get a pointer to the backing vector.
     pub fn as_ptr(&self) -> *const u8 {
@@ -1688,7 +1694,7 @@ impl<'data> PEImage<'data> {
     }
     /// Get a mutable pointer to the backing vector.
     pub fn as_mut_ptr(&mut self) -> *mut u8 {
-        self.pe.buffer.as_mut_ptr().unwrap()
+        self.pe.buffer.as_mut_ptr()
     }
     /// Append data to the end of the buffer.
     pub fn append(&mut self, other: &mut Vec<u8>) {
@@ -1812,7 +1818,7 @@ impl<'data> PEImage<'data> {
         self.pe.buffer.search_ref::<T>(search)
     }
 }
-impl<'data> Clone for PEImage<'data> {
+impl Clone for PEImage {
     fn clone(&self) -> Self {
         let mut data = self.data.clone();
         let pe = PE::new_mut(self.pe.pe_type, unsafe { slice::from_raw_parts_mut(data.as_mut_ptr(), data.len()) });
@@ -1829,15 +1835,15 @@ impl<'data> Clone for PEImage<'data> {
         self.filename = other.filename.clone();
     }
 }
-impl<'data, Idx: slice::SliceIndex<[u8]>> Index<Idx> for PEImage<'data> {
+impl<Idx: slice::SliceIndex<[u8]>> Index<Idx> for PEImage {
     type Output = Idx::Output;
 
     fn index(&self, index: Idx) -> &Self::Output {
-        self.data.index(index)
+        self.pe.buffer.index(index)
     }
 }
-impl<'data, Idx: slice::SliceIndex<[u8]>> IndexMut<Idx> for PEImage<'data> {
+impl<Idx: slice::SliceIndex<[u8]>> IndexMut<Idx> for PEImage {
     fn index_mut(&mut self, index: Idx) -> &mut Self::Output {
-        self.data.index_mut(index)
+        self.pe.buffer.index_mut(index)
     }
 }
