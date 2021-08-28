@@ -8,7 +8,7 @@ use std::slice;
 
 use widestring::U16Str;
 
-use crate::{PE, PETranslation, Error};
+use crate::*;
 use crate::headers::*;
 use crate::buffer::align;
 
@@ -1791,7 +1791,7 @@ impl<'data> VSString<'data> {
     /// Parse a `VSString` object at the given [`RVA`](RVA).
     pub fn parse(pe: &'data PE, rva: RVA) -> Result<Self, Error> {
         let mut consumed = 0usize;
-        let mut offset = match rva.as_offset(pe) {
+        let mut offset = match pe.translate(PETranslation::Memory(rva)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
@@ -1862,7 +1862,7 @@ impl<'data> VSStringTable<'data> {
     /// Parse a `VSStringTable` structure at the given RVA.
     pub fn parse(pe: &'data PE, rva: RVA) -> Result<Self, Error> {
         let mut consumed = 0usize;
-        let mut offset = match rva.as_offset(pe) {
+        let mut offset = match pe.translate(PETranslation::Memory(rva)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
@@ -1910,9 +1910,12 @@ impl<'data> VSStringTable<'data> {
         let mut children = Vec::<VSString>::new();
 
         while consumed < (*length as usize) {
-            let rva = match offset.as_rva(&pe) {
-                Ok(r) => r,
-                Err(e) => return Err(e),
+            let rva = match pe.pe_type {
+                PEType::Disk => match offset.as_rva(&pe) {
+                    Ok(r) => r,
+                    Err(e) => return Err(e),
+                },
+                PEType::Memory => RVA(offset.0),
             };
             
             let child = match VSString::parse(&pe, rva) {
@@ -1982,7 +1985,7 @@ impl<'data> VSStringFileInfo<'data> {
     /// Parse a `VSStringFileInfo` structure at the given [`RVA`](RVA).
     pub fn parse(pe: &'data PE, rva: RVA) -> Result<Self, Error> {
         let mut consumed = 0usize;
-        let mut offset = match rva.as_offset(pe) {
+        let mut offset = match pe.translate(PETranslation::Memory(rva)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
@@ -2030,9 +2033,12 @@ impl<'data> VSStringFileInfo<'data> {
         let mut children = Vec::<VSStringTable>::new();
 
         while consumed < (*length as usize) {
-            let rva = match offset.as_rva(&pe) {
-                Ok(r) => r,
-                Err(e) => return Err(e),
+            let rva = match pe.pe_type {
+                PEType::Disk => match offset.as_rva(&pe) {
+                    Ok(r) => r,
+                    Err(e) => return Err(e),
+                },
+                PEType::Memory => RVA(offset.0),
             };
             
             let child = match VSStringTable::parse(&pe, rva) {
@@ -2075,7 +2081,7 @@ impl<'data> VSVar<'data> {
     /// Parse a `VSVar` structure at the given [`RVA`](RVA).
     pub fn parse(pe: &'data PE, rva: RVA) -> Result<Self, Error> {
         let mut consumed = 0usize;
-        let mut offset = match rva.as_offset(pe) {
+        let mut offset = match pe.translate(PETranslation::Memory(rva)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
@@ -2156,7 +2162,7 @@ impl<'data> VSVarFileInfo<'data> {
     /// Parse a `VSVarFileInfo` structure at the given [`RVA`](RVA).
     pub fn parse(pe: &'data PE, rva: RVA) -> Result<Self, Error> {
         let mut consumed = 0usize;
-        let mut offset = match rva.as_offset(pe) {
+        let mut offset = match pe.translate(PETranslation::Memory(rva)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
@@ -2204,9 +2210,12 @@ impl<'data> VSVarFileInfo<'data> {
         let mut children = Vec::<VSVar>::new();
 
         while consumed < (*length as usize) {
-            let rva = match offset.as_rva(&pe) {
-                Ok(r) => r,
-                Err(e) => return Err(e),
+            let rva = match pe.pe_type {
+                PEType::Disk => match offset.as_rva(&pe) {
+                    Ok(r) => r,
+                    Err(e) => return Err(e),
+                },
+                PEType::Memory => RVA(offset.0),
             };
             
             let child = match VSVar::parse(&pe, rva) {
@@ -2258,7 +2267,7 @@ impl<'data> VSVersionInfo<'data> {
         };
         
         let mut consumed = 0usize;
-        let mut offset = match rsrc_node.offset_to_data.as_offset(pe) {
+        let mut offset = match pe.translate(PETranslation::Memory(rsrc_node.offset_to_data)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
@@ -2328,11 +2337,14 @@ impl<'data> VSVersionInfo<'data> {
             string_file_info = None;
         }
         else {
-            let rva = match offset.as_rva(pe) {
-                Ok(r) => r,
-                Err(e) => return Err(e),
+            let rva = match pe.pe_type { // compensate for potentially translated offset
+                PEType::Disk => match offset.as_rva(pe) {
+                    Ok(r) => r,
+                    Err(e) => return Err(e),
+                },
+                PEType::Memory => RVA(offset.0),
             };
-
+           
             let string_file_info_tmp = match VSStringFileInfo::parse(pe, rva) {
                 Ok(s) => s,
                 Err(e) => return Err(e),
@@ -2352,9 +2364,12 @@ impl<'data> VSVersionInfo<'data> {
             var_file_info = None;
         }
         else {
-            let rva = match offset.as_rva(pe) {
-                Ok(r) => r,
-                Err(e) => return Err(e),
+            let rva = match pe.pe_type {
+                PEType::Disk => match offset.as_rva(pe) {
+                    Ok(r) => r,
+                    Err(e) => return Err(e),
+                },
+                PEType::Memory => RVA(offset.0),
             };
             
             let var_file_info_tmp = match VSVarFileInfo::parse(pe, rva) {
