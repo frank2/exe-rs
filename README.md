@@ -16,10 +16,12 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 * `Buffer` objects now implement the `Index` trait.
 * [`VS_VERSIONINFO`](https://docs.microsoft.com/en-us/windows/win32/menurc/vs-versioninfo) has been implemented, see `types::VSVersionInfo` and similarly named structures.
 * added an alignment function, see `buffer::align`.
+* added the ability to convert a reference to mutable, see `Buffer::make_mut_ref` and `Buffer::make_mut_slice_ref`.
 ### Bugfixes
 * renamed `ref_to_slice` to `ref_to_bytes` to be more clear
 * marked objects still marked with `#[repr(packed)]` with `#[repr(C)]`
 * tracked down TLS directory characteristics and made a bitflag structure, see `headers::TLSCharacteristics`
+* `Buffer` objects now operate on pointers, which solves a lot of underlying code
 
 ## 0.4.2
 ### Features
