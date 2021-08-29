@@ -69,6 +69,7 @@ impl WCharString for [WChar] {
         unsafe { mem::transmute::<&[WChar],&U16Str>(u16str) }
     }
 }
+
 /// Represents an object which could be considered an address in a PE file.
 pub trait Address {
     /// Convert the address to an offset value.
@@ -507,7 +508,7 @@ pub enum RelocationValue {
 }
 
 /// Represents a unit of a relocation, which contains a type and an offset in a ```u16``` value.
-#[repr(packed)]
+#[repr(C)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct Relocation(pub u16);
 impl Relocation {
@@ -689,7 +690,7 @@ impl<'data> RelocationEntry<'data> {
     }
     /// Create a `RelocationEntry` object at the given RVA.
     pub fn create(pe: &'data mut PE, rva: RVA, base_relocation: &ImageBaseRelocation, relocations: &[Relocation]) -> Result<Self, Error> {
-        let mut offset = match rva.as_offset(pe) {
+        let mut offset = match pe.translate(PETranslation::Memory(rva)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
@@ -765,7 +766,7 @@ impl<'data> RelocationEntryMut<'data> {
     }
     /// Create a `RelocationEntryMut` object at the given RVA.
     pub fn create(pe: &'data mut PE, rva: RVA, base_relocation: &ImageBaseRelocation, relocations: &[Relocation]) -> Result<Self, Error> {
-        let mut offset = match rva.as_offset(pe) {
+        let mut offset = match pe.translate(PETranslation::Memory(rva)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
@@ -911,7 +912,8 @@ impl<'data> RelocationDirectory<'data> {
     }
 
     /// Add a given [`RVA`](RVA) as a relocation entry.
-    pub fn add_relocation(&mut self, pe: &'data mut PE, rva: RVA) -> Result<&RelocationEntry<'data>, Error> {
+    pub fn add_relocation(&mut self, pe: &'data mut PE, rva: RVA) -> Result<(), Error> {
+        // error out immediately if we don't have a relocation directory
         let dir = match pe.get_data_directory(ImageDirectoryEntry::BaseReloc) {
             Ok(d) => d,
             Err(e) => return Err(e),
@@ -921,10 +923,14 @@ impl<'data> RelocationDirectory<'data> {
             return Err(Error::InvalidRVA);
         }
 
-        let start_addr = dir.virtual_address.clone();
-        let end_addr = RVA(start_addr.0 + dir.size);
-        let base_reloc = ImageBaseRelocation { virtual_address: RVA(rva.0 & 0xFFFFF000), size_of_block: ImageBaseRelocation::calculate_block_size(1) };
+        // first, turn all the relocations into owned objects
+        let mut owned_data = self.entries
+            .iter()
+            .map(|x| (x.base_relocation.clone(), x.relocations.to_vec()))
+            .collect::<Vec::<(ImageBaseRelocation, Vec<Relocation>)>>();
 
+        // search the owned objects for a suitable RVA to add the relocation to
+        let reloc_address = RVA(rva.0 & 0xFFFFF000);
         let relocation = match pe.get_arch() {
             Ok(a) => match a {
                 Arch::X86 => Relocation::new(ImageRelBased::HighLow, (rva.0 & 0xFFF) as u16),
@@ -933,21 +939,65 @@ impl<'data> RelocationDirectory<'data> {
             Err(e) => return Err(e),
         };
 
+        let mut found_entry = false;
+
+        for reloc_pair in &mut owned_data {
+            if reloc_pair.0.virtual_address != reloc_address { continue; }
+            
+            reloc_pair.1.push(relocation);
+            reloc_pair.0.size_of_block = ImageBaseRelocation::calculate_block_size(reloc_pair.1.len());
+            found_entry = true;
+            break;
+        }
+
+        if !found_entry {
+            owned_data.push((ImageBaseRelocation { virtual_address: reloc_address, size_of_block: ImageBaseRelocation::calculate_block_size(1) },
+                             vec![relocation]));
+        }
+
+        // sort the owned entries by base relocation address
+        owned_data.sort_by(|a,b| a.0.virtual_address.0.cmp(&b.0.virtual_address.0));
+
+        let base_addr = dir.virtual_address.clone();
+        let dir_size = dir.size;
+        let base_offset = match pe.translate(PETranslation::Memory(base_addr)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        // zero out the original relocation table
+        match pe.buffer.write(base_offset, vec![0u8; dir_size as usize].as_slice()) {
+            Ok(()) => (),
+            Err(e) => return Err(e),
+        }
+        
+        let mut write_addr = base_addr.clone();
+
+        // create new RelocationEntry entries for all the owned data
+        let mut new_relocations = Vec::<RelocationEntry<'data>>::new();
+
+        for (base_reloc, relocations) in owned_data {
+            let new_relocation = match RelocationEntry::create(unsafe { &mut *(pe as *mut PE) }, write_addr, &base_reloc, relocations.as_slice()) {
+                Ok(r) => r,
+                Err(e) => return Err(e),
+            };
+
+            write_addr.0 += base_reloc.size_of_block;
+            new_relocations.push(new_relocation);
+        }
+
+        let new_size = write_addr.0 - base_addr.0;
+        
+        self.entries = new_relocations;
+
         let mut_dir = match pe.get_mut_data_directory(ImageDirectoryEntry::BaseReloc) {
             Ok(m) => m,
             Err(e) => return Err(e),
         };
 
-        mut_dir.size += base_reloc.size_of_block;
+        mut_dir.size = new_size;
 
-        let entry = match RelocationEntry::create(pe, end_addr, &base_reloc, &[relocation]) {
-            Ok(r) => r,
-            Err(e) => return Err(e),
-        };
-
-        self.entries.push(entry);
-
-        Ok(&self.entries[self.entries.len()-1])
+        Ok(())
     }
 }
 
@@ -1067,8 +1117,9 @@ impl<'data> RelocationDirectoryMut<'data> {
         Ok(())
     }
 
-    /// Add a given [`RVA`](RVA) as a mutable relocation entry.
-    pub fn add_relocation(&mut self, pe: &'data mut PE, rva: RVA) -> Result<&RelocationEntryMut<'data>, Error> {
+    /// Add a given [`RVA`](RVA) as a relocation entry.
+    pub fn add_relocation(&mut self, pe: &'data mut PE, rva: RVA) -> Result<(), Error> {
+        // error out immediately if we don't have a relocation directory
         let dir = match pe.get_data_directory(ImageDirectoryEntry::BaseReloc) {
             Ok(d) => d,
             Err(e) => return Err(e),
@@ -1078,10 +1129,14 @@ impl<'data> RelocationDirectoryMut<'data> {
             return Err(Error::InvalidRVA);
         }
 
-        let start_addr = dir.virtual_address.clone();
-        let end_addr = RVA(start_addr.0 + dir.size);
-        let base_reloc = ImageBaseRelocation { virtual_address: RVA(rva.0 & 0xFFFFF000), size_of_block: ImageBaseRelocation::calculate_block_size(1) };
+        // first, turn all the relocations into owned objects
+        let mut owned_data = self.entries
+            .iter()
+            .map(|x| (x.base_relocation.clone(), x.relocations.to_vec()))
+            .collect::<Vec::<(ImageBaseRelocation, Vec<Relocation>)>>();
 
+        // search the owned objects for a suitable RVA to add the relocation to
+        let reloc_address = RVA(rva.0 & 0xFFFFF000);
         let relocation = match pe.get_arch() {
             Ok(a) => match a {
                 Arch::X86 => Relocation::new(ImageRelBased::HighLow, (rva.0 & 0xFFF) as u16),
@@ -1090,21 +1145,65 @@ impl<'data> RelocationDirectoryMut<'data> {
             Err(e) => return Err(e),
         };
 
+        let mut found_entry = false;
+
+        for reloc_pair in &mut owned_data {
+            if reloc_pair.0.virtual_address != reloc_address { continue; }
+            
+            reloc_pair.1.push(relocation);
+            reloc_pair.0.size_of_block = ImageBaseRelocation::calculate_block_size(reloc_pair.1.len());
+            found_entry = true;
+            break;
+        }
+
+        if !found_entry {
+            owned_data.push((ImageBaseRelocation { virtual_address: reloc_address, size_of_block: ImageBaseRelocation::calculate_block_size(1) },
+                             vec![relocation]));
+        }
+
+        // sort the owned entries by base relocation address
+        owned_data.sort_by(|a,b| a.0.virtual_address.0.cmp(&b.0.virtual_address.0));
+
+        let base_addr = dir.virtual_address.clone();
+        let dir_size = dir.size;
+        let base_offset = match pe.translate(PETranslation::Memory(base_addr)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        // zero out the original relocation table
+        match pe.buffer.write(base_offset, vec![0u8; dir_size as usize].as_slice()) {
+            Ok(()) => (),
+            Err(e) => return Err(e),
+        }
+        
+        let mut write_addr = base_addr.clone();
+
+        // create new RelocationEntry entries for all the owned data
+        let mut new_relocations = Vec::<RelocationEntryMut<'data>>::new();
+
+        for (base_reloc, relocations) in owned_data {
+            let new_relocation = match RelocationEntryMut::create(unsafe { &mut *(pe as *mut PE) }, write_addr, &base_reloc, relocations.as_slice()) {
+                Ok(r) => r,
+                Err(e) => return Err(e),
+            };
+
+            write_addr.0 += base_reloc.size_of_block;
+            new_relocations.push(new_relocation);
+        }
+
+        let new_size = write_addr.0 - base_addr.0;
+        
+        self.entries = new_relocations;
+
         let mut_dir = match pe.get_mut_data_directory(ImageDirectoryEntry::BaseReloc) {
             Ok(m) => m,
             Err(e) => return Err(e),
         };
 
-        mut_dir.size += base_reloc.size_of_block;
+        mut_dir.size = new_size;
 
-        let entry = match RelocationEntryMut::create(pe, end_addr, &base_reloc, &[relocation]) {
-            Ok(r) => r,
-            Err(e) => return Err(e),
-        };
-
-        self.entries.push(entry);
-
-        Ok(&self.entries[self.entries.len()-1])
+        Ok(())
     }
 }
 

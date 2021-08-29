@@ -520,5 +520,5 @@ fn test_add_relocation() {
 
     let reparsed = RelocationDirectory::parse(&pefile.pe).unwrap();
     let relocations = reparsed.relocations(&pefile.pe, 0x02000000).unwrap();
-    assert_eq!(relocations[relocations.len()-1], (RVA(0x11C0), RelocationValue::Relocation32(0x01000000)));
+    assert_eq!(relocations[0], (RVA(0x11C0), RelocationValue::Relocation32(0x01000000)));
 }
