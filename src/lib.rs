@@ -1583,6 +1583,24 @@ impl PE {
 
         Ok(backing_buffer)
     }
+    /// Recalculate the `PE`'s memory size with [`calculate_memory_size`](PE::calculate_memory_size) and set this value as the
+    /// header's [`size_of_image`](ImageOptionalHeader32::size_of_image) value.
+    pub fn fix_image_size(&mut self) -> Result<(), Error> {
+        let image_size = match self.calculate_memory_size() {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+        
+        match self.get_valid_mut_nt_headers() {
+            Ok(ref mut h) => match h {
+                NTHeadersMut::NTHeaders32(ref mut h32) => h32.optional_header.size_of_image = image_size as u32,
+                NTHeadersMut::NTHeaders64(ref mut h64) => h64.optional_header.size_of_image = image_size as u32,
+            },
+            Err(e) => return Err(e),
+        }
+
+        Ok(())
+    }
 }
 
 /// Represents a [`PE`](PE) object with owned data.
@@ -1817,6 +1835,42 @@ impl PEImage {
     /// Search for an object reference within the image. Returns an empty vector if nothing is found.
     pub fn search_ref<T>(&self, search: &T) -> Result<Vec<Offset>, Error> {
         self.pe.buffer.search_ref::<T>(search)
+    }
+    /// Pad the backing vector with `0` to the [`PE`](PE)'s [`file_alignment`](ImageOptionalHeader32::file_alignment) specification.
+    pub fn pad_to_file_alignment(&mut self) -> Result<(), Error> {
+        let current_offset = Offset(self.len() as u32);
+        let aligned_offset = match self.pe.align_to_file(current_offset) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let padding = aligned_offset.0 - current_offset.0;
+
+        if padding != 0 { self.append(&mut vec![0u8; padding as usize]); }
+
+        Ok(())
+    }
+    /// Pad the backing vector with `0` to the [`PE`](PE)'s [`section_alignment`](ImageOptionalHeader32::section_alignment) specification.
+    pub fn pad_to_section_alignment(&mut self) -> Result<(), Error> {
+        let current_rva = RVA(self.len() as u32);
+        let aligned_rva = match self.pe.align_to_section(current_rva) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+
+        let padding = aligned_rva.0 - current_rva.0;
+
+        if padding != 0 { self.append(&mut vec![0u8; padding as usize]); }
+
+        Ok(())
+    }
+    /// Pad with `0` to either [`file_alignment`](ImageOptionalHeader32::file_alignment) or
+    /// [`section_alignment`](ImageOptionalHeader32::section_alignment), depending on what the [`PEType`](PEType) of the image is.
+    pub fn pad_to_alignment(&mut self) -> Result<(), Error> {
+        match self.pe.pe_type {
+            PEType::Disk => self.pad_to_file_alignment(),
+            PEType::Memory => self.pad_to_section_alignment(),
+        }
     }
 }
 impl Clone for PEImage {
