@@ -424,7 +424,9 @@ fn test_cff_explorer() {
 
 #[test]
 fn test_creation() {
-    let mut created_file = PEImage::new_disk(0x4000);
+    // this test creates a working executable that simply exits with 0 as the return code.
+    // simply add `created_file.save_as("my_file.exe")` to the end of the function to see for yourself
+    let mut created_file = PEImage::new_disk(0x400);
 
     let dos_result = created_file.write_ref(Offset(0), &ImageDOSHeader::default());
     assert!(dos_result.is_ok());
@@ -436,12 +438,11 @@ fn test_creation() {
     let nt_result = created_file.write_ref(created_file.pe.e_lfanew().unwrap(), &ImageNTHeaders64::default());
     assert!(nt_result.is_ok());
 
-    let nt_headers_mut = created_file.pe.get_valid_mut_nt_headers();
-    assert!(nt_headers_mut.is_ok());
+    let nt_headers = created_file.pe.get_valid_nt_headers();
+    assert!(nt_headers.is_ok());
 
-    if let NTHeadersMut::NTHeaders64(nt_headers_64) = nt_headers_mut.unwrap() {
+    if let NTHeaders::NTHeaders64(nt_headers_64) = nt_headers.unwrap() {
         assert_eq!(nt_headers_64.file_header.number_of_sections, 0);
-        nt_headers_64.optional_header.size_of_image = 0x4000;
     }
     else {
         panic!("couldn't get mutable NT headers");
@@ -472,11 +473,13 @@ fn test_creation() {
     assert!(cloned_section.is_aligned_to_file(&created_file.pe));
     assert!(cloned_section.is_aligned_to_section(&created_file.pe));
     
-    let nt_headers = created_file.pe.get_valid_nt_headers();
+    let nt_headers = created_file.pe.get_valid_mut_nt_headers();
     assert!(nt_headers.is_ok());
 
-    if let NTHeaders::NTHeaders64(nt_headers_64) = nt_headers.unwrap() {
+    if let NTHeadersMut::NTHeaders64(nt_headers_64) = nt_headers.unwrap() {
         assert_eq!(nt_headers_64.file_header.number_of_sections, 1);
+        nt_headers_64.optional_header.address_of_entry_point = RVA(0x1000);
+        nt_headers_64.optional_header.size_of_headers = 0x200;
     }
     else {
         panic!("couldn't get NT headers");
@@ -489,8 +492,10 @@ fn test_creation() {
     let section_offset = cloned_section.data_offset(created_file.pe.pe_type);
     assert_eq!(section_offset, Offset(0x400));
 
-    let write_result = cloned_section.write(&mut created_file.pe, data);
-    assert!(write_result.is_ok());
+    let append_offset = Offset(created_file.len() as u32);
+    assert_eq!(append_offset, section_offset);
+
+    created_file.append(&mut data.to_vec());
 
     let read_result = cloned_section.read(&created_file.pe);
     assert!(read_result.is_ok());
@@ -499,6 +504,9 @@ fn test_creation() {
     let alt_read_result = created_file.read(section_offset, data.len());
     assert!(alt_read_result.is_ok());
     assert_eq!(alt_read_result.unwrap(), data);
+
+    assert!(created_file.pad_to_alignment().is_ok());
+    assert!(created_file.pe.fix_image_size().is_ok());
 }
 
 #[cfg(windows)]
