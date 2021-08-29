@@ -165,7 +165,7 @@ impl Entropy for [u8] {
 }
 
 /// A buffer representing the PE image.
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Buffer {
     data: *const u8,
     length: usize,

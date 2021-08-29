@@ -141,7 +141,7 @@ impl Address for PETranslation {
 }
 
 /// Represents PE data.
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct PE {
     /// The type of memory layout the object is expecting. See [`PEType`](PEType) for an explanation.
     pub pe_type: PEType,
@@ -1586,6 +1586,7 @@ impl PE {
 }
 
 /// Represents a [`PE`](PE) object with owned data.
+#[derive(Eq, PartialEq, Debug)]
 pub struct PEImage {
     data: Vec<u8>,
     pub filename: Option<String>,
