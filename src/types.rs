@@ -155,7 +155,12 @@ impl Address for Offset {
         pe.offset_to_va(*self)
     }
     fn as_ptr(&self, pe: &PE) -> Result<*const u8, Error> {
-        unsafe { Ok(pe.buffer.offset_to_ptr(*self)) }
+        let corrected_offset = match pe.translate(PETranslation::Disk(*self)) {
+            Ok(o) => o,
+            Err(e) => return Err(e),
+        };
+        
+        unsafe { Ok(pe.buffer.offset_to_ptr(corrected_offset)) }
     }
 }
 
