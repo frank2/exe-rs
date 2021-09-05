@@ -2,6 +2,8 @@
 //! raw functionality necessary to cast objects from the data vector, as well as helper functions
 //! to perform calculations such as hashes and entropy.
 
+use bitflags::bitflags;
+
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use md5::{Md5, Digest};
@@ -17,9 +19,14 @@ use std::fs;
 use std::io::{Error as IoError, Cursor};
 use std::mem;
 use std::ops::{Index, IndexMut};
+#[cfg(windows)] use std::ops::Drop;
 use std::path::Path;
 use std::ptr;
 use std::slice;
+
+#[cfg(windows)] use winapi::shared::minwindef::LPVOID;
+#[cfg(windows)] use winapi::um::memoryapi::{VirtualAlloc, VirtualFree};
+#[cfg(windows)] use winapi::um::errhandlingapi::GetLastError;
 
 use crate::Error;
 use crate::types::{Offset, CChar, WChar};
@@ -164,25 +171,63 @@ impl Entropy for [u8] {
     }
 }
 
+#[cfg(windows)]
+bitflags! {
+    /// Only available for Windows. Represents the bitflags for `flAllocationType` in [`VirtualAlloc`](VirtualAlloc).
+    pub struct AllocationType: u32 {
+        const MEM_COMMIT = 0x1000;
+        const MEM_RESERVE = 0x2000;
+        const MEM_RESET = 0x80000;
+        const MEM_RESET_UNDO = 0x1000000;
+        const MEM_LARGE_PAGES = 0x20000000;
+        const MEM_PHYSICAL = 0x00400000;
+        const MEM_TOP_DOWN = 0x00100000;
+        const MEM_WRITE_WATCH = 0x00200000;
+    }
+}
+
+/// Only available for Windows. Represents the enum for `flProtect` in [`VirtualAlloc`](VirtualAlloc).
+#[cfg(windows)]
+pub enum Protect {
+    Execute = 0x10,
+    ExecuteRead = 0x20,
+    ExecuteReadWrite = 0x40,
+    ExecuteWriteCopy = 0x80,
+    NoAccess = 0x01,
+    ReadOnly = 0x02,
+    ReadWrite = 0x04,
+    WriteCopy = 0x08,
+    TargetsInvalidNoUpdate = 0x40000000,
+    Guard = 0x100,
+    NoCache = 0x200,
+    WriteCombine = 0x400,
+}
+    
 /// A buffer representing the PE image.
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Buffer {
     data: *const u8,
     length: usize,
+    #[cfg(windows)]
+    allocated: bool,
 }
 impl Buffer {
-    /// Creates a new buffer from a slice of memory.
+    /// Creates a new buffer from a slice of memory. The `memory` argument must outlive the `Buffer` object.
     pub fn new(memory: &[u8]) -> Self {
         Self {
             data: memory.as_ptr(),
             length: memory.len(),
+            #[cfg(windows)]
+            allocated: false,
         }
     }
-    /// Creates a new mutable buffer from a mutable slice of memory.
+    /// Creates a new mutable buffer from a mutable slice of memory. The `memory` argument must outlive the `Buffer` object.
     pub fn new_mut(memory: &mut [u8]) -> Self {
         Self {
             data: memory.as_ptr(), // we can always make it mutable later
             length: memory.len(),
+            #[cfg(windows)]
+            allocated: false,
         }
     }
     /// Creates a new buffer from a pointer and a length argument.
@@ -190,6 +235,8 @@ impl Buffer {
         Self {
             data: ptr,
             length: size,
+            #[cfg(windows)]
+            allocated: false,
         }
     }
     /// Creates a new buffer from a mutable pointer and a length argument.
@@ -197,7 +244,29 @@ impl Buffer {
         Self {
             data: ptr as *const u8,
             length: size,
+            #[cfg(windows)]
+            allocated: false,
         }
+    }
+    /// Only available for Windows. Use the [`VirtualAlloc`](VirtualAlloc) function to allocate a new `Buffer` object. On failure, this
+    /// function returns a [`Win32Error`](Error::Win32Error).
+    #[cfg(windows)]
+    pub fn virtual_alloc(address: *const u8, size: usize, allocation: AllocationType, protect: Protect) -> Result<Buffer, Error> {
+        let buffer = unsafe { VirtualAlloc(address as LPVOID, size, allocation.bits(), protect as u32) };
+
+        if buffer == std::ptr::null_mut() { return Err(Error::Win32Error(unsafe { GetLastError() })); }
+
+        Ok(Buffer {
+            data: buffer as *const u8,
+            length: size,
+            allocated: true,
+        })
+    }
+
+    /// Only available for Windows. Check if this `Buffer` object has been allocated.
+    #[cfg(windows)]
+    pub fn is_allocated(&self) -> bool {
+        self.allocated
     }
 
     /// Get the length of the buffer.
@@ -595,5 +664,11 @@ impl<Idx: slice::SliceIndex<[u8]>> Index<Idx> for Buffer {
 impl<Idx: slice::SliceIndex<[u8]>> IndexMut<Idx> for Buffer {
     fn index_mut(&mut self, index: Idx) -> &mut Self::Output {
         self.as_mut_slice().index_mut(index)
+    }
+}
+#[cfg(windows)]
+impl Drop for Buffer {
+    fn drop(&mut self) {
+        if self.allocated { unsafe { VirtualFree(self.data as LPVOID, self.length, 0x8000) }; }
     }
 }
