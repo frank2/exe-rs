@@ -5,6 +5,14 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 
 # Changelog
 
+## 0.4.4
+### Features
+* Only available for Windows: `Buffer` objects can now be allocated directly with the `Buffer::virtual_alloc` function, see the docs for more.
+* Only available for Windows: `ImageImportDescriptor` objects can now have their import address table resolved, see `ImageImportDescriptor::resolve_iat`.
+* Only available for Windows: `PE` images can now be loaded and prepared for execution, see `PE::load_image`.
+### Bugfixes
+* `PE` address conversion functions (e.g., `PE::offset_to_rva`) now validate their input addresses before recalculating.
+
 ## 0.4.3
 ### Features
 * added ability to turn a slice of type `T` into an array of bytes, see `Buffer::slice_ref_to_bytes`.
