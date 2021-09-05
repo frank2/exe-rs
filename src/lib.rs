@@ -88,6 +88,11 @@ pub enum Error {
     BadDirectory,
     /// The data directory is corrupt and cannot be parsed.
     CorruptDataDirectory,
+    /// The architecture of the Rust binary and the given PE file do not match.
+    ArchMismatch,
+    /// Only available on Windows. The function returned a Win32 error.
+    #[cfg(windows)]
+    Win32Error(u32),
 }
 
 /// An enum to tag the PE file with what its memory map looks like.
@@ -649,6 +654,25 @@ impl PE {
             NTHeaders::NTHeaders64(h64) => Ok(h64.optional_header.address_of_entry_point),
         }
     }
+    /// Get the image base of this PE file.
+    ///
+    /// On Windows, if the buffer has been allocated with [`virtual_alloc`](Buffer::virtual_alloc), return that base address instead.
+    /// Otherwise, return [`ImageBase`](ImageOptionalHeader32::image_base) from the NT headers.
+    pub fn get_image_base(&self) -> Result<u64, Error> {
+        #[cfg(windows)] {
+            if self.buffer.is_allocated() {
+                return Ok(self.buffer.as_ptr() as u64);
+            }
+        }
+
+        match self.get_valid_nt_headers() {
+            Ok(h) => match h {
+                NTHeaders::NTHeaders32(h32) => Ok(h32.optional_header.image_base as u64),
+                NTHeaders::NTHeaders64(h64) => Ok(h64.optional_header.image_base),
+            },
+            Err(e) => return Err(e),
+        }
+    }
 
     /// Get the offset to the data directory within the PE file.
     pub fn get_data_directory_offset(&self) -> Result<Offset, Error> {
@@ -1055,11 +1079,11 @@ impl PE {
             Err(_) => return false,
         };
         let image_size = match headers {
-            NTHeaders::NTHeaders32(h32) => h32.optional_header.size_of_image as usize,
-            NTHeaders::NTHeaders64(h64) => h64.optional_header.size_of_image as usize,
+            NTHeaders::NTHeaders32(h32) => h32.optional_header.size_of_image,
+            NTHeaders::NTHeaders64(h64) => h64.optional_header.size_of_image,
         };
 
-        (rva.0 as usize) < image_size
+        rva.0 < image_size
     }
     /// Verify that the given VA is a valid VA for this image.
     ///
@@ -1070,19 +1094,21 @@ impl PE {
             Ok(h) => h,
             Err(_) => return false,
         };
-        let (image_size, image_base) = match headers {
-            NTHeaders::NTHeaders32(h32) => (h32.optional_header.size_of_image as usize,
-                                            h32.optional_header.image_base as usize),
-            NTHeaders::NTHeaders64(h64) => (h64.optional_header.size_of_image as usize,
-                                            h64.optional_header.image_base as usize)
+        let image_base = match self.get_image_base() {
+            Ok(i) => i,
+            Err(_) => return false,
+        };
+        let image_size = match headers {
+            NTHeaders::NTHeaders32(h32) => h32.optional_header.size_of_image as u64,
+            NTHeaders::NTHeaders64(h64) => h64.optional_header.size_of_image as u64,
         };
 
         let start = image_base;
         let end = start + image_size;
 
         match va {
-            VA::VA32(v32) => start <= (v32.0 as usize) && (v32.0 as usize) < end,
-            VA::VA64(v64) => start <= (v64.0 as usize) && (v64.0 as usize) < end,
+            VA::VA32(v32) => start <= (v32.0 as u64) && (v32.0 as u64) < end,
+            VA::VA64(v64) => start <= v64.0 && v64.0 < end,
         }
     }
 
@@ -1146,6 +1172,10 @@ impl PE {
     /// Convert an offset to an RVA address. Produces [`Error::InvalidRVA`](Error::InvalidRVA) if the produced
     /// RVA is invalid or if the section it was transposed from no longer contains it.
     pub fn offset_to_rva(&self, offset: Offset) -> Result<RVA, Error> {
+        if !self.validate_offset(offset) {
+            return Err(Error::InvalidOffset);
+        }
+        
         let section = match self.get_section_by_offset(offset) {
             Ok(s) => s,
             Err(e) => {
@@ -1175,6 +1205,10 @@ impl PE {
     }
     /// Convert an offset to a VA address.
     pub fn offset_to_va(&self, offset: Offset) -> Result<VA, Error> {
+        if !self.validate_offset(offset) {
+            return Err(Error::InvalidOffset);
+        }
+
         let rva = match self.offset_to_rva(offset) {
             Ok(r) => r,
             Err(e) => return Err(e),
@@ -1186,6 +1220,10 @@ impl PE {
     /// Convert an RVA to an offset address. Produces a [`Error::InvalidOffset`](Error::InvalidOffset) error if
     /// the produced offset is invalid or if the section it was transposed from no longer contains it.
     pub fn rva_to_offset(&self, rva: RVA) -> Result<Offset, Error> {
+        if !self.validate_rva(rva) {
+            return Err(Error::InvalidRVA);
+        }
+
         let section = match self.get_section_by_rva(rva) {
             Ok(s) => s,
             Err(e) => {
@@ -1216,14 +1254,23 @@ impl PE {
     /// Convert an RVA to a VA address. Produces a [`Error::InvalidVA`](Error::InvalidVA) error if the produced
     /// VA is invalid.
     pub fn rva_to_va(&self, rva: RVA) -> Result<VA, Error> {
-        let headers = match self.get_valid_nt_headers() {
-            Ok(h) => h,
+        if !self.validate_rva(rva) {
+            return Err(Error::InvalidRVA);
+        }
+
+        let image_base = match self.get_image_base() {
+            Ok(i) => i,
             Err(e) => return Err(e),
         };
 
-        let va = match headers {
-            NTHeaders::NTHeaders32(h32) => VA::VA32(VA32(rva.0 + h32.optional_header.image_base)),
-            NTHeaders::NTHeaders64(h64) => VA::VA64(VA64((rva.0 as u64) + h64.optional_header.image_base)),
+        let arch = match self.get_arch() {
+            Ok(a) => a,
+            Err(e) => return Err(e),
+        };
+
+        let va = match arch {
+            Arch::X86 => VA::VA32(VA32(rva.0 + (image_base as u32))),
+            Arch::X64 => VA::VA64(VA64((rva.0 as u64) + image_base)),
         };
 
         if !self.validate_va(va) {
@@ -1236,17 +1283,18 @@ impl PE {
     /// Convert a VA to an RVA. Produces a [`Error::InvalidRVA`](Error::InvalidRVA) error if the produced RVA
     /// is invalid.
     pub fn va_to_rva(&self, va: VA) -> Result<RVA, Error> {
-        let headers = match self.get_valid_nt_headers() {
-            Ok(h) => h,
+        if !self.validate_va(va) {
+            return Err(Error::InvalidVA);
+        }
+
+        let image_base = match self.get_image_base() {
+            Ok(i) => i,
             Err(e) => return Err(e),
         };
-        let image_base = match headers {
-            NTHeaders::NTHeaders32(h32) => h32.optional_header.image_base as usize,
-            NTHeaders::NTHeaders64(h64) => h64.optional_header.image_base as usize,
-        };
+
         let rva = match va {
-            VA::VA32(v32) => RVA(( (v32.0 as usize) - image_base ) as u32),
-            VA::VA64(v64) => RVA(( (v64.0 as usize) - image_base ) as u32),
+            VA::VA32(v32) => RVA(( (v32.0 as u64) - image_base ) as u32),
+            VA::VA64(v64) => RVA(( v64.0 - image_base ) as u32),
         };
 
         if !self.validate_rva(rva) {
@@ -1257,6 +1305,10 @@ impl PE {
     }
     /// Converts a VA to an offset.
     pub fn va_to_offset(&self, va: VA) -> Result<Offset, Error> {
+        if !self.validate_va(va) {
+            return Err(Error::InvalidVA);
+        }
+
         let rva = match self.va_to_rva(va) {
             Ok(r) => r,
             Err(e) => return Err(e),
@@ -1600,6 +1652,137 @@ impl PE {
         }
 
         Ok(())
+    }
+    /// This function is only available on Windows. Attempts to load the image into memory similar to the Windows loader. This is not a 100% accurate
+    /// representation of the Windows loader, it's rather a rudimentary version to get a binary off the ground and be executable.
+    ///
+    /// Note that this is not a safe function, in the sense that arbitrary code may be executed due to the TLS directory.
+    /// Do not run this function on suspected malware in an unsandboxed environment.
+    #[cfg(windows)]
+    pub fn load_image(&self) -> Result<PE, Error> {
+        match self.get_arch() {
+            Ok(a) => match a {
+                Arch::X86 => { if std::mem::size_of::<usize>() == 8 { return Err(Error::ArchMismatch); } },
+                Arch::X64 => { if std::mem::size_of::<usize>() == 4 { return Err(Error::ArchMismatch); } },
+            },
+            Err(e) => return Err(e),
+        }
+
+        let headers = match self.get_valid_nt_headers() {
+            Ok(h) => h,
+            Err(e) => return Err(e),
+        };
+
+        let image_base = match headers {
+            NTHeaders::NTHeaders32(h32) => h32.optional_header.image_base as usize,
+            NTHeaders::NTHeaders64(h64) => h64.optional_header.image_base as usize,
+        };
+
+        let aslr = match headers {
+            NTHeaders::NTHeaders32(h32) => !(h32.optional_header.dll_characteristics & DLLCharacteristics::DYNAMIC_BASE).is_empty(),
+            NTHeaders::NTHeaders64(h64) => !(h64.optional_header.dll_characteristics & DLLCharacteristics::DYNAMIC_BASE).is_empty(),
+        };
+
+        let recreated_image = match self.recreate_image(PEType::Memory) {
+            Ok(r) => r,
+            Err(e) => return Err(e),
+        };
+
+        let alloc_address;
+
+        if aslr {
+            alloc_address = std::ptr::null() as *const u8;
+        }
+        else {
+            alloc_address = image_base as *const u8;
+        }
+        
+        let mut memory_buffer = match Buffer::virtual_alloc(alloc_address,
+                                                            recreated_image.len(),
+                                                            AllocationType::MEM_COMMIT | AllocationType::MEM_RESERVE,
+                                                            Protect::ExecuteReadWrite) {
+            Ok(b) => b,
+            Err(e) => return Err(e),
+        };
+        
+        match memory_buffer.write(Offset(0), recreated_image.as_slice()) {
+            Ok(()) => (),
+            Err(e) => return Err(e),
+        }
+
+        let mut new_pe = PE { pe_type: PEType::Memory, buffer: memory_buffer };
+        let new_pe_ro = new_pe.clone();
+
+        if new_pe_ro.has_data_directory(ImageDirectoryEntry::BaseReloc) {
+            let reloc_dir = match RelocationDirectory::parse(&new_pe_ro) {
+                Ok(r) => r,
+                Err(e) => return Err(e),
+            };
+
+            match reloc_dir.relocate(&mut new_pe, new_pe_ro.buffer.as_ptr() as u64) {
+                Ok(()) => (),
+                Err(e) => return Err(e),
+            }
+        }
+
+        if new_pe_ro.has_data_directory(ImageDirectoryEntry::Import) {
+            let import_dir = match ImportDirectory::parse(&new_pe_ro) {
+                Ok(i) => i,
+                Err(e) => return Err(e),
+            };
+
+            match import_dir.resolve_iat(&mut new_pe) {
+                Ok(()) => (),
+                Err(e) => return Err(e),
+            }
+        }
+
+        if new_pe_ro.has_data_directory(ImageDirectoryEntry::TLS) {
+            let tls_dir = match TLSDirectory::parse(&new_pe_ro) {
+                Ok(t) => t,
+                Err(e) => return Err(e),
+            };
+
+            let mut resolved_callbacks = Vec::<*const u8>::new();
+
+            match tls_dir {
+                TLSDirectory::TLS32(tls32) => {
+                    let callbacks = match tls32.get_callbacks(&new_pe_ro) {
+                        Ok(c) => c,
+                        Err(e) => return Err(e),
+                    };
+                    
+                    for callback in callbacks {
+                        match callback.as_ptr(&new_pe) {
+                            Ok(p) => resolved_callbacks.push(p),
+                            Err(e) => return Err(e),
+                        }
+                    }
+                },
+                TLSDirectory::TLS64(tls64) => {
+                    let callbacks = match tls64.get_callbacks(&new_pe_ro) {
+                        Ok(c) => c,
+                        Err(e) => return Err(e),
+                    };
+                    
+                    for callback in callbacks {
+                        match callback.as_ptr(&new_pe) {
+                            Ok(p) => resolved_callbacks.push(p),
+                            Err(e) => return Err(e),
+                        }
+                    }
+                },
+            }
+
+            for callback in resolved_callbacks {
+                type TLSCallback = unsafe extern "system" fn(*const u8, u32, *const u8);
+                let callback_fn = unsafe { mem::transmute::<*const u8, TLSCallback>(callback) };
+
+                unsafe { callback_fn(new_pe.buffer.as_ptr(), 1, std::ptr::null()) };
+            }
+        }
+
+        Ok(new_pe)
     }
 }
 
