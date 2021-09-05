@@ -42,6 +42,10 @@ fn test_compiled() {
     assert!(mz_check.is_ok());
     assert_eq!(unsafe { *(mz_check.unwrap() as *const u16) }, DOS_SIGNATURE);
 
+    let entry_check = Offset(0x400).as_ptr(&pefile.pe);
+    assert!(entry_check.is_ok());
+    assert_eq!(unsafe { *entry_check.unwrap() }, 0x68);
+
     let e_lfanew_check = pefile.pe.e_lfanew();
     assert!(e_lfanew_check.is_ok());
 
@@ -136,6 +140,14 @@ fn test_compiled_dumped() {
 
     let bad_header = pefile.pe.get_valid_nt_headers_64();
     assert!(bad_header.is_err());
+
+    let mz_check = Offset(0).as_ptr(&pefile.pe); // should be fine after translation as Offset(RVA(0))
+    assert!(mz_check.is_ok());
+    assert_eq!(unsafe { *(mz_check.unwrap() as *const u16) }, DOS_SIGNATURE);
+
+    let entry_check = Offset(0x400).as_ptr(&pefile.pe); // should translate to Offset(RVA(0x1000))
+    assert!(entry_check.is_ok());
+    assert_eq!(unsafe { *entry_check.unwrap() }, 0x68);
 
     let get_headers = pefile.pe.get_valid_nt_headers_32();
     assert!(get_headers.is_ok());
@@ -530,3 +542,4 @@ fn test_add_relocation() {
     let relocations = reparsed.relocations(&pefile.pe, 0x02000000).unwrap();
     assert_eq!(relocations[0], (RVA(0x11C0), RelocationValue::Relocation32(0x01000000)));
 }
+    
