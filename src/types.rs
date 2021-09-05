@@ -461,6 +461,18 @@ impl<'data> ImportDirectory<'data> {
 
         Ok(results)
     }
+    /// Only available for Windows. Resolve the import address table of all descriptors in this directory.
+    #[cfg(windows)]
+    pub fn resolve_iat(&self, pe: &mut PE) -> Result<(), Error> {
+        for import in self.descriptors.iter() {
+            match import.resolve_iat(unsafe { &mut *(pe as *mut PE) }) {
+                Ok(()) => (),
+                Err(e) => return Err(e),
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Represents a mutable import directory in the PE file.
@@ -495,6 +507,38 @@ impl<'data> ImportDirectoryMut<'data> {
         };
 
         Ok(Self { descriptors } )
+    }
+    /// Gets a map of DLL names to function names/ordinals in the import directory.
+    pub fn get_import_map(&self, pe: &'data PE) -> Result<HashMap<&'data str, Vec<ImportData<'data>>>, Error> {
+        let mut results = HashMap::<&'data str, Vec<ImportData<'data>>>::new();
+
+        for import in self.descriptors.iter() {
+            let name = match import.get_name(&pe) {
+                Ok(n) => n.as_str(),
+                Err(e) => return Err(e),
+            };
+
+            let imports = match import.get_imports(&pe) {
+                Ok(i) => i,
+                Err(e) => return Err(e),
+            };
+
+            results.insert(name, imports);
+        }
+
+        Ok(results)
+    }
+    /// Only available for Windows. Resolve the import address table of all descriptors in this directory.
+    #[cfg(windows)]
+    pub fn resolve_iat(&self, pe: &mut PE) -> Result<(), Error> {
+        for import in self.descriptors.iter() {
+            match import.resolve_iat(unsafe { &mut *(pe as *mut PE) }) {
+                Ok(()) => (),
+                Err(e) => return Err(e),
+            }
+        }
+
+        Ok(())
     }
 }
 

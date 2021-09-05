@@ -17,6 +17,11 @@ use std::default::Default;
 use std::mem;
 use std::slice;
 
+#[cfg(windows)] use winapi::shared::minwindef::FARPROC;
+#[cfg(windows)] use winapi::um::errhandlingapi::GetLastError;
+#[cfg(windows)] use winapi::um::libloaderapi::{LoadLibraryA, GetProcAddress};
+#[cfg(windows)] use winapi::um::winnt::LPCSTR;
+
 use crate::*;
 use crate::types::*;
 
@@ -1017,6 +1022,79 @@ impl ImageImportDescriptor {
         }
 
         Ok(results)
+    }
+
+    /// Only available for Windows. Resolve the import address table of this import descriptor. In other
+    /// words, perform the importation of the functions and resolve the function addresses.
+    #[cfg(windows)]
+    pub fn resolve_iat(&self, pe: &mut PE) -> Result<(), Error> {
+        let dll_name = match self.get_name(pe) {
+            Ok(d) => d.as_str(),
+            Err(e) => return Err(e),
+        };
+        
+        let dll_handle = unsafe { LoadLibraryA(dll_name.as_ptr() as LPCSTR) };
+
+        if dll_handle == std::ptr::null_mut() {
+            return Err(Error::Win32Error(unsafe { GetLastError() }));
+        }
+
+        let lookup_table: Vec<Thunk> = match self.get_original_first_thunk(pe) {
+            Ok(l) => l,
+            Err(_) => match self.get_first_thunk(pe) {
+                Ok(l2) => l2,
+                Err(e) => return Err(e),
+            }
+        };
+
+        let mut lookup_results = Vec::<FARPROC>::new();
+
+        for lookup in lookup_table {
+            let thunk_data = match lookup {
+                Thunk::Thunk32(t32) => t32.parse_import(),
+                Thunk::Thunk64(t64) => t64.parse_import(),
+            };
+
+            let thunk_result = match thunk_data {
+                ThunkData::Ordinal(o) => unsafe { GetProcAddress(dll_handle, o as LPCSTR) },
+                ThunkData::ImportByName(rva) => {
+                    let import_by_name = match ImageImportByName::parse(pe, rva) {
+                        Ok(i) => i,
+                        Err(e) => return Err(e),
+                    };
+
+                    unsafe { GetProcAddress(dll_handle, import_by_name.name.as_str().as_ptr() as LPCSTR) }
+                },
+                _ => return Err(Error::CorruptDataDirectory),
+            };
+
+            if thunk_result == std::ptr::null_mut() {
+                return Err(Error::Win32Error(unsafe { GetLastError() }));
+            }
+
+            lookup_results.push(thunk_result);
+        }
+            
+        let mut address_table = match self.get_mut_first_thunk(pe) {
+            Ok(t) => t,
+            Err(e) => return Err(e),
+        };
+
+        if address_table.len() != lookup_results.len() {
+            return Err(Error::CorruptDataDirectory);
+        }
+
+        for i in 0..address_table.len() {
+            let lookup_entry = &lookup_results[i];
+            let address_entry = &mut address_table[i];
+                
+            match address_entry {
+                ThunkMut::Thunk32(ref mut t32) => **t32 = Thunk32(*lookup_entry as u32),
+                ThunkMut::Thunk64(ref mut t64) => **t64 = Thunk64(*lookup_entry as u64),
+            }
+        }
+
+        Ok(())
     }
 }
 
