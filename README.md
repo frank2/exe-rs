@@ -12,6 +12,7 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 * Only available for Windows: `PE` images can now be loaded and prepared for execution, see `PE::load_image`.
 ### Bugfixes
 * `PE` address conversion functions (e.g., `PE::offset_to_rva`) now validate their input addresses before recalculating.
+* fixed a bug in `Address::as_ptr` where addresses were not being translated between `PEType` images.
 
 ## 0.4.3
 ### Features
