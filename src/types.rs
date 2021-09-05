@@ -179,12 +179,12 @@ impl Address for RVA {
         pe.rva_to_va(*self)
     }
     fn as_ptr(&self, pe: &PE) -> Result<*const u8, Error> {
-        let offset = match self.as_offset(pe) {
+        let offset = match pe.translate(PETranslation::Memory(*self)) {
             Ok(o) => o,
             Err(e) => return Err(e),
         };
 
-        offset.as_ptr(pe)
+        unsafe { Ok(pe.buffer.offset_to_ptr(offset)) }
     }
 }
 
@@ -203,12 +203,12 @@ impl Address for VA32 {
         Ok(VA::VA32(self.clone()))
     }
     fn as_ptr(&self, pe: &PE) -> Result<*const u8, Error> {
-        let offset = match self.as_offset(pe) {
-            Ok(o) => o,
+        let rva = match self.as_rva(pe) {
+            Ok(r) => r,
             Err(e) => return Err(e),
         };
 
-        offset.as_ptr(pe)
+        rva.as_ptr(pe)
     }
 }
 
@@ -227,12 +227,12 @@ impl Address for VA64 {
         Ok(VA::VA64(self.clone()))
     }
     fn as_ptr(&self, pe: &PE) -> Result<*const u8, Error> {
-        let offset = match self.as_offset(pe) {
-            Ok(o) => o,
+        let rva = match self.as_rva(pe) {
+            Ok(r) => r,
             Err(e) => return Err(e),
         };
 
-        offset.as_ptr(pe)
+        rva.as_ptr(pe)
     }
 }
 
@@ -253,12 +253,12 @@ impl Address for VA {
         Ok(self.clone())
     }
     fn as_ptr(&self, pe: &PE) -> Result<*const u8, Error> {
-        let offset = match self.as_offset(pe) {
-            Ok(o) => o,
+        let rva = match self.as_rva(pe) {
+            Ok(r) => r,
             Err(e) => return Err(e),
         };
 
-        offset.as_ptr(pe)
+        rva.as_ptr(pe)
     }
 }
 
