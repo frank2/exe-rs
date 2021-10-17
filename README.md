@@ -5,6 +5,12 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 
 # Changelog
 
+## 0.4.5
+### Features
+* Errors now feature more context! For example, `InvalidRVA` now contains the offending RVA. See the docs for more details!
+### Bugfixes
+* `Error` now implements the `std::error::Error` trait and `std::fmt::Display` trait, thanks to p0lloloco for reporting!
+
 ## 0.4.4
 ### Features
 * Only available for Windows: `Buffer` objects can now be allocated directly with the `Buffer::virtual_alloc` function, see the docs for more.
