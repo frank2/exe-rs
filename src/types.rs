@@ -392,7 +392,7 @@ impl<'data> ImportDirectory<'data> {
         };
 
         if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
-            return Err(Error::InvalidRVA);
+            return Err(Error::InvalidRVA(dir.virtual_address));
         }
 
         let mut address = match pe.translate(PETranslation::Memory(dir.virtual_address)) {
@@ -404,7 +404,7 @@ impl<'data> ImportDirectory<'data> {
 
         loop {
             if !pe.validate_offset(address) {
-                return Err(Error::InvalidOffset);
+                return Err(Error::InvalidOffset(address));
             }
 
             match pe.buffer.get_ref::<ImageImportDescriptor>(address) {
@@ -426,7 +426,7 @@ impl<'data> ImportDirectory<'data> {
         };
 
         if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
-            return Err(Error::InvalidRVA);
+            return Err(Error::InvalidRVA(dir.virtual_address));
         }
 
         let offset = match pe.translate(PETranslation::Memory(dir.virtual_address)) {
@@ -493,7 +493,7 @@ impl<'data> ImportDirectoryMut<'data> {
         };
 
         if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
-            return Err(Error::InvalidRVA);
+            return Err(Error::InvalidRVA(dir.virtual_address));
         }
 
         let offset = match pe.translate(PETranslation::Memory(dir.virtual_address)) {
@@ -792,21 +792,21 @@ impl<'data> RelocationEntryMut<'data> {
         let word_size = mem::size_of::<u16>();
 
         if !pe.buffer.validate_ptr(ptr) {
-            return Err(Error::BadPointer);
+            return Err(Error::BadPointer(ptr));
         }
 
         let base_relocation = &mut *(ptr as *mut ImageBaseRelocation);
         let relocations_ptr = ptr.add(relocation_size);
 
         if !pe.buffer.validate_ptr(relocations_ptr) {
-            return Err(Error::BadPointer);
+            return Err(Error::BadPointer(relocations_ptr));
         }
 
         let block_size = ( (base_relocation.size_of_block as usize) - relocation_size) / word_size;
         let end = relocations_ptr.add((block_size * word_size) - 1);
 
         if !pe.buffer.validate_ptr(end) {
-            return Err(Error::BadPointer)
+            return Err(Error::BadPointer(end));
         }
             
         let relocations: &'data mut [Relocation] = slice::from_raw_parts_mut(relocations_ptr as *mut Relocation, block_size);
@@ -870,14 +870,14 @@ impl<'data> RelocationDirectory<'data> {
         };
         
         if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
-            return Err(Error::InvalidRVA);
+            return Err(Error::InvalidRVA(dir.virtual_address));
         }
 
         let mut start_addr = dir.virtual_address.clone();
         let end_addr = RVA(start_addr.0 + dir.size);
 
         if !pe.validate_rva(end_addr) {
-            return Err(Error::InvalidRVA);
+            return Err(Error::InvalidRVA(end_addr));
         }
 
         let mut entries = Vec::<RelocationEntry>::new();
@@ -944,7 +944,7 @@ impl<'data> RelocationDirectory<'data> {
             let offset_ptr = unsafe { ptr.add(offset.0 as usize) };
 
             if !pe.buffer.validate_ptr(offset_ptr) {
-                return Err(Error::BadPointer);
+                return Err(Error::BadPointer(offset_ptr));
             }
 
             unsafe {
@@ -969,7 +969,7 @@ impl<'data> RelocationDirectory<'data> {
         };
         
         if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
-            return Err(Error::InvalidRVA);
+            return Err(Error::InvalidRVA(dir.virtual_address));
         }
 
         // first, turn all the relocations into owned objects
@@ -1063,14 +1063,14 @@ impl<'data> RelocationDirectoryMut<'data> {
         };
         
         if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
-            return Err(Error::InvalidRVA);
+            return Err(Error::InvalidRVA(dir.virtual_address));
         }
 
         let start_addr = dir.virtual_address.clone();
         let end_addr = RVA(start_addr.0 + dir.size);
 
         if !pe.validate_rva(end_addr) {
-            return Err(Error::InvalidRVA);
+            return Err(Error::InvalidRVA(end_addr));
         }
 
         let start_offset = match pe.translate(PETranslation::Memory(start_addr)) {
@@ -1150,7 +1150,7 @@ impl<'data> RelocationDirectoryMut<'data> {
             let offset_ptr = unsafe { ptr.add(offset.0 as usize) };
 
             if !pe.buffer.validate_ptr(offset_ptr) {
-                return Err(Error::BadPointer);
+                return Err(Error::BadPointer(offset_ptr));
             }
 
             unsafe {
@@ -1175,7 +1175,7 @@ impl<'data> RelocationDirectoryMut<'data> {
         };
         
         if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
-            return Err(Error::InvalidRVA);
+            return Err(Error::InvalidRVA(dir.virtual_address));
         }
 
         // first, turn all the relocations into owned objects
@@ -1425,7 +1425,7 @@ impl<'data> ResourceNode<'data> {
         };
         
         if !pe.validate_offset(image_offset) {
-            return Err(Error::InvalidRVA)
+            return Err(Error::InvalidOffset(image_offset));
         }
        
         let directory = match pe.buffer.get_ref::<ImageResourceDirectory>(image_offset) {
@@ -1436,7 +1436,7 @@ impl<'data> ResourceNode<'data> {
         image_offset.0 += mem::size_of::<ImageResourceDirectory>() as u32;
 
         if !pe.validate_offset(image_offset) {
-            return Err(Error::InvalidRVA)
+            return Err(Error::InvalidOffset(image_offset));
         }
         
         let entries = match pe.buffer.get_slice_ref::<ImageResourceDirectoryEntry>(image_offset, directory.entries()) {
@@ -1470,7 +1470,7 @@ impl<'data> ResourceNodeMut<'data> {
         };
         
         if !pe.validate_offset(image_offset) {
-            return Err(Error::InvalidRVA)
+            return Err(Error::InvalidOffset(image_offset));
         }
 
         unsafe {
@@ -1485,7 +1485,7 @@ impl<'data> ResourceNodeMut<'data> {
     /// unless you really need to use a pointer, as that function has more rigorous address checking.
     pub unsafe fn parse_unsafe(pe: &'data PE, mut ptr: *mut u8) -> Result<Self, Error> {
         if !pe.buffer.validate_ptr(ptr) {
-            return Err(Error::BadPointer);
+            return Err(Error::BadPointer(ptr));
         }
             
         let directory = &mut *(ptr as *mut ImageResourceDirectory);
@@ -1493,7 +1493,7 @@ impl<'data> ResourceNodeMut<'data> {
         ptr = ptr.add(mem::size_of::<ImageResourceDirectory>());
             
         if !pe.buffer.validate_ptr(ptr as *const u8) {
-            return Err(Error::BadPointer)
+            return Err(Error::BadPointer(ptr as *const u8));
         }
         
         let entries = slice::from_raw_parts_mut(ptr as *mut ImageResourceDirectoryEntry, directory.entries());
@@ -1654,13 +1654,13 @@ impl<'data> ResourceDirectoryMut<'data> {
                 };
 
                 if id_offset.0 > dir_size {
-                    return Err(Error::BufferTooSmall);
+                    return Err(Error::BufferTooSmall(dir_size as usize, id_offset.0 as usize));
                 }
 
                 let id_ptr = ptr.add(id_offset.0 as usize);
 
                 if !pe.buffer.validate_ptr(id_ptr as *const u8) {
-                    return Err(Error::BadPointer);
+                    return Err(Error::BadPointer(id_ptr as *const u8));
                 }
             
                 let id_node = match ResourceNodeMut::parse_unsafe(pe, id_ptr) {
@@ -1675,13 +1675,13 @@ impl<'data> ResourceDirectoryMut<'data> {
                     };
 
                     if lang_offset.0 > dir_size {
-                        return Err(Error::BufferTooSmall);
+                        return Err(Error::BufferTooSmall(dir_size as usize, lang_offset.0 as usize));
                     }
 
                     let lang_ptr = ptr.add(lang_offset.0 as usize);
 
                     if !pe.buffer.validate_ptr(lang_ptr as *const u8) {
-                        return Err(Error::BadPointer);
+                        return Err(Error::BadPointer(lang_ptr as *const u8));
                     }
 
                     let lang_node = match ResourceNodeMut::parse_unsafe(pe, lang_ptr) {

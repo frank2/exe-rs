@@ -48,6 +48,8 @@ use hex;
 use std::clone::Clone;
 use std::cmp;
 use std::convert::AsRef;
+use std::error;
+use std::fmt;
 use std::fs;
 use std::io::{Error as IoError};
 use std::mem;
@@ -58,41 +60,112 @@ use std::slice;
 /// Errors produced by the library.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Error {
-    /// The buffer operation requested is invalid for the type.
-    InvalidBufferOperation,
     /// The PE buffer was too small to complete the operation.
-    BufferTooSmall,
+    ///
+    /// Arg0 is the current length, arg1 is the offending length.
+    BufferTooSmall(usize, usize),
     /// The PE file has an invalid DOS signature.
-    InvalidDOSSignature,
+    ///
+    /// Arg0 is the offending signature.
+    InvalidDOSSignature(u16),
     /// The header is not aligned correctly.
     BadAlignment,
     /// The PE file has an invalid PE signature.
-    InvalidPESignature,
+    ///
+    /// Arg0 is the offending signature.
+    InvalidPESignature(u32),
     /// The PE file has an invalid NT signature.
-    InvalidNTSignature,
+    ///
+    /// Arg0 is the offending signature.
+    InvalidNTSignature(u16),
     /// The offset provided or generated resulted in an invalid offset value.
-    InvalidOffset,
+    ///
+    /// Arg0 is the offending offset.
+    InvalidOffset(Offset),
     /// The RVA provided or generated resulted in an invalid RVA value.
-    InvalidRVA,
+    ///
+    /// Arg0 is the offending RVA.
+    InvalidRVA(RVA),
     /// The VA provided or generated resulted in an invalid VA value.
-    InvalidVA,
+    ///
+    /// Arg0 is the offending VA.
+    InvalidVA(VA),
     /// The PE section was not found given the search criteria (e.g., an RVA value)
     SectionNotFound,
     /// The pointer provided or generated did not fit in the range of the buffer.
-    BadPointer,
+    ///
+    /// Arg0 is the offending pointer.
+    BadPointer(*const u8),
     /// The data directory requested is currently unsupported.
-    UnsupportedDirectory,
+    ///
+    /// Arg0 is the unsupported directory entry.
+    UnsupportedDirectory(ImageDirectoryEntry),
     /// The relocation entry is invalid.
     InvalidRelocation,
     /// The provided directory is not available.
-    BadDirectory,
+    ///
+    /// Arg0 is the unavailable directory entry.
+    BadDirectory(ImageDirectoryEntry),
     /// The data directory is corrupt and cannot be parsed.
     CorruptDataDirectory,
     /// The architecture of the Rust binary and the given PE file do not match.
-    ArchMismatch,
+    ///
+    /// Arg0 represents the expected arch, arg1 represents the offending arch.
+    ArchMismatch(Arch, Arch),
     /// Only available on Windows. The function returned a Win32 error.
+    ///
+    /// Arg0 represents the Win32 error.
     #[cfg(windows)]
     Win32Error(u32),
+}
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::BufferTooSmall(expected, got) =>
+                write!(f, "The PE buffer was too small to complete the operation. Buffer length is {}, got {}.", expected, got),
+            Error::InvalidDOSSignature(sig) =>
+                write!(f, "The PE file has an invalid DOS signature: {:#x}", sig),
+            Error::BadAlignment =>
+                write!(f, "The header is not aligned correctly."),
+            Error::InvalidPESignature(sig) =>
+                write!(f, "The PE file has an invalid PE signature: {:#x}", sig),
+            Error::InvalidNTSignature(sig) =>
+                write!(f, "The PE file has an invalid NT signature: {:#x}", sig),
+            Error::InvalidOffset(offset) =>
+                write!(f, "The offset provided or generated resulted in an invalid offset value: {:#x}", offset.0),
+            Error::InvalidRVA(rva) =>
+                write!(f, "The RVA provided or generated resulted in an invalid RVA value: {:#x}", rva.0),
+            Error::InvalidVA(va) => {
+                let va_value = match va {
+                    VA::VA32(va32) => va32.0 as u64,
+                    VA::VA64(va64) => va64.0,
+                };
+
+                write!(f, "The VA provided or generated resulted in an invalid VA value: {:#x}", va_value)
+            },
+            Error::SectionNotFound =>
+                write!(f, "The PE section was not found given the search criteria."),
+            Error::BadPointer(ptr) =>
+                write!(f, "The pointer provided or generated did not fit in the range of the buffer: {:p}", ptr),
+            Error::UnsupportedDirectory(data_dir) =>
+                write!(f, "The data directory requested is currently unsupported: {:?}", data_dir),
+            Error::InvalidRelocation =>
+                write!(f, "The relocation entry is invalid."),
+            Error::BadDirectory(data_dir) =>
+                write!(f, "The provided directory is not available in the PE: {:?}", data_dir),
+            Error::CorruptDataDirectory =>
+                write!(f, "The data directory is corrupt and cannot be parsed."),
+            Error::ArchMismatch(expected, got) =>
+                write!(f, "The architecture of the Rust binary and the given PE file do not match: expected {:?}, got {:?}", expected, got),
+            #[cfg(windows)] Error::Win32Error(err) => write!(f, "The function returned a Win32 error: {:#x}", err),
+        }
+    }
+}
+impl error::Error for Error {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        // all errors are sourced from this library, so no errors are underlying
+        None
+    }
 }
 
 /// An enum to tag the PE file with what its memory map looks like.
@@ -191,13 +264,13 @@ impl PE {
         let dos_header = &*(ptr as *const ImageDOSHeader);
 
         if dos_header.e_magic != DOS_SIGNATURE {
-            return Err(Error::InvalidDOSSignature);
+            return Err(Error::InvalidDOSSignature(dos_header.e_magic));
         }
 
         let nt_header = &*(ptr.add(dos_header.e_lfanew.0 as usize) as *const ImageNTHeaders32);
 
         if nt_header.signature != NT_SIGNATURE {
-            return Err(Error::InvalidPESignature);
+            return Err(Error::InvalidPESignature(nt_header.signature));
         }
 
         let image_size;
@@ -210,7 +283,7 @@ impl PE {
             image_size = nt_header_64.optional_header.size_of_image as usize;
         }
         else {
-            return Err(Error::InvalidNTSignature);
+            return Err(Error::InvalidNTSignature(nt_header.optional_header.magic));
         }
 
         Ok(Self {
@@ -225,13 +298,13 @@ impl PE {
         let dos_header = &*(ptr as *const ImageDOSHeader);
 
         if dos_header.e_magic != DOS_SIGNATURE {
-            return Err(Error::InvalidDOSSignature);
+            return Err(Error::InvalidDOSSignature(dos_header.e_magic));
         }
 
         let nt_header = &*(ptr.add(dos_header.e_lfanew.0 as usize) as *const ImageNTHeaders32);
 
         if nt_header.signature != NT_SIGNATURE {
-            return Err(Error::InvalidPESignature);
+            return Err(Error::InvalidPESignature(nt_header.signature));
         }
 
         let image_size;
@@ -244,7 +317,7 @@ impl PE {
             image_size = nt_header_64.optional_header.size_of_image as usize;
         }
         else {
-            return Err(Error::InvalidNTSignature);
+            return Err(Error::InvalidNTSignature(nt_header.optional_header.magic));
         }
 
         Ok(Self {
@@ -296,7 +369,7 @@ impl PE {
         };
 
         if dos_header.e_magic != DOS_SIGNATURE {
-            return Err(Error::InvalidDOSSignature);
+            return Err(Error::InvalidDOSSignature(dos_header.e_magic));
         }
 
         Ok(dos_header)
@@ -309,7 +382,7 @@ impl PE {
         };
 
         if dos_header.e_magic != DOS_SIGNATURE {
-            return Err(Error::InvalidDOSSignature);
+            return Err(Error::InvalidDOSSignature(dos_header.e_magic));
         }
 
         Ok(dos_header)
@@ -375,11 +448,11 @@ impl PE {
         };
 
         if nt_headers.signature != NT_SIGNATURE {
-            return Err(Error::InvalidPESignature);
+            return Err(Error::InvalidPESignature(nt_headers.signature));
         }
 
         if nt_headers.optional_header.magic != HDR32_MAGIC {
-            return Err(Error::InvalidNTSignature);
+            return Err(Error::InvalidNTSignature(nt_headers.optional_header.magic));
         }
 
         Ok(nt_headers)
@@ -401,11 +474,11 @@ impl PE {
         };
 
         if nt_headers.signature != NT_SIGNATURE {
-            return Err(Error::InvalidPESignature);
+            return Err(Error::InvalidPESignature(nt_headers.signature));
         }
 
         if nt_headers.optional_header.magic != HDR32_MAGIC {
-            return Err(Error::InvalidNTSignature);
+            return Err(Error::InvalidNTSignature(nt_headers.optional_header.magic));
         }
 
         Ok(nt_headers)
@@ -445,11 +518,11 @@ impl PE {
         };
 
         if nt_headers.signature != NT_SIGNATURE {
-            return Err(Error::InvalidPESignature);
+            return Err(Error::InvalidPESignature(nt_headers.signature));
         }
 
         if nt_headers.optional_header.magic != HDR64_MAGIC {
-            return Err(Error::InvalidNTSignature);
+            return Err(Error::InvalidNTSignature(nt_headers.optional_header.magic));
         }
         
         Ok(nt_headers)
@@ -471,11 +544,11 @@ impl PE {
         };
 
         if nt_headers.signature != NT_SIGNATURE {
-            return Err(Error::InvalidPESignature);
+            return Err(Error::InvalidPESignature(nt_headers.signature));
         }
 
         if nt_headers.optional_header.magic != HDR64_MAGIC {
-            return Err(Error::InvalidNTSignature);
+            return Err(Error::InvalidNTSignature(nt_headers.optional_header.magic));
         }
 
         Ok(nt_headers)
@@ -496,7 +569,7 @@ impl PE {
             Ok(m) => match m {
                 HDR32_MAGIC => Ok(Arch::X86),
                 HDR64_MAGIC => Ok(Arch::X64),
-                _ => return Err(Error::InvalidNTSignature),
+                _ => return Err(Error::InvalidNTSignature(m)),
             },
             Err(e) => Err(e),
         }
@@ -538,7 +611,7 @@ impl PE {
             }
         }
         else {
-            Err(Error::InvalidNTSignature)
+            Err(Error::InvalidNTSignature(magic))
         }
     }
     /// Get mutable NT headers of this PE file, inferring from the content of the file which architecture it is and
@@ -562,7 +635,7 @@ impl PE {
             }
         }
         else {
-            Err(Error::InvalidNTSignature)
+            Err(Error::InvalidNTSignature(magic))
         }
     }
 
@@ -607,8 +680,9 @@ impl PE {
             let data: Vec<u8> = match self.buffer.read(offset, 4) {
                 Ok(d) => d.iter().cloned().collect(),
                 Err(e) => {
-                    if e != Error::BufferTooSmall {
-                        return Err(e);
+                    match e {
+                        Error::BufferTooSmall(_, _) => (),
+                        _ => return Err(e),
                     }
 
                     let real_size = eof - i;
@@ -694,7 +768,7 @@ impl PE {
         let offset = Offset(e_lfanew.0 + (header_size as u32));
 
         if !self.validate_offset(offset) {
-            return Err(Error::BufferTooSmall);
+            return Err(Error::InvalidOffset(offset));
         }
 
         Ok(offset)
@@ -765,7 +839,7 @@ impl PE {
         let index = dir as usize;
 
         if index >= directory_table.len() {
-            return Err(Error::BadDirectory);
+            return Err(Error::BadDirectory(dir));
         }
 
         Ok(&directory_table[index])
@@ -779,7 +853,7 @@ impl PE {
         let index = dir as usize;
 
         if index >= directory_table.len() {
-            return Err(Error::BadDirectory);
+            return Err(Error::BadDirectory(dir));
         }
 
         Ok(&mut directory_table[index])
@@ -843,7 +917,7 @@ impl PE {
         offset += size_of_optional as u32;
 
         if !self.validate_offset(Offset(offset)) {
-            return Err(Error::BufferTooSmall);
+            return Err(Error::InvalidOffset(Offset(offset)));
         }
 
         Ok(Offset(offset))
@@ -1173,7 +1247,7 @@ impl PE {
     /// RVA is invalid or if the section it was transposed from no longer contains it.
     pub fn offset_to_rva(&self, offset: Offset) -> Result<RVA, Error> {
         if !self.validate_offset(offset) {
-            return Err(Error::InvalidOffset);
+            return Err(Error::InvalidOffset(offset));
         }
         
         let section = match self.get_section_by_offset(offset) {
@@ -1184,7 +1258,7 @@ impl PE {
                 }
 
                 if !self.validate_rva(RVA(offset.0)) {
-                    return Err(Error::InvalidRVA);
+                    return Err(Error::InvalidRVA(RVA(offset.0)));
                 }
 
                 return Ok(RVA(offset.0));
@@ -1198,7 +1272,7 @@ impl PE {
         let final_rva = RVA(rva);
 
         if !self.validate_rva(final_rva) || !section.has_rva(final_rva) {
-            return Err(Error::InvalidRVA);
+            return Err(Error::InvalidRVA(final_rva));
         }
 
         Ok(RVA(rva))
@@ -1206,7 +1280,7 @@ impl PE {
     /// Convert an offset to a VA address.
     pub fn offset_to_va(&self, offset: Offset) -> Result<VA, Error> {
         if !self.validate_offset(offset) {
-            return Err(Error::InvalidOffset);
+            return Err(Error::InvalidOffset(offset));
         }
 
         let rva = match self.offset_to_rva(offset) {
@@ -1221,7 +1295,7 @@ impl PE {
     /// the produced offset is invalid or if the section it was transposed from no longer contains it.
     pub fn rva_to_offset(&self, rva: RVA) -> Result<Offset, Error> {
         if !self.validate_rva(rva) {
-            return Err(Error::InvalidRVA);
+            return Err(Error::InvalidRVA(rva));
         }
 
         let section = match self.get_section_by_rva(rva) {
@@ -1232,7 +1306,7 @@ impl PE {
                 }
 
                 if !self.validate_offset(Offset(rva.0)) {
-                    return Err(Error::InvalidOffset);
+                    return Err(Error::InvalidOffset(Offset(rva.0)));
                 }
 
                 return Ok(Offset(rva.0));
@@ -1246,7 +1320,7 @@ impl PE {
         let final_offset = Offset(offset);
 
         if !self.validate_offset(final_offset) || !section.has_offset(final_offset) {
-            return Err(Error::InvalidOffset);
+            return Err(Error::InvalidOffset(final_offset));
         }
 
         Ok(Offset(offset))
@@ -1255,7 +1329,7 @@ impl PE {
     /// VA is invalid.
     pub fn rva_to_va(&self, rva: RVA) -> Result<VA, Error> {
         if !self.validate_rva(rva) {
-            return Err(Error::InvalidRVA);
+            return Err(Error::InvalidRVA(rva));
         }
 
         let image_base = match self.get_image_base() {
@@ -1274,7 +1348,7 @@ impl PE {
         };
 
         if !self.validate_va(va) {
-            return Err(Error::InvalidVA);
+            return Err(Error::InvalidVA(va));
         }
 
         Ok(va)
@@ -1284,7 +1358,7 @@ impl PE {
     /// is invalid.
     pub fn va_to_rva(&self, va: VA) -> Result<RVA, Error> {
         if !self.validate_va(va) {
-            return Err(Error::InvalidVA);
+            return Err(Error::InvalidVA(va));
         }
 
         let image_base = match self.get_image_base() {
@@ -1298,7 +1372,7 @@ impl PE {
         };
 
         if !self.validate_rva(rva) {
-            return Err(Error::InvalidRVA);
+            return Err(Error::InvalidRVA(rva));
         }
 
         Ok(rva)
@@ -1306,7 +1380,7 @@ impl PE {
     /// Converts a VA to an offset.
     pub fn va_to_offset(&self, va: VA) -> Result<Offset, Error> {
         if !self.validate_va(va) {
-            return Err(Error::InvalidVA);
+            return Err(Error::InvalidVA(va));
         }
 
         let rva = match self.va_to_rva(va) {
@@ -1328,11 +1402,11 @@ impl PE {
         };
 
         if offset.0 > dir.size {
-            return Err(Error::BufferTooSmall);
+            return Err(Error::BufferTooSmall(dir.size as usize, offset.0 as usize));
         }
 
         if dir.virtual_address.0 == 0 || !self.validate_rva(dir.virtual_address) {
-            return Err(Error::InvalidRVA);
+            return Err(Error::InvalidRVA(dir.virtual_address));
         }
 
         Ok(RVA(dir.virtual_address.0 + offset.0))
@@ -1662,8 +1736,8 @@ impl PE {
     pub fn load_image(&self) -> Result<PE, Error> {
         match self.get_arch() {
             Ok(a) => match a {
-                Arch::X86 => { if std::mem::size_of::<usize>() == 8 { return Err(Error::ArchMismatch); } },
-                Arch::X64 => { if std::mem::size_of::<usize>() == 4 { return Err(Error::ArchMismatch); } },
+                Arch::X86 => { if std::mem::size_of::<usize>() == 8 { return Err(Error::ArchMismatch(Arch::X86, a)); } },
+                Arch::X64 => { if std::mem::size_of::<usize>() == 4 { return Err(Error::ArchMismatch(Arch::X64, a)); } },
             },
             Err(e) => return Err(e),
         }

@@ -333,14 +333,14 @@ impl Buffer {
     /// isn't in the buffer range.
     pub fn ptr_to_offset(&self, ptr: *const u8) -> Result<Offset, Error> {
         if !self.validate_ptr(ptr) {
-            return Err(Error::BadPointer);
+            return Err(Error::BadPointer(ptr));
         }
         
         let delta = (ptr as usize) - (self.as_ptr() as usize);
 
         /* executables greater than 4GB are unsupported */
         if delta > (u32::MAX as usize) {
-            Err(Error::BadPointer)
+            Err(Error::BadPointer(ptr))
         }
         else {
             Ok(Offset(delta as u32))
@@ -388,7 +388,7 @@ impl Buffer {
         let end = t_size+offset.0 as usize;
 
         if end > self.len() {
-            return Err(Error::BufferTooSmall);
+            return Err(Error::BufferTooSmall(self.len(), end));
         }
 
         unsafe {
@@ -402,7 +402,7 @@ impl Buffer {
         let end = t_size+offset.0 as usize;
 
         if end > self.len() {
-            return Err(Error::BufferTooSmall);
+            return Err(Error::BufferTooSmall(self.len(), end));
         }
 
         unsafe {
@@ -436,7 +436,7 @@ impl Buffer {
         let end = t_size+offset.0 as usize;
 
         if end > self.len() {
-            return Err(Error::BufferTooSmall);
+            return Err(Error::BufferTooSmall(self.len(), end));
         }
 
         unsafe {
@@ -450,7 +450,7 @@ impl Buffer {
         let end = t_size+offset.0 as usize;
 
         if end > self.len() {
-            return Err(Error::BufferTooSmall);
+            return Err(Error::BufferTooSmall(self.len(), end));
         }
 
         unsafe {
@@ -475,7 +475,7 @@ impl Buffer {
         };
 
         if end > self.len() {
-            return Err(Error::BufferTooSmall);
+            return Err(Error::BufferTooSmall(self.len(), end));
         }
 
         let mut cursor = Cursor::new(self.as_slice());
@@ -487,7 +487,7 @@ impl Buffer {
             let val = cursor.read_u8();
 
             match val {
-                Err(_) => return Err(Error::BufferTooSmall),
+                Err(_) => return Err(Error::BufferTooSmall(self.len(), i as usize)),
                 Ok(v) => match v {
                     0 => { index = i; break; },
                     _ => ()
@@ -512,7 +512,7 @@ impl Buffer {
         };
 
         if end > self.len() {
-            return Err(Error::BufferTooSmall);
+            return Err(Error::BufferTooSmall(self.len(), end));
         }
 
         let mut cursor = Cursor::new(self.as_slice());
@@ -524,7 +524,7 @@ impl Buffer {
             let val = cursor.read_u16::<LittleEndian>();
 
             match val {
-                Err(_) => return Err(Error::BufferTooSmall),
+                Err(_) => return Err(Error::BufferTooSmall(self.len(), i as usize)),
                 Ok(v) => match v {
                     0 => { index = i; break; },
                     _ => ()
@@ -597,7 +597,7 @@ impl Buffer {
         let end = size+offset.0 as usize;
 
         if end > self.len() {
-            return Err(Error::BufferTooSmall);
+            return Err(Error::BufferTooSmall(self.len(), end));
         }
 
         let from_ptr = data.as_ptr();
@@ -621,7 +621,7 @@ impl Buffer {
     /// Search for a slice of data in the buffer. Returns an empty vector if nothing is found.
     pub fn search_slice(&self, search: &[u8]) -> Result<Vec<Offset>, Error> {
         if search.len() > self.len() {
-            return Err(Error::BufferTooSmall);
+            return Err(Error::BufferTooSmall(self.len(), search.len()));
         }
 
         let buffer_data = self.as_slice();
