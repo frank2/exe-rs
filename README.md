@@ -8,6 +8,7 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 ## 0.4.6
 ### Features
 * PE images can now be created from a `&[u8]` of assembly data. This is useful for quickly turning raw assembly into an executable! See `PEImage::from_assembly`.
+* Export names can now be acquired by hash algorithm, see `ExportDirectory::get_export_name_by_hash`.
 
 ## 0.4.5
 ### Features
