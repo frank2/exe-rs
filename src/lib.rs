@@ -1934,6 +1934,70 @@ impl PEImage {
     pub fn from_memory_data(data: &[u8]) -> Self {
         Self::from_data(PEType::Memory, data)
     }
+    /// Creates a new PE file from a buffer of assembly. Useful for converting shellcode into a binary.
+    ///
+    /// Returns [`InvalidOffset`](Error::InvalidOffset) if the offset given doesn't point at code.
+    pub fn from_assembly(arch: Arch, asm_data: &[u8], entrypoint: Offset) -> Result<Self, Error> {
+        let mut result = Self::new_disk(0x400);
+
+        match result.write_ref(Offset(0), &ImageDOSHeader::default()) {
+            Ok(()) => (),
+            Err(e) => return Err(e),
+        }
+        
+        let e_lfanew = match result.pe.e_lfanew() {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
+
+        match arch {
+            Arch::X86 => match result.write_ref(e_lfanew, &ImageNTHeaders32::default()) {
+                Ok(()) => (),
+                Err(e) => return Err(e),
+            },
+            Arch::X64 => match result.write_ref(e_lfanew, &ImageNTHeaders64::default()) {
+                Ok(()) => (),
+                Err(e) => return Err(e),
+            },
+        }
+
+        let mut new_section = ImageSectionHeader::default();
+        new_section.set_name(Some(".text"));
+
+        let mut appended_section = match result.pe.append_section(&new_section) {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+        
+        appended_section.size_of_raw_data = asm_data.len() as u32;
+        appended_section.virtual_size = appended_section.size_of_raw_data;
+        appended_section.characteristics = SectionCharacteristics::MEM_EXECUTE
+            | SectionCharacteristics::MEM_READ
+            | SectionCharacteristics::CNT_CODE;
+
+        let new_entrypoint = RVA(entrypoint.0 + appended_section.virtual_address.0);
+
+        match result.pe.fix_image_size() {
+            Ok(()) => (),
+            Err(e) => return Err(e),
+        }
+
+        if !result.pe.validate_rva(new_entrypoint) {
+            return Err(Error::InvalidOffset(entrypoint));
+        }
+
+        result.append(&mut asm_data.to_vec());
+
+        match result.pe.get_valid_mut_nt_headers() {
+            Ok(ref mut h) => match h {
+                NTHeadersMut::NTHeaders32(ref mut h32) => h32.optional_header.address_of_entry_point = new_entrypoint,
+                NTHeadersMut::NTHeaders64(ref mut h64) => h64.optional_header.address_of_entry_point = new_entrypoint,
+            },
+            Err(e) => return Err(e),
+        }
+
+        Ok(result)
+    }
     
     fn reset_pe(&mut self) {
         self.pe = PE::new_mut(self.pe.pe_type, unsafe { slice::from_raw_parts_mut(self.data.as_mut_ptr(), self.data.len()) });
