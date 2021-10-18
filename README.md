@@ -7,7 +7,7 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 
 ## 0.4.6
 ### Features
-* PE images can now be created from a `Vec<u8` of assembly data. This is useful for quickly turning raw assembly into an executable! See `PEImage::from_assembly`.
+* PE images can now be created from a `&[u8]` of assembly data. This is useful for quickly turning raw assembly into an executable! See `PEImage::from_assembly`.
 
 ## 0.4.5
 ### Features
