@@ -826,6 +826,41 @@ impl ImageExportDirectory {
 
         Ok(result)
     }
+
+    /// Get an export name by a provided hash algorithm.
+    pub fn get_export_by_hash<'data, T>(&self, pe: &'data PE, hash_fn: fn(&str) -> T, hash_val: T) -> Result<Option<&'data str>, Error>
+    where
+        T: PartialEq
+    {
+        let names = match self.get_names(pe) {
+            Ok(n) => n,
+            Err(e) => return Err(e),
+        };
+
+        for index in 0u32..self.number_of_names {
+            let name_rva = names[index as usize];
+            if name_rva.0 == 0 { continue; }
+
+            let name_offset = match pe.translate(PETranslation::Memory(name_rva)) {
+                Ok(o) => o,
+                Err(e) => return Err(e),
+            };
+
+            let name = match pe.buffer.get_cstring(name_offset, false, None) {
+                Ok(s) => s,
+                Err(e) => return Err(e),
+            };
+
+            let name_str = name.as_str();
+            let hash_result = hash_fn(name_str);
+
+            if hash_result == hash_val {
+                return Ok(Some(name_str));
+            }
+        }
+
+        Ok(None)
+    }
 }
 
 #[repr(C)]
