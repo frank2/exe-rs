@@ -828,7 +828,7 @@ impl ImageExportDirectory {
     }
 
     /// Get an export name by a provided hash algorithm.
-    pub fn get_export_by_hash<'data, T>(&self, pe: &'data PE, hash_fn: fn(&str) -> T, hash_val: T) -> Result<Option<&'data str>, Error>
+    pub fn get_export_name_by_hash<'data, T>(&self, pe: &'data PE, hash_fn: fn(&str) -> T, hash_val: T) -> Result<Option<&'data str>, Error>
     where
         T: PartialEq
     {
