@@ -5,6 +5,10 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 
 # Changelog
 
+## 0.4.6
+### Features
+* PE images can now be created from a `Vec<u8` of assembly data. This is useful for quickly turning raw assembly into an executable! See `PEImage::from_assembly`.
+
 ## 0.4.5
 ### Features
 * Errors now feature more context! For example, `InvalidRVA` now contains the offending RVA. See the docs for more details!
