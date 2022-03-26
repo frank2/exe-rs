@@ -5,6 +5,32 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 
 # Changelog
 
+## 0.5.0
+**This update makes major code-breaking changes!** Notably, the buffer module has been moved into its own library called [pkbuffer](https://github.com/frank2/pkbuffer). This caused the whole library to need to be refactored, and ultimately changed the way the structures interact with the data! As a result, though, PE structure objects can retain buffer functionality without having to rely on interacting with a member of a struct (i.e., the pattern of "pefile.pe.buffer" is no longer necessary). The interface for buffer objects changed, though-- instead of requiring an explicit `Offset` object, they now take a `usize` as an offset. To make things simpler, `RVA` and `Offset` can now be explicitly converted into `usize` with the `Into` trait.
+
+This refactor has caused the main `PE` module to become a trait! This means you can now flexibly create your own `PE` object by implementing this trait as well as the `Buffer` trait on an object.
+
+### Features
+* library refactored to use [pkbuffer](https://github.com/frank2/pkbuffer)
+    * there are three main PE types now: `PtrPE` (for pointer-based PE data), `VecPE` (for owned PE data) and `VallocPE` for Windows (for data allocated with `VirtualAlloc`).
+    * `PEImage` has been renamed to `VecPE`
+    * `align` has been moved into the main module.
+    * `HashData` and `Entropy` traits have been moved into the main module.
+    * `PE` derived objects can now be used like `Buffer` objects.
+    * `BufferTooSmall` error has been renamed to `OutOfBounds` to match pkbuffer.
+    * `from_ptr` has been moved to `PtrPE` and renamed to `from_memory`
+    * `to_image` has been moved to `PtrPE` and renamed to `to_vecpe`
+    * the following PE functions are now their own functions:
+        * `find_embedded_images`
+        * `load_image`
+* `RVA` and `Offset` can now be converted into a `usize` via the `Into` trait.
+* `align` now takes generic unsigned integer types instead of just a `usize`, read the docs for more info.
+
+### Bugfixes
+* now using `AsRef`/`AsMut` in instances where `[u8]` is being used.
+* question mark operator used throughout the code instead of explicit match/return cases.
+* `Error` now implements `Send` and `Sync`, thanks to @[__the_sylph__](https://twitter.com/__the_sylph__/) for reporting this!
+
 ## 0.4.6
 ### Features
 * PE images can now be created from a `&[u8]` of assembly data. This is useful for quickly turning raw assembly into an executable! See `PEImage::from_assembly`.
