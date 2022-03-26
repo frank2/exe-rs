@@ -465,7 +465,9 @@ pub struct ImageSectionHeader {
     pub characteristics: SectionCharacteristics,
 }
 impl ImageSectionHeader {
-    /// Set the name of this section. The name will be truncated to eight bytes. If ```name``` is [`None`](Option::None), it
+    /// Set the name of this section.
+    ///
+    /// The name will be truncated to eight bytes. If ```name``` is [`None`](Option::None), it
     /// zeroes out the name field.
     pub fn set_name(&mut self, name: Option<&str>) {
         self.name.copy_from_slice((0..8)
@@ -512,20 +514,20 @@ impl ImageSectionHeader {
     }
     
     /// Check if the given section is aligned to the file boundary.
-    pub fn is_aligned_to_file(&self, pe: &PE) -> bool {
+    pub fn is_aligned_to_file<P: PE>(&self, pe: &P) -> bool {
         pe.is_aligned_to_file(self.pointer_to_raw_data)
     }
     /// Check if the given section is aligned to the section boundary.
-    pub fn is_aligned_to_section(&self, pe: &PE) -> bool {
+    pub fn is_aligned_to_section<P: PE>(&self, pe: &P) -> bool {
         pe.is_aligned_to_section(self.virtual_address)
     }
 
     /// Get the offset to the data this section represents. This essentially performs the same task as
     /// [`PE::translate`](PE::translate).
-    pub fn data_offset(&self, pe_type: PEType) -> Offset {
+    pub fn data_offset(&self, pe_type: PEType) -> usize {
         match pe_type {
-            PEType::Disk => self.pointer_to_raw_data,
-            PEType::Memory => Offset(self.virtual_address.0),
+            PEType::Disk => self.pointer_to_raw_data.into(),
+            PEType::Memory => self.virtual_address.into(),
         }
     }
 
@@ -540,34 +542,36 @@ impl ImageSectionHeader {
     /// Read a slice of the data this section represents.
     ///
     /// The address and size chosen is relative to the PE argument's [type](PEType).
-    pub fn read<'data>(&'data self, pe: &'data PE) -> Result<&'data [u8], Error> {
-        let offset = self.data_offset(pe.pe_type);
-        let size = self.data_size(pe.pe_type);
-
-        pe.buffer.read(offset, size)
+    pub fn read<'data, P: PE>(&'data self, pe: &'data P) -> Result<&'data [u8], Error> {
+        let offset = self.data_offset(pe.get_type());
+        let size = self.data_size(pe.get_type());
+        let result = pe.read(offset.into(), size)?;
+        Ok(result)
     }
     /// Read a mutable slice of the data this section represents.
     ///
     /// The address and size chosen is relative to the PE argument's [type](PEType).
-    pub fn read_mut<'data>(&'data self, pe: &'data mut PE) -> Result<&'data mut [u8], Error> {
-        let offset = self.data_offset(pe.pe_type);
-        let size = self.data_size(pe.pe_type);
-
-        pe.buffer.read_mut(offset, size)
+    pub fn read_mut<'data, P: PE>(&'data self, pe: &'data mut P) -> Result<&'data mut [u8], Error> {
+        let offset = self.data_offset(pe.get_type());
+        let size = self.data_size(pe.get_type());
+        let result = pe.read_mut(offset.into(), size)?;
+        Ok(result)
     }
-    /// Write data to this section. It returns [`Error::BufferTooSmall`](Error::BufferTooSmall) if the data
-    /// overflows the section.
+    /// Write data to this section.
     ///
+    /// It returns [`Error::OutOfBounds`](Error::OutOfBounds) if the data overflows the section.
     /// The address and size chosen is relative to the PE argument's [type](PEType).
-    pub fn write(&self, pe: &mut PE, data: &[u8]) -> Result<(), Error> {
-        let offset = self.data_offset(pe.pe_type);
-        let size = self.data_size(pe.pe_type);
+    pub fn write<P: PE, B: AsRef<[u8]>>(&self, pe: &mut P, data: B) -> Result<(), Error> {
+        let buf = data.as_ref();
+        let offset = self.data_offset(pe.get_type());
+        let size = self.data_size(pe.get_type());
 
-        if data.len() > size {
-            return Err(Error::BufferTooSmall(size, data.len()));
+        if buf.len() > size {
+            return Err(Error::OutOfBounds(size, buf.len()));
         }
 
-        pe.buffer.write(offset, data)
+        pe.write(offset, buf)?;
+        Ok(())
     }
 }
 impl Default for ImageSectionHeader {
@@ -587,7 +591,6 @@ impl Default for ImageSectionHeader {
     }
 }
     
-
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum ImageDirectoryEntry {
     Export         = 0,
@@ -616,30 +619,24 @@ pub struct ImageDataDirectory {
 }
 impl ImageDataDirectory {
     /// Parse an object at the given data directory
-    pub fn cast<'data, T>(&self, pe: &'data PE) -> Result<&'data T, Error> {
+    pub fn cast<'data, T, P: PE>(&self, pe: &'data P) -> Result<&'data T, Error> {
         if self.virtual_address.0 == 0 || !pe.validate_rva(self.virtual_address) {
             return Err(Error::InvalidRVA(self.virtual_address));
         }
 
-        let offset = match pe.translate(PETranslation::Memory(self.virtual_address)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
-        pe.buffer.get_ref::<T>(offset)
+        let offset = pe.translate(PETranslation::Memory(self.virtual_address))?;
+        let result = pe.get_ref::<T>(offset)?;
+        Ok(result)
     }
     /// Parse a mutable object at the given data directory
-    pub fn cast_mut<'data, T>(&self, pe: &'data mut PE) -> Result<&'data mut T, Error> {
+    pub fn cast_mut<'data, T, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut T, Error> {
         if self.virtual_address.0 == 0 || !pe.validate_rva(self.virtual_address) {
             return Err(Error::InvalidRVA(self.virtual_address));
         }
 
-        let offset = match pe.translate(PETranslation::Memory(self.virtual_address)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
-        pe.buffer.get_mut_ref::<T>(offset)
+        let offset = pe.translate(PETranslation::Memory(self.virtual_address))?;
+        let result = pe.get_mut_ref::<T>(offset)?;
+        Ok(result)
     }
 }
 
@@ -660,149 +657,150 @@ pub struct ImageExportDirectory {
 }
 impl ImageExportDirectory {
     /// Parse the export table in the PE file.
-    pub fn parse<'data>(pe: &'data PE) -> Result<&'data ImageExportDirectory, Error> {
+    pub fn parse<'data, P: PE>(pe: &'data P) -> Result<&'data ImageExportDirectory, Error> {
         pe.cast_directory::<Self>(ImageDirectoryEntry::Export)
     }
 
     /// Parse a mutable export table in the PE file.
-    pub fn parse_mut<'data>(pe: &'data mut PE) -> Result<&'data mut ImageExportDirectory, Error> {
-        let dir = match pe.get_data_directory(ImageDirectoryEntry::Export) {
-            Ok(d) => d,
-            Err(e) => return Err(e),
-        };
+    pub fn parse_mut<'data, P: PE>(pe: &'data mut P) -> Result<&'data mut ImageExportDirectory, Error> {
+        let dir = pe.get_data_directory(ImageDirectoryEntry::Export)?;
 
         if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
             return Err(Error::InvalidRVA(dir.virtual_address));
         }
 
-        let offset = match pe.translate(PETranslation::Memory(dir.virtual_address)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
-        pe.buffer.get_mut_ref::<ImageExportDirectory>(offset)
+        let offset = pe.translate(PETranslation::Memory(dir.virtual_address))?;
+        let result = pe.get_mut_ref::<ImageExportDirectory>(offset)?;
+        Ok(result)
     }
     
     /// Get the name of this export module.
-    pub fn get_name<'data>(&self, pe: &'data PE) -> Result<&'data [CChar], Error> {
+    pub fn get_name<'data, P: PE>(&self, pe: &'data P) -> Result<&'data [CChar], Error> {
         if self.name.0 == 0 {
             return Err(Error::InvalidRVA(self.name));
         }
         
         match pe.translate(PETranslation::Memory(self.name)) {
             Err(e) => return Err(e),
-            Ok(a) => pe.buffer.get_cstring(a, false, None),
+            Ok(a) => pe.get_cstring(a, false, None),
         }
     }
     /// Get the mutable name of this export module.
-    pub fn get_mut_name<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [CChar], Error> {
+    pub fn get_mut_name<'data, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut [CChar], Error> {
         if self.name.0 == 0 {
             return Err(Error::InvalidRVA(self.name));
         }
 
         match pe.translate(PETranslation::Memory(self.name)) {
             Err(e) => return Err(e),
-            Ok(a) => pe.buffer.get_mut_cstring(a, false, None),
+            Ok(a) => pe.get_mut_cstring(a, false, None),
         }
     }
     /// Get the function array of this export entry. This array represents thunk data pointing to either
     /// ordinals [`ThunkData::Ordinal`](ThunkData::Ordinal), forwarder strings ([`ThunkData::ForwarderString`](ThunkData::ForwarderString)
     /// or function data [`ThunkData::Function`](ThunkData::Function).
-    pub fn get_functions<'data>(&self, pe: &'data PE) -> Result<&'data [Thunk32], Error> {
+    pub fn get_functions<'data, P: PE>(&self, pe: &'data P) -> Result<&'data [Thunk32], Error> {
         if self.address_of_functions.0 == 0 {
             return Err(Error::InvalidRVA(self.address_of_functions));
         }
 
         match pe.translate(PETranslation::Memory(self.address_of_functions)) {
             Err(e) => return Err(e),
-            Ok(a) => pe.buffer.get_slice_ref::<Thunk32>(a, self.number_of_functions as usize),
+            Ok(a) => {
+                let result = pe.get_slice_ref::<Thunk32>(a, self.number_of_functions as usize)?;
+                Ok(result)
+            }
         }
     }
     /// Get the mutable function array of this export entry.
-    pub fn get_mut_functions<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [Thunk32], Error> {
+    pub fn get_mut_functions<'data, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut [Thunk32], Error> {
         if self.address_of_functions.0 == 0 {
             return Err(Error::InvalidRVA(self.address_of_functions));
         }
 
         match pe.translate(PETranslation::Memory(self.address_of_functions)) {
             Err(e) => return Err(e),
-            Ok(a) => pe.buffer.get_mut_slice_ref::<Thunk32>(a, self.number_of_functions as usize),
+            Ok(a) => {
+                let result = pe.get_mut_slice_ref::<Thunk32>(a, self.number_of_functions as usize)?;
+                Ok(result)
+            },
         }
     }
     /// Get the name array of this export entry. This array represents RVA values pointing to zero-terminated
     /// C-style strings.
-    pub fn get_names<'data>(&self, pe: &'data PE) -> Result<&'data [RVA], Error> {
+    pub fn get_names<'data, P: PE>(&self, pe: &'data P) -> Result<&'data [RVA], Error> {
         if self.address_of_names.0 == 0 {
             return Err(Error::InvalidRVA(self.address_of_names));
         }
 
         match pe.translate(PETranslation::Memory(self.address_of_names)) {
             Err(e) => return Err(e),
-            Ok(a) => pe.buffer.get_slice_ref::<RVA>(a, self.number_of_names as usize),
+            Ok(a) => {
+                let result = pe.get_slice_ref::<RVA>(a, self.number_of_names as usize)?;
+                Ok(result)
+            }
         }
     }
     /// Get the mutable name array of this export entry.
-    pub fn get_mut_names<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [RVA], Error> {
+    pub fn get_mut_names<'data, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut [RVA], Error> {
         if self.address_of_names.0 == 0 {
             return Err(Error::InvalidRVA(self.address_of_names));
         }
 
         match pe.translate(PETranslation::Memory(self.address_of_names)) {
             Err(e) => return Err(e),
-            Ok(a) => pe.buffer.get_mut_slice_ref::<RVA>(a, self.number_of_names as usize),
+            Ok(a) => {
+                let result = pe.get_mut_slice_ref::<RVA>(a, self.number_of_names as usize)?;
+                Ok(result)
+            }
         }
     }
-    /// Get the name ordinal array of this export entry. This array mirrors the names array. Values in this
-    /// array are indexes into the functions array, representing a name-to-function mapping.
-    pub fn get_name_ordinals<'data>(&self, pe: &'data PE) -> Result<&'data [u16], Error> {
+    /// Get the name ordinal array of this export entry.
+    /// 
+    /// This array mirrors the names array. Values in this array are indexes into the functions array,
+    /// representing a name-to-function mapping.
+    pub fn get_name_ordinals<'data, P: PE>(&self, pe: &'data P) -> Result<&'data [u16], Error> {
         if self.address_of_name_ordinals.0 == 0 {
             return Err(Error::InvalidRVA(self.address_of_name_ordinals));
         }
 
         match pe.translate(PETranslation::Memory(self.address_of_name_ordinals)) {
             Err(e) => return Err(e),
-            Ok(a) => pe.buffer.get_slice_ref::<u16>(a, self.number_of_names as usize),
+            Ok(a) => {
+                let result = pe.get_slice_ref::<u16>(a, self.number_of_names as usize)?;
+                Ok(result)
+            },
         }
     }
     /// Get the mutable name ordinal array of this export entry.
-    pub fn get_mut_name_ordinals<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [u16], Error> {
+    pub fn get_mut_name_ordinals<'data, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut [u16], Error> {
         if self.address_of_name_ordinals.0 == 0 {
             return Err(Error::InvalidRVA(self.address_of_name_ordinals));
         }
 
         match pe.translate(PETranslation::Memory(self.address_of_name_ordinals)) {
             Err(e) => return Err(e),
-            Ok(a) => pe.buffer.get_mut_slice_ref::<u16>(a, self.number_of_names as usize),
+            Ok(a) => {
+                let result = pe.get_mut_slice_ref::<u16>(a, self.number_of_names as usize)?;
+                Ok(result)
+            }
         }
     }
-    /// Get a mapping of exports to thunk data for this export entry. This maps exported names to thunk data, which can
-    /// be an ordinal ([`ThunkData::Ordinal`](ThunkData::Ordinal)), a function ([`ThunkData::Function`](ThunkData::Function))
-    /// or a forwarder string ([`ThunkData::ForwarderString`](ThunkData::ForwarderString)).
-    pub fn get_export_map<'data>(&self, pe: &'data PE) -> Result<HashMap<&'data str, ThunkData>, Error> {
+    /// Get a mapping of exports to thunk data for this export entry.
+    ///
+    /// This maps exported names to thunk data, which can be an ordinal ([`ThunkData::Ordinal`](ThunkData::Ordinal)),
+    /// a function ([`ThunkData::Function`](ThunkData::Function)) or a forwarder string
+    /// ([`ThunkData::ForwarderString`](ThunkData::ForwarderString)).
+    pub fn get_export_map<'data, P: PE>(&self, pe: &'data P) -> Result<HashMap<&'data str, ThunkData>, Error> {
         let mut result: HashMap<&'data str, ThunkData> = HashMap::<&'data str, ThunkData>::new();
 
-        let directory = match pe.get_data_directory(ImageDirectoryEntry::Export) {
-            Ok(d) => d,
-            Err(e) => return Err(e),
-        };
-
+        let directory = pe.get_data_directory(ImageDirectoryEntry::Export)?;
         let start = directory.virtual_address.clone();
         let end = RVA(start.0 + directory.size);
 
-        let functions = match self.get_functions(pe) {
-            Ok(f) => f,
-            Err(e) => return Err(e),
-        };
-
-        let names = match self.get_names(pe) {
-            Ok(n) => n,
-            Err(e) => return Err(e),
-        };
-
-        let ordinals = match self.get_name_ordinals(pe) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
+        let functions = self.get_functions(pe)?;
+        let names = self.get_names(pe)?;
+        let ordinals = self.get_name_ordinals(pe)?;
 
         for index in 0u32..self.number_of_names {
             let name_rva = names[index as usize];
@@ -813,7 +811,7 @@ impl ImageExportDirectory {
                 Err(_) => continue, /* we continue instead of returning the error to be greedy with parsing */
             };
 
-            let name = match pe.buffer.get_cstring(name_offset, false, None) {
+            let name = match pe.get_cstring(name_offset, false, None) {
                 Ok(s) => s,
                 Err(_) => continue,
             };
@@ -828,29 +826,18 @@ impl ImageExportDirectory {
     }
 
     /// Get an export name by a provided hash algorithm.
-    pub fn get_export_name_by_hash<'data, T>(&self, pe: &'data PE, hash_fn: fn(&str) -> T, hash_val: T) -> Result<Option<&'data str>, Error>
+    pub fn get_export_name_by_hash<'data, T, P: PE>(&self, pe: &'data P, hash_fn: fn(&str) -> T, hash_val: T) -> Result<Option<&'data str>, Error>
     where
         T: PartialEq
     {
-        let names = match self.get_names(pe) {
-            Ok(n) => n,
-            Err(e) => return Err(e),
-        };
-
+        let names = self.get_names(pe)?;
+        
         for index in 0u32..self.number_of_names {
             let name_rva = names[index as usize];
             if name_rva.0 == 0 { continue; }
 
-            let name_offset = match pe.translate(PETranslation::Memory(name_rva)) {
-                Ok(o) => o,
-                Err(e) => return Err(e),
-            };
-
-            let name = match pe.buffer.get_cstring(name_offset, false, None) {
-                Ok(s) => s,
-                Err(e) => return Err(e),
-            };
-
+            let name_offset = pe.translate(PETranslation::Memory(name_rva))?;
+            let name = pe.get_cstring(name_offset, false, None)?;
             let name_str = name.as_str();
             let hash_result = hash_fn(name_str);
 
@@ -873,172 +860,131 @@ pub struct ImageImportDescriptor {
     pub first_thunk: RVA,
 }
 impl ImageImportDescriptor {
-    fn parse_thunk_array_size(&self, pe: &PE, rva: RVA) -> Result<usize, Error> {
+    fn parse_thunk_array_size<P: PE>(&self, pe: &P, rva: RVA) -> Result<usize, Error> {
         if rva.0 == 0 {
             return Err(Error::InvalidRVA(rva));
         }
 
-        let arch = match pe.get_arch() {
-            Ok(a) => a,
-            Err(e) => return Err(e),
-        };
-        
+        let arch = pe.get_arch()?;        
         let mut thunks = 0usize;
-        let mut indexer = match pe.translate(PETranslation::Memory(rva)) {
-            Ok(i) => i,
-            Err(e) => return Err(e),
-        };
+        let mut indexer = pe.translate(PETranslation::Memory(rva))?;
 
         loop {
-            if !pe.validate_offset(indexer) {
-                return Err(Error::InvalidOffset(indexer));
-            }
-
             match arch {
-                Arch::X86 => match pe.buffer.get_ref::<Thunk32>(indexer) {
+                Arch::X86 => match pe.get_ref::<Thunk32>(indexer) {
                     Ok(r) => { if r.0 == 0 { break; } },
-                    Err(e) => return Err(e),
+                    Err(e) => return Err(Error::from(e)),
                 },
-                Arch::X64 => match pe.buffer.get_ref::<Thunk64>(indexer) {
+                Arch::X64 => match pe.get_ref::<Thunk64>(indexer) {
                     Ok(r) => { if r.0 == 0 { break; } },
-                    Err(e) => return Err(e),
+                    Err(e) => return Err(Error::from(e)),
                 },
             };
 
             thunks += 1;
-            indexer.0 += match arch {
-                Arch::X86 => mem::size_of::<Thunk32>() as u32,
-                Arch::X64 => mem::size_of::<Thunk64>() as u32,
+            indexer += match arch {
+                Arch::X86 => mem::size_of::<Thunk32>(),
+                Arch::X64 => mem::size_of::<Thunk64>(),
             };
         }
 
         Ok(thunks)
     }
-    fn parse_thunk_array<'data>(&self, pe: &'data PE, rva: RVA) -> Result<Vec<Thunk<'data>>, Error> {
+    fn parse_thunk_array<'data, P: PE>(&self, pe: &'data P, rva: RVA) -> Result<Vec<Thunk<'data>>, Error> {
         if rva.0 == 0 {
             return Err(Error::InvalidRVA(rva));
         }
 
-        let arch = match pe.get_arch() {
-            Ok(a) => a,
-            Err(e) => return Err(e),
-        };
-
-        let thunks = match self.parse_thunk_array_size(pe, rva) {
-            Ok(t) => t,
-            Err(e) => return Err(e),
-        };
-
-        let offset = match pe.translate(PETranslation::Memory(rva)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
+        let arch = pe.get_arch()?;
+        let thunks = self.parse_thunk_array_size(pe, rva)?;
+        let offset = pe.translate(PETranslation::Memory(rva))?;
+        
         match arch {
-            Arch::X86 => match pe.buffer.get_slice_ref::<Thunk32>(offset, thunks) {
+            Arch::X86 => match pe.get_slice_ref::<Thunk32>(offset, thunks) {
                 Ok(s) => Ok(s.iter().map(|x| Thunk::Thunk32(x)).collect()),
-                Err(e) => Err(e),
+                Err(e) => Err(Error::from(e)),
             },
-            Arch::X64 => match pe.buffer.get_slice_ref::<Thunk64>(offset, thunks) {
+            Arch::X64 => match pe.get_slice_ref::<Thunk64>(offset, thunks) {
                 Ok(s) => Ok(s.iter().map(|x| Thunk::Thunk64(x)).collect()),
-                Err(e) => Err(e),
+                Err(e) => Err(Error::from(e)),
             },
         }
     }
-    fn parse_mut_thunk_array<'data>(&self, pe: &'data mut PE, rva: RVA) -> Result<Vec<ThunkMut<'data>>, Error> {
+    fn parse_mut_thunk_array<'data, P: PE>(&self, pe: &'data mut P, rva: RVA) -> Result<Vec<ThunkMut<'data>>, Error> {
         if rva.0 == 0 {
             return Err(Error::InvalidRVA(rva));
         }
 
-        let arch = match pe.get_arch() {
-            Ok(a) => a,
-            Err(e) => return Err(e),
-        };
-
-        let thunks = match self.parse_thunk_array_size(pe, rva) {
-            Ok(t) => t,
-            Err(e) => return Err(e),
-        };
-
-        let offset = match pe.translate(PETranslation::Memory(rva)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
+        let arch = pe.get_arch()?;
+        let thunks = self.parse_thunk_array_size(pe, rva)?;
+        let offset = pe.translate(PETranslation::Memory(rva))?;
 
         match arch {
-            Arch::X86 => match pe.buffer.get_mut_slice_ref::<Thunk32>(offset, thunks) {
+            Arch::X86 => match pe.get_mut_slice_ref::<Thunk32>(offset, thunks) {
                 Ok(s) => Ok(s.iter_mut().map(|x| ThunkMut::Thunk32(x)).collect()),
-                Err(e) => Err(e),
+                Err(e) => Err(Error::from(e)),
             },
-            Arch::X64 => match pe.buffer.get_mut_slice_ref::<Thunk64>(offset, thunks) {
+            Arch::X64 => match pe.get_mut_slice_ref::<Thunk64>(offset, thunks) {
                 Ok(s) => Ok(s.iter_mut().map(|x| ThunkMut::Thunk64(x)).collect()),
-                Err(e) => Err(e),
+                Err(e) => Err(Error::from(e)),
             },
         }
     }
 
     /// Get the thunk array pointed to by the ```original_first_thunk``` field.
-    pub fn get_original_first_thunk<'data>(&self, pe: &'data PE) -> Result<Vec<Thunk<'data>>, Error> {
+    pub fn get_original_first_thunk<'data, P: PE>(&self, pe: &'data P) -> Result<Vec<Thunk<'data>>, Error> {
         self.parse_thunk_array(pe, self.original_first_thunk)
     }
     /// Get the mutable thunk array pointed to by the ```original_first_thunk``` field.
-    pub fn get_mut_original_first_thunk<'data>(&self, pe: &'data mut PE) -> Result<Vec<ThunkMut<'data>>, Error> {
+    pub fn get_mut_original_first_thunk<'data, P: PE>(&self, pe: &'data mut P) -> Result<Vec<ThunkMut<'data>>, Error> {
         self.parse_mut_thunk_array(pe, self.original_first_thunk)
     }
 
     /// Get the name of the module represented by this import descriptor entry.
-    pub fn get_name<'data>(&self, pe: &'data PE) -> Result<&'data [CChar], Error> {
-        let offset = match pe.translate(PETranslation::Memory(self.name)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
-        pe.buffer.get_cstring(offset, false, None)
+    pub fn get_name<'data, P: PE>(&self, pe: &'data P) -> Result<&'data [CChar], Error> {
+        let offset = pe.translate(PETranslation::Memory(self.name))?;
+        let result = pe.get_cstring(offset, false, None)?;
+        Ok(result)
     }
     /// Get the mutable name of the module represented by this import descriptor entry.
-    pub fn get_mut_name<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [CChar], Error> {
-        let offset = match pe.translate(PETranslation::Memory(self.name)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
-        pe.buffer.get_mut_cstring(offset, false, None)
+    pub fn get_mut_name<'data, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut [CChar], Error> {
+        let offset = pe.translate(PETranslation::Memory(self.name))?;
+        let result = pe.get_mut_cstring(offset, false, None)?;
+        Ok(result)
     }
 
-    /// Get the first thunk array. This array typically represents where in memory imports get resolved to.
-    pub fn get_first_thunk<'data>(&self, pe: &'data PE) -> Result<Vec<Thunk<'data>>, Error> {
+    /// Get the first thunk array.
+    ///
+    /// This array typically represents where in memory imports get resolved to.
+    pub fn get_first_thunk<'data, P: PE>(&self, pe: &'data P) -> Result<Vec<Thunk<'data>>, Error> {
         self.parse_thunk_array(pe, self.first_thunk)
     }
     /// Get the mutable first thunk array.
-    pub fn get_mut_first_thunk<'data>(&self, pe: &'data mut PE) -> Result<Vec<ThunkMut<'data>>, Error> {
+    pub fn get_mut_first_thunk<'data, P: PE>(&self, pe: &'data mut P) -> Result<Vec<ThunkMut<'data>>, Error> {
         self.parse_mut_thunk_array(pe, self.first_thunk)
     }
 
-    /// Get the thunk array that represents the imports, also known as the "import lookup table." This thunk array can
-    /// either come from the `original_first_thunk` value or the `first_thunk` value.
-    pub fn get_lookup_thunks<'data>(&self, pe: &'data PE) -> Result<Vec<Thunk<'data>>, Error> {
+    /// Get the thunk array that represents the imports, also known as the "import lookup table."
+    ///
+    /// This thunk array can either come from the `original_first_thunk` value or the `first_thunk` value.
+    pub fn get_lookup_thunks<'data, P: PE>(&self, pe: &'data P) -> Result<Vec<Thunk<'data>>, Error> {
         match self.get_original_first_thunk(pe) {
             Ok(t) => Ok(t),
             Err(e) => {
-                match e {
-                    Error::InvalidRVA(_) => (),
-                    _ => return Err(e),
-                }
-
+                if let Error::InvalidRVA(_) = e { () } else { return Err(e) }
+                
                 self.get_first_thunk(pe)
             },
         }
     }
 
-    /// Get the imports represented by this import descriptor. This resolves the import table and returns a vector
-    /// of [`ImportData`](ImportData) objects.
-    pub fn get_imports<'data>(&self, pe: &'data PE) -> Result<Vec<ImportData<'data>>, Error> {
+    /// Get the imports represented by this import descriptor.
+    ///
+    /// This resolves the import table and returns a vector of [`ImportData`](ImportData) objects.
+    pub fn get_imports<'data, P: PE>(&self, pe: &'data P) -> Result<Vec<ImportData<'data>>, Error> {
         let mut results = Vec::<ImportData<'data>>::new();
-        let thunks = match self.get_lookup_thunks(pe) {
-            Ok(t) => t,
-            Err(e) => return Err(e),
-        };
-
+        let thunks = self.get_lookup_thunks(pe)?;
+        
         for thunk in thunks {
             let thunk_data = match thunk {
                 Thunk::Thunk32(t32) => t32.parse_import(),
@@ -1052,7 +998,7 @@ impl ImageImportDescriptor {
                         Ok(i) => results.push(ImportData::ImportByName(i.name.as_str())),
                         Err(_) => continue,
                     }
-                }
+                },
                 _ => (),
             }
         }
@@ -1060,10 +1006,12 @@ impl ImageImportDescriptor {
         Ok(results)
     }
 
-    /// Only available for Windows. Resolve the import address table of this import descriptor. In other
-    /// words, perform the importation of the functions and resolve the function addresses.
+    /// Only available for Windows. Resolve the import address table of this import descriptor.
+    ///
+    /// In other words, perform the importation of the functions with `LoadLibrary` and `GetProcAddress`
+    /// and store them in the import address table.
     #[cfg(windows)]
-    pub fn resolve_iat(&self, pe: &mut PE) -> Result<(), Error> {
+    pub fn resolve_iat<P: PE>(&self, pe: &mut P) -> Result<(), Error> {
         let dll_name = match self.get_name(pe) {
             Ok(d) => d.as_str(),
             Err(e) => return Err(e),
@@ -1094,11 +1042,7 @@ impl ImageImportDescriptor {
             let thunk_result = match thunk_data {
                 ThunkData::Ordinal(o) => unsafe { GetProcAddress(dll_handle, o as LPCSTR) },
                 ThunkData::ImportByName(rva) => {
-                    let import_by_name = match ImageImportByName::parse(pe, rva) {
-                        Ok(i) => i,
-                        Err(e) => return Err(e),
-                    };
-
+                    let import_by_name = ImageImportByName::parse(pe, rva)?;
                     unsafe { GetProcAddress(dll_handle, import_by_name.name.as_str().as_ptr() as LPCSTR) }
                 },
                 _ => return Err(Error::CorruptDataDirectory),
@@ -1111,11 +1055,8 @@ impl ImageImportDescriptor {
             lookup_results.push(thunk_result);
         }
             
-        let mut address_table = match self.get_mut_first_thunk(pe) {
-            Ok(t) => t,
-            Err(e) => return Err(e),
-        };
-
+        let mut address_table = self.get_mut_first_thunk(pe)?;
+        
         if address_table.len() != lookup_results.len() {
             return Err(Error::CorruptDataDirectory);
         }
@@ -1147,20 +1088,10 @@ pub struct ImageImportByName<'data> {
 }
 impl<'data> ImageImportByName<'data> {
     /// Get an ```ImageImportByName``` object at the given RVA.
-    pub fn parse(pe: &'data PE, rva: RVA) -> Result<Self, Error> {
-        let offset = match pe.translate(PETranslation::Memory(rva)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-        
-        let hint = match pe.buffer.get_ref::<u16>(offset) {
-            Ok(h) => h,
-            Err(e) => return Err(e),
-        };
-        let name = match pe.buffer.get_cstring(Offset(offset.0 + (mem::size_of::<u16>() as u32)), true, None) {
-            Ok(n) => n,
-            Err(e) => return Err(e),
-        };
+    pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
+        let offset = pe.translate(PETranslation::Memory(rva))?;        
+        let hint = pe.get_ref::<u16>(offset)?;
+        let name = pe.get_cstring(offset + mem::size_of::<u16>(), true, None)?;
 
         Ok(ImageImportByName { hint, name })
     }
@@ -1173,31 +1104,24 @@ pub struct ImageImportByNameMut<'data> {
 }
 impl<'data> ImageImportByNameMut<'data> {
     /// Get a mutable ```ImageImportByName``` object at the given RVA.
-    pub fn parse(pe: &'data mut PE, rva: RVA) -> Result<Self, Error> {
-        let mut offset = match pe.translate(PETranslation::Memory(rva)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
+    pub fn parse<P: PE>(pe: &'data mut P, rva: RVA) -> Result<Self, Error> {
+        let mut offset = pe.translate(PETranslation::Memory(rva))?;
 
         unsafe {
-            let mut ptr = pe.buffer.offset_to_mut_ptr(offset);
+            let mut ptr = pe.offset_to_mut_ptr(offset)?;
 
             let hint = &mut *(ptr as *mut u16);
             let u16_size = mem::size_of::<u16>();
 
             ptr = ptr.add(u16_size);
 
-            if !pe.buffer.validate_ptr(ptr) {
+            if !pe.validate_ptr(ptr) {
                 return Err(Error::BadPointer(ptr));
             }
 
-            offset.0 += u16_size as u32;
+            offset += u16_size;
 
-            let name_size = match pe.buffer.get_cstring_size(offset, true, None) {
-                Ok(s) => s,
-                Err(e) => return Err(e),
-            };
-            
+            let name_size = pe.get_cstring_size(offset, true, None)?;            
             let name = slice::from_raw_parts_mut(ptr as *mut CChar, name_size);
 
             Ok(Self { hint, name })
@@ -1305,21 +1229,10 @@ pub struct ImageResourceDirString<'data> {
 }
 impl<'data> ImageResourceDirString<'data> {
     /// Get a ```ImageResourceDirString``` object at the given RVA.
-    pub fn parse(pe: &'data PE, rva: RVA) -> Result<Self, Error> {
-        let offset = match pe.translate(PETranslation::Memory(rva)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-        
-        let length = match pe.buffer.get_ref::<u16>(offset) {
-            Ok(h) => h,
-            Err(e) => return Err(e),
-        };
-        
-        let name = match pe.buffer.get_slice_ref::<CChar>(Offset(offset.0 + (mem::size_of::<u16>() as u32)), *length as usize) {
-            Ok(n) => n,
-            Err(e) => return Err(e),
-        };
+    pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
+        let offset = pe.translate(PETranslation::Memory(rva))?;        
+        let length = pe.get_ref::<u16>(offset)?;        
+        let name = pe.get_slice_ref::<CChar>(offset + mem::size_of::<u16>(), *length as usize)?;
 
         Ok(Self { length, name })
     }
@@ -1335,25 +1248,20 @@ pub struct ImageResourceDirStringMut<'data> {
 }
 impl<'data> ImageResourceDirStringMut<'data> {
     /// Get a mutable ```ImageResourceDirString``` object at the given RVA.
-    pub fn parse(pe: &'data mut PE, rva: RVA) -> Result<Self, Error> {
-        let mut offset = match pe.translate(PETranslation::Memory(rva)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
+    pub fn parse<P: PE>(pe: &'data mut P, rva: RVA) -> Result<Self, Error> {
+        let offset = pe.translate(PETranslation::Memory(rva))?;
 
         unsafe {
-            let mut ptr = pe.buffer.offset_to_mut_ptr(offset);
+            let mut ptr = pe.offset_to_mut_ptr(offset)?;
             let length = &mut *(ptr as *mut u16);
             let u16_size = mem::size_of::<u16>();
 
             ptr = ptr.add(u16_size);
 
-            if !pe.buffer.validate_ptr(ptr) {
+            if !pe.validate_ptr(ptr) {
                 return Err(Error::BadPointer(ptr));
             }
 
-            offset.0 += u16_size as u32;
-            
             let name = slice::from_raw_parts_mut(ptr as *mut CChar, *length as usize);
 
             Ok(Self { length, name })
@@ -1372,21 +1280,10 @@ pub struct ImageResourceDirStringU<'data> {
 }
 impl<'data> ImageResourceDirStringU<'data> {
     /// Get a ```ImageResourceDirStringU``` object at the given RVA.
-    pub fn parse(pe: &'data PE, rva: RVA) -> Result<Self, Error> {
-        let offset = match pe.translate(PETranslation::Memory(rva)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-        
-        let length = match pe.buffer.get_ref::<u16>(offset) {
-            Ok(h) => h,
-            Err(e) => return Err(e),
-        };
-        
-        let name = match pe.buffer.get_slice_ref::<WChar>(Offset(offset.0 + (mem::size_of::<u16>() as u32)), *length as usize) {
-            Ok(n) => n,
-            Err(e) => return Err(e),
-        };
+    pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
+        let offset = pe.translate(PETranslation::Memory(rva))?;        
+        let length = pe.get_ref::<u16>(offset)?;
+        let name = pe.get_slice_ref::<WChar>(offset + mem::size_of::<u16>(), *length as usize)?;
 
         Ok(Self { length, name })
     }
@@ -1402,25 +1299,20 @@ pub struct ImageResourceDirStringUMut<'data> {
 }
 impl<'data> ImageResourceDirStringUMut<'data> {
     /// Get a mutable ```ImageResourceDirStringU``` object at the given RVA.
-    pub fn parse(pe: &'data mut PE, rva: RVA) -> Result<Self, Error> {
-        let mut offset = match pe.translate(PETranslation::Memory(rva)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
+    pub fn parse<P: PE>(pe: &'data mut P, rva: RVA) -> Result<Self, Error> {
+        let offset = pe.translate(PETranslation::Memory(rva))?;
+        
         unsafe {
-            let mut ptr = pe.buffer.offset_to_mut_ptr(offset);
+            let mut ptr = pe.offset_to_mut_ptr(offset)?;
             let length = &mut *(ptr as *mut u16);
             let u16_size = mem::size_of::<u16>();
 
             ptr = ptr.add(u16_size);
 
-            if !pe.buffer.validate_ptr(ptr) {
+            if !pe.validate_ptr(ptr) {
                 return Err(Error::BadPointer(ptr));
             }
 
-            offset.0 += u16_size as u32;
-            
             let name = slice::from_raw_parts_mut(ptr as *mut WChar, *length as usize);
 
             Ok(Self { length, name })
@@ -1438,48 +1330,43 @@ pub struct ImageResourceDataEntry {
 }
 impl ImageResourceDataEntry {
     /// Read the data pointed to by this data entry.
-    pub fn read<'data>(&self, pe: &'data PE) -> Result<&'data [u8], Error> {
+    pub fn read<'data, P: PE>(&self, pe: &'data P) -> Result<&'data [u8], Error> {
         if self.offset_to_data.0 == 0 || !pe.validate_rva(self.offset_to_data) {
             return Err(Error::InvalidRVA(self.offset_to_data));
         }
 
-        let offset = match pe.translate(PETranslation::Memory(self.offset_to_data)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
-        pe.buffer.read(offset, self.size as usize)
+        let offset = pe.translate(PETranslation::Memory(self.offset_to_data))?;
+        let result = pe.read(offset, self.size as usize)?;
+        Ok(result)
     }
     /// Read mutable data pointed to by this directory entry.
-    pub fn read_mut<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [u8], Error> {
+    pub fn read_mut<'data, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut [u8], Error> {
         if self.offset_to_data.0 == 0 || !pe.validate_rva(self.offset_to_data) {
             return Err(Error::InvalidRVA(self.offset_to_data));
         }
 
-        let offset = match pe.translate(PETranslation::Memory(self.offset_to_data)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
-        pe.buffer.read_mut(offset, self.size as usize)
+        let offset = pe.translate(PETranslation::Memory(self.offset_to_data))?;
+        let result = pe.read_mut(offset, self.size as usize)?;
+        Ok(result)
     }
-    /// Write data to the directory entry. Returns [`Error::BufferTooSmall`](Error::BufferTooSmall) if the data
-    /// overflows the buffer provided by the directory entry.
-    pub fn write(&self, pe: &mut PE, data: &[u8]) -> Result<(), Error> {
+    /// Write data to the directory entry.
+    ///
+    /// Returns [`Error::OutOfBounds`](Error::OutOfBounds) if the data overflows the buffer
+    /// provided by the directory entry.
+    pub fn write<P: PE, B: AsRef<[u8]>>(&self, pe: &mut P, data: B) -> Result<(), Error> {
         if self.offset_to_data.0 == 0 || !pe.validate_rva(self.offset_to_data) {
             return Err(Error::InvalidRVA(self.offset_to_data));
         }
 
-        let offset = match pe.translate(PETranslation::Memory(self.offset_to_data)) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
+        let offset = pe.translate(PETranslation::Memory(self.offset_to_data))?;
+        let buf = data.as_ref();
 
-        if (data.len() as u32) > self.size {
-            return Err(Error::BufferTooSmall(data.len(), self.size as usize));
+        if (buf.len() as u32) > self.size {
+            return Err(Error::OutOfBounds(self.size as usize, buf.len()));
         }
 
-        pe.buffer.write(offset, data)
+        pe.write(offset, buf)?;
+        Ok(())
     }
 }
 
@@ -1524,7 +1411,7 @@ pub struct ImageDebugDirectory {
 }
 impl ImageDebugDirectory {
     /// Parse the debug directory in the PE file.
-    pub fn parse<'data>(pe: &'data PE) -> Result<&'data Self, Error> {
+    pub fn parse<'data, P: PE>(pe: &'data P) -> Result<&'data Self, Error> {
         pe.cast_directory::<Self>(ImageDirectoryEntry::Debug)
     }
 }
@@ -1562,12 +1449,12 @@ pub struct ImageTLSDirectory32 {
 }
 impl ImageTLSDirectory32 {
     /// Get the 32-bit TLS directory from the [`PE`](PE) object.
-    pub fn parse<'data>(pe: &'data PE) -> Result<&'data Self, Error> {
+    pub fn parse<'data, P: PE>(pe: &'data P) -> Result<&'data Self, Error> {
         pe.cast_directory::<Self>(ImageDirectoryEntry::TLS)
     }
 
     /// Get a mutable 32-bit TLS directory from the [`PE`](PE) object.
-    pub fn parse_mut<'data>(pe: &'data mut PE) -> Result<&'data mut Self, Error> {
+    pub fn parse_mut<'data, P: PE>(pe: &'data mut P) -> Result<&'data mut Self, Error> {
         pe.cast_directory_mut::<Self>(ImageDirectoryEntry::TLS)
     }
 
@@ -1577,58 +1464,46 @@ impl ImageTLSDirectory32 {
     }
 
     /// Read a slice of the raw data buffer.
-    pub fn read<'data>(&self, pe: &'data PE) -> Result<&'data [u8], Error> {
+    pub fn read<'data, P: PE>(&self, pe: &'data P) -> Result<&'data [u8], Error> {
         let size = self.get_raw_data_size();
-        let offset = match self.start_address_of_raw_data.as_offset(pe) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
-        pe.buffer.read(offset, size)
+        let offset = self.start_address_of_raw_data.as_offset(pe)?;
+        let result = pe.read(offset.into(), size)?;
+        Ok(result)
     }
 
     /// Read a mutable slice of the raw data buffer.
-    pub fn read_mut<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [u8], Error> {
+    pub fn read_mut<'data, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut [u8], Error> {
         let size = self.get_raw_data_size();
-        let offset = match self.start_address_of_raw_data.as_offset(pe) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
-        pe.buffer.read_mut(offset, size)
+        let offset = self.start_address_of_raw_data.as_offset(pe)?;
+        let result = pe.read_mut(offset.into(), size)?;
+        Ok(result)
     }
 
-    /// Write to the raw data buffer. Returns a [`Error::BufferTooSmall`](Error::BufferTooSmall) error if the
-    /// given data overflows the buffer space.
-    pub fn write(&self, pe: &mut PE, data: &[u8]) -> Result<(), Error> {
+    /// Write to the raw data buffer.
+    ///
+    /// Returns a [`Error::OutOfBounds`](Error::OutOfBounds) error if the given data
+    /// overflows the buffer space.
+    pub fn write<P: PE, B: AsRef<[u8]>>(&self, pe: &mut P, data: B) -> Result<(), Error> {
         let size = self.get_raw_data_size();
-        let offset = match self.start_address_of_raw_data.as_offset(pe) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
+        let offset = self.start_address_of_raw_data.as_offset(pe)?;
+        let buf = data.as_ref();
 
-        if data.len() > size {
-            return Err(Error::BufferTooSmall(data.len(), size));
+        if buf.len() > size {
+            return Err(Error::OutOfBounds(size, buf.len()));
         }
 
-        pe.buffer.write(offset, data)
+        pe.write(offset.into(), buf)?;
+        Ok(())
     }
 
     /// Get the size of the callback array pointed to by this directory.
-    pub fn get_callback_size(&self, pe: &PE) -> Result<usize, Error> {
-        let offset = match self.address_of_callbacks.as_offset(pe) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
+    pub fn get_callback_size<P: PE>(&self, pe: &P) -> Result<usize, Error> {
+        let offset = self.address_of_callbacks.as_offset(pe)?;
         let mut result = 0usize;
         let mut scan_offset = offset.clone();
 
         loop {
-            let callback = match pe.buffer.get_ref::<VA32>(scan_offset) {
-                Ok(c) => c,
-                Err(e) => return Err(e),
-            };
+            let callback = pe.get_ref::<VA32>(scan_offset.into())?;
             
             scan_offset.0 += mem::size_of::<VA32>() as u32;
 
@@ -1641,33 +1516,19 @@ impl ImageTLSDirectory32 {
     }
 
     /// Get the callbacks array from the TLS directory.
-    pub fn get_callbacks<'data>(&self, pe: &'data PE) -> Result<&'data [VA32], Error> {
-        let offset = match self.address_of_callbacks.as_offset(pe) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
-        let size = match self.get_callback_size(pe) {
-            Ok(s) => s,
-            Err(e) => return Err(e),
-        };
-
-        pe.buffer.get_slice_ref::<VA32>(offset, size)
+    pub fn get_callbacks<'data, P: PE>(&self, pe: &'data P) -> Result<&'data [VA32], Error> {
+        let offset = self.address_of_callbacks.as_offset(pe)?;
+        let size = self.get_callback_size(pe)?;
+        let result = pe.get_slice_ref::<VA32>(offset.into(), size)?;
+        Ok(result)
     }
 
     /// Get a mutable array of the callbacks in this TLS directory.
-    pub fn get_mut_callbacks<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [VA32], Error> {
-        let offset = match self.address_of_callbacks.as_offset(pe) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
-        let size = match self.get_callback_size(pe) {
-            Ok(s) => s,
-            Err(e) => return Err(e),
-        };
-
-        pe.buffer.get_mut_slice_ref::<VA32>(offset, size)
+    pub fn get_mut_callbacks<'data, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut [VA32], Error> {
+        let offset = self.address_of_callbacks.as_offset(pe)?;
+        let size = self.get_callback_size(pe)?;
+        let result = pe.get_mut_slice_ref::<VA32>(offset.into(), size)?;
+        Ok(result)
     }
 }
 
@@ -1683,12 +1544,12 @@ pub struct ImageTLSDirectory64 {
 }
 impl ImageTLSDirectory64 {
     /// Get the 64-bit TLS directory from the [`PE`](PE) object.
-    pub fn parse<'data>(pe: &'data PE) -> Result<&'data Self, Error> {
+    pub fn parse<'data, P: PE>(pe: &'data P) -> Result<&'data Self, Error> {
         pe.cast_directory::<Self>(ImageDirectoryEntry::TLS)
     }
 
     /// Get a mutable 64-bit TLS directory from the [`PE`](PE) object.
-    pub fn parse_mut<'data>(pe: &'data mut PE) -> Result<&'data mut Self, Error> {
+    pub fn parse_mut<'data, P: PE>(pe: &'data mut P) -> Result<&'data mut Self, Error> {
         pe.cast_directory_mut::<Self>(ImageDirectoryEntry::TLS)
     }
 
@@ -1698,58 +1559,46 @@ impl ImageTLSDirectory64 {
     }
 
     /// Read a slice of the raw data buffer.
-    pub fn read<'data>(&self, pe: &'data PE) -> Result<&'data [u8], Error> {
+    pub fn read<'data, P: PE>(&self, pe: &'data P) -> Result<&'data [u8], Error> {
         let size = self.get_raw_data_size();
-        let offset = match self.start_address_of_raw_data.as_offset(pe) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
-        pe.buffer.read(offset, size)
+        let offset = self.start_address_of_raw_data.as_offset(pe)?;
+        let result = pe.read(offset.into(), size)?;
+        Ok(result)
     }
 
     /// Read a mutable slice of the raw data buffer.
-    pub fn read_mut<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [u8], Error> {
+    pub fn read_mut<'data, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut [u8], Error> {
         let size = self.get_raw_data_size();
-        let offset = match self.start_address_of_raw_data.as_offset(pe) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
-        pe.buffer.read_mut(offset, size)
+        let offset = self.start_address_of_raw_data.as_offset(pe)?;
+        let result = pe.read_mut(offset.into(), size)?;
+        Ok(result)
     }
 
-    /// Write to the raw data buffer. Returns a [`Error::BufferTooSmall`](Error::BufferTooSmall) error if the
-    /// given data overflows the buffer space.
-    pub fn write(&self, pe: &mut PE, data: &[u8]) -> Result<(), Error> {
+    /// Write to the raw data buffer.
+    ///
+    /// Returns a [`Error::OutOfBounds`](Error::OutOfBounds) error if the given data
+    /// overflows the buffer space.
+    pub fn write<P: PE, B: AsRef<[u8]>>(&self, pe: &mut P, data: B) -> Result<(), Error> {
         let size = self.get_raw_data_size();
-        let offset = match self.start_address_of_raw_data.as_offset(pe) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
+        let offset = self.start_address_of_raw_data.as_offset(pe)?;
+        let buf = data.as_ref();
 
-        if data.len() > size {
-            return Err(Error::BufferTooSmall(data.len(), size));
+        if buf.len() > size {
+            return Err(Error::OutOfBounds(size, buf.len()));
         }
 
-        pe.buffer.write(offset, data)
+        let result = pe.write(offset.into(), buf)?;
+        Ok(result)
     }
 
     /// Get the size of the callback array pointed to by this directory.
-    pub fn get_callback_size(&self, pe: &PE) -> Result<usize, Error> {
-        let offset = match self.address_of_callbacks.as_offset(pe) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
+    pub fn get_callback_size<P: PE>(&self, pe: &P) -> Result<usize, Error> {
+        let offset = self.address_of_callbacks.as_offset(pe)?;
         let mut result = 0usize;
         let mut scan_offset = offset.clone();
 
         loop {
-            let callback = match pe.buffer.get_ref::<VA64>(scan_offset) {
-                Ok(c) => c,
-                Err(e) => return Err(e),
-            };
+            let callback = pe.get_ref::<VA64>(scan_offset.into())?;
             
             scan_offset.0 += mem::size_of::<VA64>() as u32;
 
@@ -1762,32 +1611,18 @@ impl ImageTLSDirectory64 {
     }
 
     /// Get the callbacks array from the TLS directory.
-    pub fn get_callbacks<'data>(&self, pe: &'data PE) -> Result<&'data [VA64], Error> {
-        let offset = match self.address_of_callbacks.as_offset(pe) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
-        let size = match self.get_callback_size(pe) {
-            Ok(s) => s,
-            Err(e) => return Err(e),
-        };
-
-        pe.buffer.get_slice_ref::<VA64>(offset, size)
+    pub fn get_callbacks<'data, P: PE>(&self, pe: &'data P) -> Result<&'data [VA64], Error> {
+        let offset = self.address_of_callbacks.as_offset(pe)?;
+        let size = self.get_callback_size(pe)?;
+        let result = pe.get_slice_ref::<VA64>(offset.into(), size)?;
+        Ok(result)
     }
 
     /// Get a mutable array of the callbacks in this TLS directory.
-    pub fn get_mut_callbacks<'data>(&self, pe: &'data mut PE) -> Result<&'data mut [VA64], Error> {
-        let offset = match self.address_of_callbacks.as_offset(pe) {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-
-        let size = match self.get_callback_size(pe) {
-            Ok(s) => s,
-            Err(e) => return Err(e),
-        };
-
-        pe.buffer.get_mut_slice_ref::<VA64>(offset, size)
+    pub fn get_mut_callbacks<'data, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut [VA64], Error> {
+        let offset = self.address_of_callbacks.as_offset(pe)?;
+        let size = self.get_callback_size(pe)?;
+        let result = pe.get_mut_slice_ref::<VA64>(offset.into(), size)?;
+        Ok(result)
     }
 }
