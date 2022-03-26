@@ -2,13 +2,13 @@
 name = "exe"
 description = "A PE (Portable Executable) library!"
 repository = "https://github.com/frank2/exe-rs"
-version = "0.4.6"
+version = "0.5.0"
 authors = ["frank2@dc949.org"]
 edition = "2018"
 license = "GPL-3.0"
 keywords = ["pe", "exe"]
 readme = "README.md"
-exclude = ["test/*.exe", "test/*.dll", "test/*.sys", "test/*.bin"]
+exclude = ["test/*.exe", "test/*.dll", "test/*.sys", "test/*.bin", "*~", "notes.org"]
 documentation = "https://docs.rs/exe"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -18,6 +18,8 @@ bitflags = "1.2.1"
 byteorder = "1.1.0"
 chrono = "0.4"
 hex = "0.4.3"
+num-traits = "0.2.14"
+pkbuffer = "=0.3.0"
 md-5 = "0.9.1"
 sha-1 = "0.9.6"
 sha2 = "0.9.5"
