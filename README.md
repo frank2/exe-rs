@@ -6,13 +6,13 @@ You can read the documentation [here](https://docs.rs/exe/), and see various use
 # Changelog
 
 ## 0.5.1
+### Features
+* `Offset` and other address types can now be converted into/from their base types via the `From` trait
+
 ### Bugfixes
 * Update to `pkbuffer` 0.4.0
     * this update brings some type and casting safety to the library
     * this requires knowledge of the `Castable` trait for getting objects from PE files, see the `pkbuffer` documentation for more details.
-
-### Features
-* `Offset` and other address types can now be converted into/from their base types via the `From` trait
 
 ## 0.5.0
 **This update makes major code-breaking changes!** Notably, the buffer module has been moved into its own library called [pkbuffer](https://github.com/frank2/pkbuffer). This caused the whole library to need to be refactored, and ultimately changed the way the structures interact with the data! As a result, though, PE structure objects can retain buffer functionality without having to rely on interacting with a member of a struct (i.e., the pattern of "pefile.pe.buffer" is no longer necessary). The interface for buffer objects changed, though-- instead of requiring an explicit `Offset` object, they now take a `usize` as an offset. To make things simpler, `RVA` and `Offset` can now be explicitly converted into `usize` with the `Into` trait.
