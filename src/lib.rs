@@ -48,7 +48,7 @@ use sha2::Sha256;
 
 use num_traits;
 
-use pkbuffer::{Buffer, PtrBuffer, VecBuffer, Error as PKError};
+use pkbuffer::{Buffer, PtrBuffer, VecBuffer, Error as PKError, Castable};
 
 use std::clone::Clone;
 use std::cmp;
@@ -1135,12 +1135,12 @@ pub trait PE: Buffer + Sized {
         self.validate_rva(dir_obj.virtual_address)
     }
     /// Parse an object at the given data directory identified by [`ImageDirectoryEntry`](ImageDirectoryEntry).
-    fn cast_directory<T>(&self, dir: ImageDirectoryEntry) -> Result<&T, Error> {
+    fn cast_directory<T: Castable>(&self, dir: ImageDirectoryEntry) -> Result<&T, Error> {
         let directory = self.get_data_directory(dir)?;
         directory.cast::<T,Self>(self)
     }
     /// Parse a mutable object at the given data directory identified by [`ImageDirectoryEntry`](ImageDirectoryEntry).
-    fn cast_directory_mut<T>(&mut self, dir: ImageDirectoryEntry) -> Result<&mut T, Error> {
+    fn cast_directory_mut<T: Castable>(&mut self, dir: ImageDirectoryEntry) -> Result<&mut T, Error> {
         // I don't know how to do this properly, so do some casting magic to get around
         // the borrow checker
         let bypass = unsafe { &mut *(self as *mut Self) };
@@ -1994,12 +1994,12 @@ impl VecPE {
         self.buffer.append(data);
     }
     /// Appends the given reference to the end of the `VecPE` object. See [`VecBuffer::append_ref`](VecBuffer::append_ref).
-    pub fn append_ref<T>(&mut self, data: &T) {
-        self.buffer.append_ref(data);
+    pub fn append_ref<T: Castable>(&mut self, data: &T) -> Result<(), Error> {
+        self.buffer.append_ref(data)?; Ok(())
     }
     /// Appends the given slice reference to the end of the `VecPE` object. See [`VecBuffer::append_slice_ref`](VecBuffer::append_slice_ref).
-    pub fn append_slice_ref<T>(&mut self, data: &[T]) {
-        self.buffer.append_slice_ref(data);
+    pub fn append_slice_ref<T: Castable>(&mut self, data: &[T]) -> Result<(), Error> {
+        self.buffer.append_slice_ref(data)?; Ok(())
     }
     /// Insert a byte at the given offset. See [`VecBuffer::insert`](VecBuffer::insert).
     pub fn insert(&mut self, offset: usize, element: u8) {

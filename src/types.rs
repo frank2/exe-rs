@@ -2,6 +2,8 @@
 
 use bitflags::bitflags;
 
+use pkbuffer::Castable;
+
 use std::collections::HashMap;
 use std::mem;
 use std::slice;
@@ -21,8 +23,18 @@ pub enum Arch {
 
 /// Represents a C-style character unit. Basically a wrapper for [`u8`](u8).
 #[repr(C)]
-#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Default, Eq, PartialEq, Castable, Debug)]
 pub struct CChar(pub u8);
+impl From<u8> for CChar {
+    fn from(c: u8) -> Self {
+        Self(c)
+    }
+}
+impl From<CChar> for u8 {
+    fn from(c: CChar) -> Self {
+        c.0
+    }
+}
 
 /* borrowed from pe-rs */
 /// Syntactic sugar to get functionality out of C-char referenced slices.
@@ -47,8 +59,18 @@ impl CCharString for [CChar] {
 
 /// Represents a UTF16 character unit. Basically a wrapper for [`u16`](u16).
 #[repr(C)]
-#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Default, Eq, PartialEq, Castable, Debug)]
 pub struct WChar(pub u16);
+impl From<u16> for WChar {
+    fn from(c: u16) -> Self {
+        Self(c)
+    }
+}
+impl From<WChar> for u16 {
+    fn from(c: WChar) -> Self {
+        c.0
+    }
+}
 
 /// Syntactic sugar for dealing with UTF16 referenced slices.
 pub trait WCharString {
@@ -86,23 +108,23 @@ pub trait Address {
 ///
 /// This typically represents an address of the file on disk versus the file in memory.
 #[repr(C)]
-#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Default, Eq, PartialEq, Castable, Debug)]
 pub struct Offset(pub u32);
 impl Offset {
     /// Gets a reference to an object in the [`PE`](PE) object's buffer data. See [`Buffer::get_ref`](pkbuffer::Buffer::get_ref).
-    pub fn get_ref<'data, T, P: PE>(&self, pe: &'data P) -> Result<&'data T, Error> {
+    pub fn get_ref<'data, T: Castable, P: PE>(&self, pe: &'data P) -> Result<&'data T, Error> {
         let result = pe.get_ref::<T>((*self).into())?; Ok(result)
     }
     /// Gets a mutable reference to an object in the [`PE`](PE) object's buffer data. See [`Buffer::get_mut_ref`](pkbuffer::Buffer::get_mut_ref).
-    pub fn get_mut_ref<'data, T, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut T, Error> {
+    pub fn get_mut_ref<'data, T: Castable, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut T, Error> {
         let result = pe.get_mut_ref::<T>((*self).into())?; Ok(result)
     }
     /// Gets a slice reference in the [`PE`](PE) buffer. See [`Buffer::get_slice_ref`](pkbuffer::Buffer::get_slice_ref).
-    pub fn get_slice_ref<'data, T, P: PE>(&self, pe: &'data P, count: usize) -> Result<&'data [T], Error> {
+    pub fn get_slice_ref<'data, T: Castable, P: PE>(&self, pe: &'data P, count: usize) -> Result<&'data [T], Error> {
         let result = pe.get_slice_ref::<T>((*self).into(), count)?; Ok(result)
     }
     /// Gets a mutable slice reference in the [`PE`](PE) buffer. See [`Buffer::get_mut_slice_ref`](pkbuffer::Buffer::get_mut_slice_ref).
-    pub fn get_mut_slice_ref<'data, T, P: PE>(&self, pe: &'data mut P, count: usize) -> Result<&'data mut [T], Error> {
+    pub fn get_mut_slice_ref<'data, T: Castable, P: PE>(&self, pe: &'data mut P, count: usize) -> Result<&'data mut [T], Error> {
         let result = pe.get_mut_slice_ref::<T>((*self).into(), count)?; Ok(result)
     }
     /// Gets the size of a zero-terminated C-string in the data at the offset.
@@ -142,11 +164,11 @@ impl Offset {
         pe.write((*self).into(), data)?; Ok(())
     }
     /// Write a reference to an object at the offset.
-    pub fn write_ref<T, P: PE>(&self, pe: &mut P, data: &T) -> Result<(), Error> {
+    pub fn write_ref<T: Castable, P: PE>(&self, pe: &mut P, data: &T) -> Result<(), Error> {
         pe.write_ref::<T>((*self).into(), data)?; Ok(())
     }
     /// Write a slice reference at the offset.
-    pub fn write_slice_ref<T, P: PE>(&self, pe: &mut P, data: &[T]) -> Result<(), Error> {
+    pub fn write_slice_ref<T: Castable, P: PE>(&self, pe: &mut P, data: &[T]) -> Result<(), Error> {
         pe.write_slice_ref::<T>((*self).into(), data)?; Ok(())
     }
 }
@@ -171,10 +193,20 @@ impl std::convert::Into<usize> for Offset {
         self.0 as usize
     }
 }
+impl From<u32> for Offset {
+    fn from(v: u32) -> Self {
+        Self(v)
+    }
+}
+impl From<Offset> for u32 {
+    fn from(v: Offset) -> Self {
+        v.0
+    }
+}
 
 /// Represents a relative virtual address (i.e., RVA). This address typically points to data in memory versus data on disk.
 #[repr(C)]
-#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Default, Eq, PartialEq, Castable, Debug)]
 pub struct RVA(pub u32);
 impl Address for RVA {
     fn as_offset<P: PE>(&self, pe: &P) -> Result<Offset, Error> {
@@ -197,12 +229,22 @@ impl std::convert::Into<usize> for RVA {
         self.0 as usize
     }
 }
+impl From<u32> for RVA {
+    fn from(v: u32) -> Self {
+        Self(v)
+    }
+}
+impl From<RVA> for u32 {
+    fn from(v: RVA) -> Self {
+        v.0
+    }
+}
 
 /// Represents a 32-bit virtual address (i.e., VA).
 ///
 /// This address typically points directly to active memory.
 #[repr(C)]
-#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Default, Eq, PartialEq, Castable, Debug)]
 pub struct VA32(pub u32);
 impl Address for VA32 {
     fn as_offset<P: PE>(&self, pe: &P) -> Result<Offset, Error> {
@@ -220,12 +262,22 @@ impl Address for VA32 {
         rva.as_ptr(pe)
     }
 }
+impl From<u32> for VA32 {
+    fn from(v: u32) -> Self {
+        Self(v)
+    }
+}
+impl From<VA32> for u32 {
+    fn from(v: VA32) -> Self {
+        v.0
+    }
+}
 
 /// Represents a 64-bit virtual address (i.e., VA).
 ///
 /// This address typically points directly to active memory.
 #[repr(C)]
-#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Default, Eq, PartialEq, Castable, Debug)]
 pub struct VA64(pub u64);
 impl Address for VA64 {
     fn as_offset<P: PE>(&self, pe: &P) -> Result<Offset, Error> {
@@ -241,6 +293,16 @@ impl Address for VA64 {
         let rva = self.as_rva(pe)?;
         
         rva.as_ptr(pe)
+    }
+}
+impl From<u64> for VA64 {
+    fn from(v: u64) -> Self {
+        Self(v)
+    }
+}
+impl From<VA64> for u64 {
+    fn from(v: VA64) -> Self {
+        v.0
     }
 }
 
@@ -263,6 +325,16 @@ impl Address for VA {
     fn as_ptr<P: PE>(&self, pe: &P) -> Result<*const u8, Error> {
         let rva = self.as_rva(pe)?;
         rva.as_ptr(pe)
+    }
+}
+impl From<u32> for VA {
+    fn from(v: u32) -> Self {
+        Self::VA32(v.into())
+    }
+}
+impl From<u64> for VA {
+    fn from(v: u64) -> Self {
+        Self::VA64(v.into())
     }
 }
 
@@ -297,8 +369,8 @@ pub trait ThunkFunctions {
 }
 
 /// Represents a 32-bit thunk entry.
-#[repr(packed)]
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[repr(C)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct Thunk32(pub u32);
 impl ThunkFunctions for Thunk32 {
     fn is_ordinal(&self) -> bool {
@@ -330,8 +402,8 @@ impl ThunkFunctions for Thunk32 {
 }
 
 /// Represents a 64-bit thunk entry.
-#[repr(packed)]
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[repr(C)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct Thunk64(pub u64);
 impl ThunkFunctions for Thunk64 {
     fn is_ordinal(&self) -> bool {
@@ -517,7 +589,7 @@ pub enum RelocationValue {
 
 /// Represents a unit of a relocation, which contains a type and an offset in a ```u16``` value.
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct Relocation(pub u16);
 impl Relocation {
     /// Create a new relocation entry.
@@ -585,18 +657,18 @@ impl Relocation {
         match self.get_type() {
             ImageRelBased::High => {
                 let high = delta & 0xFFFF0000;
-                let current = pe.get_ref::<i32>(offset)?;
+                let current = unsafe { pe.force_get_ref::<i32>(offset)? };
                 
                 Ok(RelocationValue::Relocation32( ( (*current as i64) + high) as u32))
             },
             ImageRelBased::Low => {
                 let low = delta & 0xFFFF;
-                let current = pe.get_ref::<i32>(offset)?;
+                let current = unsafe { pe.force_get_ref::<i32>(offset)? };
 
                 Ok(RelocationValue::Relocation32( ( (*current as i64) + low) as u32))
             },
             ImageRelBased::HighLow => {
-                let current = pe.get_ref::<i32>(offset)?;
+                let current = unsafe { pe.force_get_ref::<i32>(offset)? };
 
                 Ok(RelocationValue::Relocation32( ( (*current as i64) + delta) as u32))
             },
@@ -607,7 +679,7 @@ impl Relocation {
 
                 let next_entry = next_relocation.unwrap();
                 let next_rva = next_entry.get_address(base_rva);
-                let current = pe.get_ref::<i16>(offset)?;
+                let current = unsafe { pe.force_get_ref::<i16>(offset)? };
                 let high = delta & 0xFFFF0000;
                 
                 let mut value = (*current as i64) << 16;
@@ -618,7 +690,7 @@ impl Relocation {
                 Ok(RelocationValue::Relocation16(value as u16))
             },
             ImageRelBased::Dir64 => {
-                let current = pe.get_ref::<i64>(offset)?;
+                let current = unsafe { pe.force_get_ref::<i64>(offset)? };
                 
                 Ok(RelocationValue::Relocation64(((*current as i128) + (delta as i128)) as u64))
             },
@@ -650,6 +722,7 @@ impl Relocation {
 ///
 /// assert_eq!(addresses[0], RVA(0x1008));
 /// ```
+#[derive(Debug)]
 pub struct RelocationEntry<'data> {
     pub base_relocation: &'data ImageBaseRelocation,
     pub relocations: &'data [Relocation]
@@ -659,8 +732,8 @@ impl<'data> RelocationEntry<'data> {
     pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
         let relocation_size = mem::size_of::<ImageBaseRelocation>();
 
-        let offset = pe.translate(PETranslation::Memory(rva))?;            
-        let base_relocation = pe.get_ref::<ImageBaseRelocation>(offset)?;
+        let offset = pe.translate(PETranslation::Memory(rva))?;
+        let base_relocation = unsafe { pe.force_get_ref::<ImageBaseRelocation>(offset)? };
         
         let block_addr = offset + relocation_size;
         let block_size = base_relocation.relocations();
@@ -671,12 +744,18 @@ impl<'data> RelocationEntry<'data> {
     /// Create a `RelocationEntry` object at the given RVA.
     pub fn create<P: PE>(pe: &'data mut P, rva: RVA, base_relocation: &ImageBaseRelocation, relocations: &[Relocation]) -> Result<Self, Error> {
         let mut offset = pe.translate(PETranslation::Memory(rva))?;
+        println!("writing base relocation {:?}", base_relocation);
         pe.write_ref(offset, base_relocation)?;
-        
+
+        println!("writing relocations: {:?}", relocations);
         offset += mem::size_of::<ImageBaseRelocation>();
         pe.write_slice_ref(offset, relocations)?;
-        
-        Self::parse(pe, rva)
+
+        println!("parsing relocation {:?}", rva);
+        let result = Self::parse(pe, rva);
+
+        println!("parsed: {:?}", result);
+        result
     }
     /// Calculate the block size of this relocation entry.
     pub fn block_size(&self) -> u32 {
@@ -855,7 +934,9 @@ impl<'data> RelocationDirectory<'data> {
     /// Add a given [`RVA`](RVA) as a relocation entry.
     pub fn add_relocation<P: PE>(&mut self, pe: &'data mut P, rva: RVA) -> Result<(), Error> {
         // error out immediately if we don't have a relocation directory
+        println!("getting image directory");
         let dir = pe.get_data_directory(ImageDirectoryEntry::BaseReloc)?;
+        println!("got image directory");
         
         if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
             return Err(Error::InvalidRVA(dir.virtual_address));
@@ -1097,8 +1178,8 @@ impl<'data> RelocationDirectoryMut<'data> {
 /// The [resource directory](ImageResourceDirectory) uses a series of DWORDs that can be flagged or unflagged, representing the presence
 /// of another directory in the resources or data being pointed to. Rust doesn't have bitfields, so instead we just mask the
 /// significant bit in this object and present an interface to access the data.
-#[repr(packed)]
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[repr(C)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct FlaggedDword(pub u32);
 impl FlaggedDword {
     /// Get the flag represented by the object.
@@ -1117,8 +1198,8 @@ impl FlaggedDword {
 }
 
 /// A [`u32`](u32) wrapper representing offsets into a resource directory.
-#[repr(packed)]
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[repr(C)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct ResourceOffset(pub u32);
 impl ResourceOffset {
     /// Resolve this resource offset into an [`RVA`](RVA).
@@ -1520,6 +1601,7 @@ impl<'data> TLSDirectoryMut<'data> {
 bitflags! {
     /// A series of bitflags representing the file flags for the [`VS_FIXEDFILEINFO`](https://docs.microsoft.com/en-us/windows/win32/api/verrsrc/ns-verrsrc-vs_fixedfileinfo)
     /// structure.
+    #[repr(C)]
     pub struct VSFileFlags: u32 {
         const DEBUG = 0x00000001;
         const PRERELEASE = 0x00000002;
@@ -1529,6 +1611,7 @@ bitflags! {
         const SPECIALBUILD = 0x00000020;
     }
 }
+unsafe impl Castable for VSFileFlags {}
 
 /// An enum representing the OS flags for the [`VS_FIXEDFILEINFO`](https://docs.microsoft.com/en-us/windows/win32/api/verrsrc/ns-verrsrc-vs_fixedfileinfo)
 /// structure.
@@ -1654,7 +1737,7 @@ impl VSFileSubtypeFont {
 
 /// Represents a [`VS_FIXEDFILEINFO`](https://docs.microsoft.com/en-us/windows/win32/api/verrsrc/ns-verrsrc-vs_fixedfileinfo) structure.
 #[repr(C)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct VSFixedFileInfo {
     pub signature: u32,
     pub struct_version: u32,
@@ -1893,6 +1976,7 @@ impl<'data> VSStringFileInfo<'data> {
 
 /// Represents a DWORD in the [`VSVar`](VSVar) structure which contains a language ID and a language codepage.
 #[repr(C)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct VarDword {
     lang_id: u16,
     codepage: u16,

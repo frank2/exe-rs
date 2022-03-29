@@ -10,6 +10,8 @@ use bitflags::bitflags;
 use chrono::offset::TimeZone;
 use chrono::{Local as LocalTime};
 
+use pkbuffer::Castable;
+
 use std::clone::Clone;
 use std::cmp;
 use std::collections::HashMap;
@@ -36,7 +38,7 @@ pub const HDR64_MAGIC: u16 = 0x020B;
 pub const ROM_MAGIC: u16   = 0x0107;
 
 #[repr(C)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct ImageDOSHeader {
     pub e_magic: u16,
     pub e_cblp: u16,
@@ -121,6 +123,7 @@ pub enum ImageFileMachine {
 
 bitflags! {
     /// A bitflag structure representing file characteristics in the file header.
+    #[repr(C)]
     pub struct FileCharacteristics: u16 {
         const RELOCS_STRIPPED         = 0x0001;
         const EXECUTABLE_IMAGE        = 0x0002;
@@ -139,9 +142,10 @@ bitflags! {
         const BYTES_REVERSED_HI       = 0x8000;
     }
 }
+unsafe impl Castable for FileCharacteristics { }
 
 #[repr(C)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct ImageFileHeader {
     pub machine: u16,
     pub number_of_sections: u16,
@@ -204,6 +208,7 @@ pub enum ImageSubsystem {
 
 bitflags! {
     /// A series of bitflags representing DLL characteristics.
+    #[repr(C)]
     pub struct DLLCharacteristics: u16 {
         const RESERVED1             = 0x0001;
         const RESERVED2             = 0x0002;
@@ -222,9 +227,10 @@ bitflags! {
         const TERMINAL_SERVER_AWARE = 0x8000;
     }
 }
+unsafe impl Castable for DLLCharacteristics { }
 
 #[repr(C)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct ImageOptionalHeader32 {
     pub magic: u16,
     pub major_linker_version: u8,
@@ -295,7 +301,7 @@ impl Default for ImageOptionalHeader32 {
 }
 
 #[repr(C)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct ImageOptionalHeader64 {
     pub magic: u16,
     pub major_linker_version: u8,
@@ -364,7 +370,7 @@ impl Default for ImageOptionalHeader64 {
 }
 
 #[repr(C)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct ImageNTHeaders32 {
     pub signature: u32,
     pub file_header: ImageFileHeader,
@@ -381,7 +387,7 @@ impl Default for ImageNTHeaders32 {
 }
 
 #[repr(C)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct ImageNTHeaders64 {
     pub signature: u32,
     pub file_header: ImageFileHeader,
@@ -399,6 +405,7 @@ impl Default for ImageNTHeaders64 {
 
 bitflags! {
     /// A series of bitflags representing section characteristics.
+    #[repr(C)]
     pub struct SectionCharacteristics: u32 {
         const TYPE_REG               = 0x00000000;
         const TYPE_DSECT             = 0x00000001;
@@ -449,9 +456,10 @@ bitflags! {
         const MEM_WRITE              = 0x80000000;
     }
 }
+unsafe impl Castable for SectionCharacteristics { }
 
 #[repr(C)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct ImageSectionHeader {
     pub name: [CChar; 8],
     pub virtual_size: u32,
@@ -612,14 +620,14 @@ pub enum ImageDirectoryEntry {
 }
 
 #[repr(C)]
-#[derive(Clone, Eq, PartialEq, Default, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Default, Castable, Debug)]
 pub struct ImageDataDirectory {
     pub virtual_address: RVA,
     pub size: u32,
 }
 impl ImageDataDirectory {
     /// Parse an object at the given data directory
-    pub fn cast<'data, T, P: PE>(&self, pe: &'data P) -> Result<&'data T, Error> {
+    pub fn cast<'data, T: Castable, P: PE>(&self, pe: &'data P) -> Result<&'data T, Error> {
         if self.virtual_address.0 == 0 || !pe.validate_rva(self.virtual_address) {
             return Err(Error::InvalidRVA(self.virtual_address));
         }
@@ -629,7 +637,7 @@ impl ImageDataDirectory {
         Ok(result)
     }
     /// Parse a mutable object at the given data directory
-    pub fn cast_mut<'data, T, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut T, Error> {
+    pub fn cast_mut<'data, T: Castable, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut T, Error> {
         if self.virtual_address.0 == 0 || !pe.validate_rva(self.virtual_address) {
             return Err(Error::InvalidRVA(self.virtual_address));
         }
@@ -641,7 +649,7 @@ impl ImageDataDirectory {
 }
 
 #[repr(C)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct ImageExportDirectory {
     pub characteristics: u32,
     pub time_date_stamp: u32,
@@ -851,7 +859,7 @@ impl ImageExportDirectory {
 }
 
 #[repr(C)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct ImageImportDescriptor {
     pub original_first_thunk: RVA,
     pub time_date_stamp: u32,
@@ -1147,7 +1155,7 @@ pub enum ImageRelBased {
 }
 
 #[repr(C)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct ImageBaseRelocation {
     pub virtual_address: RVA,
     pub size_of_block: u32,
@@ -1171,7 +1179,7 @@ impl ImageBaseRelocation {
 }
 
 #[repr(C)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct ImageResourceDirectory {
     pub characteristics: u32,
     pub time_date_stamp: u32,
@@ -1188,7 +1196,7 @@ impl ImageResourceDirectory {
 }
 
 #[repr(C)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct ImageResourceDirectoryEntry {
     pub name: FlaggedDword,
     pub offset_to_data: FlaggedDword,
@@ -1321,7 +1329,7 @@ impl<'data> ImageResourceDirStringUMut<'data> {
 }
 
 #[repr(C)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct ImageResourceDataEntry {
     pub offset_to_data: RVA,
     pub size: u32,
@@ -1398,7 +1406,7 @@ impl ImageDebugType {
 }
 
 #[repr(C)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct ImageDebugDirectory {
     pub characteristics: u32,
     pub time_date_stamp: u32,
@@ -1418,6 +1426,7 @@ impl ImageDebugDirectory {
 
 bitflags! {
     /// A series of bitflags representing TLS directory characteristics.
+    #[repr(C)]
     pub struct TLSCharacteristics: u32 {
         const ALIGN_1BYTES           = 0x00100000;
         const ALIGN_2BYTES           = 0x00200000;
@@ -1436,9 +1445,10 @@ bitflags! {
         const ALIGN_MASK             = 0x00F00000;
     }
 }
+unsafe impl Castable for TLSCharacteristics {}
     
 #[repr(C)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct ImageTLSDirectory32 {
     pub start_address_of_raw_data: VA32,
     pub end_address_of_raw_data: VA32,
@@ -1533,7 +1543,7 @@ impl ImageTLSDirectory32 {
 }
 
 #[repr(C)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
 pub struct ImageTLSDirectory64 {
     pub start_address_of_raw_data: VA64,
     pub end_address_of_raw_data: VA64,
