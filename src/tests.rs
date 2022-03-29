@@ -242,7 +242,7 @@ fn test_dll() {
         (RVA(0x1025), RelocationValue::Relocation32(0x0200107E)),
         (RVA(0x102B), RelocationValue::Relocation32(0x020010D0)),
     ].iter().cloned().collect();
-             
+
     assert!(relocation_data.is_ok());
     assert_eq!(relocation_data.unwrap(), expected);
 }
