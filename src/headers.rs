@@ -19,10 +19,10 @@ use std::default::Default;
 use std::mem;
 use std::slice;
 
-#[cfg(windows)] use winapi::shared::minwindef::FARPROC;
-#[cfg(windows)] use winapi::um::errhandlingapi::GetLastError;
-#[cfg(windows)] use winapi::um::libloaderapi::{LoadLibraryA, GetProcAddress};
-#[cfg(windows)] use winapi::um::winnt::LPCSTR;
+#[cfg(feature="win32")] use winapi::shared::minwindef::FARPROC;
+#[cfg(feature="win32")] use winapi::um::errhandlingapi::GetLastError;
+#[cfg(feature="win32")] use winapi::um::libloaderapi::{LoadLibraryA, GetProcAddress};
+#[cfg(feature="win32")] use winapi::um::winnt::LPCSTR;
 
 use crate::*;
 use crate::types::*;
@@ -1018,7 +1018,7 @@ impl ImageImportDescriptor {
     ///
     /// In other words, perform the importation of the functions with `LoadLibrary` and `GetProcAddress`
     /// and store them in the import address table.
-    #[cfg(windows)]
+    #[cfg(feature="win32")]
     pub fn resolve_iat<P: PE>(&self, pe: &mut P) -> Result<(), Error> {
         let dll_name = match self.get_name(pe) {
             Ok(d) => d.as_str(),

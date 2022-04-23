@@ -515,10 +515,10 @@ impl<'data> ImportDirectory<'data> {
         Ok(results)
     }
     /// Only available for Windows. Resolve the import address table of all descriptors in this directory.
-    #[cfg(windows)]
+    #[cfg(feature="win32")]
     pub fn resolve_iat<P: PE>(&self, pe: &mut P) -> Result<(), Error> {
         for import in self.descriptors.iter() {
-            match import.resolve_iat(unsafe { &mut *(pe as *mut P) }) {
+            match import.resolve_iat(pe) {
                 Ok(()) => (),
                 Err(e) => return Err(e),
             }
@@ -565,10 +565,10 @@ impl<'data> ImportDirectoryMut<'data> {
         Ok(results)
     }
     /// Only available for Windows. Resolve the import address table of all descriptors in this directory.
-    #[cfg(windows)]
+    #[cfg(feature="win32")]
     pub fn resolve_iat<P: PE>(&self, pe: &mut P) -> Result<(), Error> {
         for import in self.descriptors.iter() {
-            match import.resolve_iat(unsafe { &mut *(pe as *mut P) }) {
+            match import.resolve_iat(pe) {
                 Ok(()) => (),
                 Err(e) => return Err(e),
             }
