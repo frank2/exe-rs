@@ -38,7 +38,8 @@ pub use crate::imphash::*;
 #[cfg(test)]
 mod tests;
 
-use bitflags::bitflags;
+// only used by the win32 feature to define structures related to VirtualAlloc
+#[cfg(feature="win32")] use bitflags::bitflags;
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
@@ -312,6 +313,7 @@ pub enum Error {
     SectionsNotContiguous,
     /// Only shows up on Windows. The section characteristics were bad. This is because there was a bad combination
     /// of read, write and execute characteristics in the section.
+    #[cfg(feature="win32")]
     BadSectionCharacteristics(SectionCharacteristics),
 }
 impl fmt::Display for Error {
