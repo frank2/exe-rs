@@ -48,7 +48,8 @@ use sha2::Sha256;
 
 use num_traits;
 
-use pkbuffer::{Buffer, PtrBuffer, VecBuffer, Error as PKError, Castable};
+use pkbuffer::{PtrBuffer, VecBuffer, Error as PKError};
+pub use pkbuffer::{Buffer, Castable};
 
 use std::clone::Clone;
 use std::cmp;
@@ -62,9 +63,10 @@ use std::ops::{Index, IndexMut};
 use std::path::Path;
 use std::slice;
 
-#[cfg(windows)] use winapi::shared::minwindef::LPVOID;
-#[cfg(windows)] use winapi::um::memoryapi::{VirtualAlloc, VirtualFree};
-#[cfg(windows)] use winapi::um::errhandlingapi::GetLastError;
+#[cfg(feature="win32")] use winapi::shared::minwindef::LPVOID;
+#[cfg(feature="win32")] use winapi::um::memoryapi::{VirtualAlloc, VirtualFree, VirtualQuery, VirtualProtect};
+#[cfg(feature="win32")] use winapi::um::errhandlingapi::GetLastError;
+#[cfg(feature="win32")] use winapi::um::winnt::MEMORY_BASIC_INFORMATION;
 
 /// Aligns a given `value` to the boundary specified by `boundary`.
 ///
@@ -159,7 +161,7 @@ pub fn find_embedded_images<P: PE>(pe: &P, pe_type: PEType) -> Result<Option<Vec
 ///
 /// **Note**: You should probably not run this function on suspected malware in an unsandboxed environment. In a sandboxed
 /// environment, though, this function comes in handy for executing code which is known to be benign.
-#[cfg(windows)]
+#[cfg(feature="win32")]
 pub fn load_image<P: PE>(pe: &P) -> Result<VallocPE, Error> {
     match pe.get_arch() {
         Ok(a) => match a {
@@ -169,30 +171,8 @@ pub fn load_image<P: PE>(pe: &P) -> Result<VallocPE, Error> {
         Err(e) => return Err(e),
     }
 
-    let headers = pe.get_valid_nt_headers()?;
-    let image_base = match headers {
-        NTHeaders::NTHeaders32(h32) => h32.optional_header.image_base as usize,
-        NTHeaders::NTHeaders64(h64) => h64.optional_header.image_base as usize,
-    };
-
-    let aslr = match headers {
-        NTHeaders::NTHeaders32(h32) => !(h32.optional_header.dll_characteristics & DLLCharacteristics::DYNAMIC_BASE).is_empty(),
-        NTHeaders::NTHeaders64(h64) => !(h64.optional_header.dll_characteristics & DLLCharacteristics::DYNAMIC_BASE).is_empty(),
-    };
-
-    let recreated_image = pe.recreate_image(PEType::Memory)?;
-    let alloc_address;
-
-    if aslr {
-        alloc_address = std::ptr::null() as *const u8;
-    }
-    else {
-        alloc_address = image_base as *const u8;
-    }
-        
-    let mut new_pe = VallocPE::new(alloc_address, recreated_image.len())?;
-    new_pe.write(0, recreated_image)?;
-    
+    let mut new_pe = VallocPE::from_pe(pe)?;
+    new_pe.mark_read_write()?;
     let new_pe_ro = PtrPE::new_memory(new_pe.as_ptr(), new_pe.len());
 
     if new_pe_ro.has_data_directory(ImageDirectoryEntry::BaseReloc) {
@@ -212,6 +192,8 @@ pub fn load_image<P: PE>(pe: &P) -> Result<VallocPE, Error> {
             Err(e) => return Err(e),
         }
     }
+
+    new_pe.protect()?;
 
     if new_pe_ro.has_data_directory(ImageDirectoryEntry::TLS) {
         let tls_dir = match TLSDirectory::parse(&new_pe_ro) {
@@ -323,8 +305,14 @@ pub enum Error {
     /// Only available on Windows. The function returned a Win32 error.
     ///
     /// Arg0 represents the Win32 error.
-    #[cfg(windows)]
+    #[cfg(feature="win32")]
     Win32Error(u32),
+    /// Only shows up on Windows. The section table was found to be not contiguous.
+    #[cfg(feature="win32")]
+    SectionsNotContiguous,
+    /// Only shows up on Windows. The section characteristics were bad. This is because there was a bad combination
+    /// of read, write and execute characteristics in the section.
+    BadSectionCharacteristics(SectionCharacteristics),
 }
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -369,8 +357,12 @@ impl fmt::Display for Error {
                 write!(f, "The data directory is corrupt and cannot be parsed."),
             Error::ArchMismatch(expected, got) =>
                 write!(f, "The architecture of the Rust binary and the given PE file do not match: expected {:?}, got {:?}", expected, got),
-            #[cfg(windows)]
+            #[cfg(feature="win32")]
             Error::Win32Error(err) => write!(f, "The function returned a Win32 error: {:#x}", err),
+            #[cfg(feature="win32")]
+            Error::SectionsNotContiguous => write!(f, "The sections in the PE file were not contiguous"),
+            #[cfg(feature="win32")]
+            Error::BadSectionCharacteristics(chars) => write!(f, "Bad section characteristics: {:#x}", chars.bits()),
         }
     }
 }
@@ -561,7 +553,7 @@ pub trait PE: Buffer + Sized {
     fn get_type(&self) -> PEType;
 
     /// Only for Windows. Return if the `PE` has been allocated by `VirtualAlloc`.
-    #[cfg(windows)]
+    #[cfg(feature="win32")]
     fn is_allocated(&self) -> bool;
 
     /// Get the size of a zero-terminated C-string in the data.
@@ -1022,10 +1014,10 @@ pub trait PE: Buffer + Sized {
     }
     /// Get the image base of this PE file.
     ///
-    /// On Windows, if the buffer has been allocated with [`virtual_alloc`](VallocPE::virtual_alloc), return that base address instead.
+    /// On Windows, if the buffer has been allocated with `VirtualAlloc` (like a [`VallocBuffer`](VallocBuffer)), return that base address instead.
     /// Otherwise, return [`ImageBase`](ImageOptionalHeader32::image_base) from the NT headers.
     fn get_image_base(&self) -> Result<u64, Error> {
-        #[cfg(windows)] {
+        #[cfg(feature="win32")] {
             if self.is_allocated() {
                 return Ok(self.as_ptr() as u64);
             }
@@ -1854,7 +1846,7 @@ impl PE for PtrPE {
     fn get_type(&self) -> PEType { self.pe_type }
     /// Only for Windows. Check if this [`PE`](PE) object is allocated. `PtrPE` is never
     /// allocated, so this function always returns false.
-    #[cfg(windows)]
+    #[cfg(feature="win32")]
     fn is_allocated(&self) -> bool { false }
 }
 impl Buffer for PtrPE {
@@ -2068,7 +2060,7 @@ impl VecPE {
 }
 impl PE for VecPE {
     fn get_type(&self) -> PEType { self.pe_type }
-    #[cfg(windows)]
+    #[cfg(feature="win32")]
     fn is_allocated(&self) -> bool { false }
 }
 impl Buffer for VecPE {
@@ -2091,7 +2083,7 @@ impl<Idx: slice::SliceIndex<[u8]>> IndexMut<Idx> for VecPE {
     }
 }
 
-#[cfg(windows)]
+#[cfg(feature="win32")]
 bitflags! {
     /// Only available for Windows. Represents the bitflags for `flAllocationType` in [`VirtualAlloc`](VirtualAlloc).
     pub struct AllocationType: u32 {
@@ -2107,7 +2099,7 @@ bitflags! {
 }
 
 /// Only available for Windows. Represents the enum for `flProtect` in [`VirtualAlloc`](VirtualAlloc).
-#[cfg(windows)]
+#[cfg(feature="win32")]
 pub enum Protect {
     Execute = 0x10,
     ExecuteRead = 0x20,
@@ -2122,51 +2114,337 @@ pub enum Protect {
     NoCache = 0x200,
     WriteCombine = 0x400,
 }
-
-/// Only for Windows. Represents a [`PE`](PE) buffer allocated with `VirtualAlloc`.
-#[cfg(windows)]
-pub struct VallocPE {
-    buffer: PtrBuffer
+#[cfg(feature="win32")]
+impl From<u32> for Protect {
+    fn from(value: u32) -> Self {
+        match value {
+            0x10 => Self::Execute,
+            0x20 => Self::ExecuteRead,
+            0x40 => Self::ExecuteReadWrite,
+            0x80 => Self::ExecuteWriteCopy,
+            0x01 => Self::NoAccess,
+            0x02 => Self::ReadOnly,
+            0x04 => Self::ReadWrite,
+            0x08 => Self::WriteCopy,
+            0x40000000 => Self::TargetsInvalidNoUpdate,
+            0x100 => Self::Guard,
+            0x200 => Self::NoCache,
+            0x400 => Self::WriteCombine,
+            _ => panic!("couldn't convert to enum: {}", value),
+        }
+    }
 }
-#[cfg(windows)]
-impl VallocPE {
-    /// Create a new `VallocPE` object with the given base address and size.
+
+/// Only for Windows. Represents a buffer backed by the `VirtualAlloc` function on Windows.
+#[cfg(feature="win32")]
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub struct VallocBuffer {
+    ptr: *const u8,
+    size: usize,
+}
+#[cfg(feature="win32")]
+impl VallocBuffer {
+    /// Use the [`VirtualAlloc`](VirtualAlloc) function directly to allocate a new `VallocBuffer` object.
     ///
     /// This calls `VirtualAlloc` and attempts to allocate the space with the given base address.
     /// To allocate on an address chosen by the system, pass [`std::ptr::null`](std::ptr::null).
     /// On allocation error, this will return a [`Error::Win32Error`](Error::Win32Error).
-    pub fn new(base_address: *const u8, size: usize) -> Result<Self, Error> {
-        Self::virtual_alloc(
-            base_address,
-            size,
-            AllocationType::MEM_COMMIT | AllocationType::MEM_RESERVE,
-            Protect::ExecuteReadWrite
-        )
-    }
-    /// Use the [`VirtualAlloc`](VirtualAlloc) function directly to allocate a new `VallocPE` object.
-    /// On failure, this function returns a [`Win32Error`](Error::Win32Error).
-    pub fn virtual_alloc(address: *const u8, size: usize, allocation: AllocationType, protect: Protect) -> Result<Self, Error> {
+    pub fn new(address: *const u8, size: usize, allocation: AllocationType, protect: Protect) -> Result<Self, Error> {
         let buffer = unsafe { VirtualAlloc(address as LPVOID, size, allocation.bits(), protect as u32) };
 
         if buffer == std::ptr::null_mut() { return Err(Error::Win32Error(unsafe { GetLastError() })); }
 
-        Ok(Self { buffer: PtrBuffer::new(buffer as *const u8, size) })
+        Ok(Self { ptr: buffer as *const u8, size })
+    }
+    /// Call `VirtualProtect` on the allocated buffer.
+    ///
+    /// Returns the old protection of the buffer. On failure, this function returns a [`Win32Error`](Error::Win32Error).
+    pub fn protect(&self, protect: Protect) -> Result<Protect, Error> {
+        let mut old_protect = 0u32;
+
+        if unsafe { VirtualProtect(self.ptr as LPVOID, self.size, protect as u32, &mut old_protect as *mut u32) } == 0 {
+            Err(Error::Win32Error(unsafe { GetLastError() }))
+        }
+        else {
+            Ok(Protect::from(old_protect))
+        }
     }
 }
-#[cfg(windows)]
+#[cfg(feature="win32")]
+impl Buffer for VallocBuffer {
+    fn len(&self) -> usize { self.size }
+    fn as_ptr(&self) -> *const u8 { self.ptr }
+    fn as_mut_ptr(&mut self) -> *mut u8 { self.ptr as *mut u8 }
+    fn as_slice(&self) -> &[u8] { unsafe { std::slice::from_raw_parts(self.as_ptr(), self.len()) } }
+    fn as_mut_slice(&mut self) -> &mut [u8] { unsafe { std::slice::from_raw_parts_mut(self.as_mut_ptr(), self.len()) } }
+}
+#[cfg(feature="win32")]
+impl<Idx: slice::SliceIndex<[u8]>> Index<Idx> for VallocBuffer {
+    type Output = Idx::Output;
+        
+    fn index(&self, index: Idx) -> &Self::Output {
+        self.as_slice().index(index)
+    }
+}
+#[cfg(feature="win32")]
+impl<Idx: slice::SliceIndex<[u8]>> IndexMut<Idx> for VallocBuffer {
+    fn index_mut(&mut self, index: Idx) -> &mut Self::Output {
+        self.as_mut_slice().index_mut(index)
+    }
+}
+#[cfg(feature="win32")]
+impl Drop for VallocBuffer {
+    fn drop(&mut self) {
+        unsafe { VirtualFree(self.as_mut_ptr() as LPVOID, self.len(), 0x8000) };
+    }
+}
+
+/// Only for Windows. Represents a [`PE`](PE) buffer allocated with `VirtualAlloc`.
+#[cfg(feature="win32")]
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub struct VallocPE {
+    sections: Vec<(ImageSectionHeader, VallocBuffer)>,
+    sum: PtrPE,
+}
+#[cfg(feature="win32")]
+impl VallocPE {
+    /// Create a new `VallocPE` object with the given base address and size.
+    ///
+    /// This essentially creates a single section within the PE object backed by a [`VallocBuffer`](VallocBuffer),
+    /// see [`VallocBuffer::new`](VallocBuffer::new) for more info.
+    pub fn new(address: *const u8, size: usize, allocation: AllocationType, protect: Protect) -> Result<Self, Error> {
+        let buffer = VallocBuffer::new(
+            address,
+            size,
+            allocation,
+            protect,
+        )?;
+        
+        Ok(Self::from_valloc_buffer(buffer))
+    }
+
+    /// Create a new `VallocPE` object with only the given buffer as its section.
+    pub fn from_valloc_buffer(buffer: VallocBuffer) -> Self {
+        let sum = PtrPE::new_memory(buffer.as_ptr(), buffer.len());
+        let sections = vec![(ImageSectionHeader::default(), buffer)];
+
+        Self { sections, sum }
+    }
+    /// Create a new `VallocPE` object from another [`PE`](PE) object.
+    ///
+    /// This essentially enumerates the section table of the [`PE`](PE) object and allocates
+    /// the individual sections with the proper initialized protections.
+    pub fn from_pe<P: PE + Buffer>(pe: &P) -> Result<Self, Error> {
+        let headers = pe.get_valid_nt_headers()?;
+        let pe_size = pe.calculate_memory_size()?;
+        let (image_base, section_alignment) = match headers {
+            NTHeaders::NTHeaders32(h32) => (h32.optional_header.image_base as usize, h32.optional_header.section_alignment),
+            NTHeaders::NTHeaders64(h64) => (h64.optional_header.image_base as usize, h64.optional_header.section_alignment),
+        };
+
+        let aslr = match headers {
+            NTHeaders::NTHeaders32(h32) => !(h32.optional_header.dll_characteristics & DLLCharacteristics::DYNAMIC_BASE).is_empty(),
+            NTHeaders::NTHeaders64(h64) => !(h64.optional_header.dll_characteristics & DLLCharacteristics::DYNAMIC_BASE).is_empty(),
+        };
+
+        let mut alloc_address;
+
+        
+        // 'find_base: loop {
+        if aslr {
+            alloc_address = std::ptr::null() as *const u8;
+        }
+        else {
+            alloc_address = image_base as *const u8;
+        }
+
+        let reserved_address = unsafe { VirtualAlloc(
+            alloc_address as LPVOID,
+            pe_size,
+            AllocationType::MEM_RESERVE.bits(),
+            Protect::ReadWrite as u32
+        )};
+
+        if reserved_address == std::ptr::null_mut() {
+            return Err(Error::Win32Error(unsafe { GetLastError() }));
+        }
+
+        alloc_address = reserved_address as *const u8;
+        let alloc_base = alloc_address;
+
+        let section_table = pe.get_section_table()?;
+        let mut section_table = section_table.to_vec();
+        section_table.sort_by(|a,b| a.virtual_address.0.cmp(&b.virtual_address.0));
+
+        let mut sections = Vec::<(ImageSectionHeader, VallocBuffer)>::new();
+
+        let header_size = pe.calculate_header_size()?;
+        let header_data = pe.read(0, header_size)?;
+        let first_section = &section_table[0];
+        let mut section_size = align(first_section.virtual_address.0 as usize, section_alignment as usize);
+        let mut previous_size = section_size;
+        let mut total_size = section_size;
+        
+        let mut header_buffer = VallocBuffer::new(
+            alloc_address,
+            section_size,
+            AllocationType::MEM_COMMIT,
+            Protect::ReadWrite,
+        )?;
+
+        header_buffer.write(0, header_data)?;
+        header_buffer.protect(Protect::ReadOnly)?;
+        sections.push((ImageSectionHeader::default(), header_buffer));
+
+        for scn_header in section_table {
+            let checked_address = unsafe { alloc_base.add(align(scn_header.virtual_address.into(), section_alignment) as usize) };
+            alloc_address = unsafe { alloc_address.add(previous_size) };
+
+            if alloc_address != checked_address {
+                return Err(Error::SectionsNotContiguous);
+            }
+
+            section_size = align(scn_header.virtual_size as usize, section_alignment as usize);
+            previous_size = section_size;
+            total_size += section_size;
+
+            let protect;
+
+            if scn_header.characteristics.contains(SectionCharacteristics::MEM_READ)
+                && scn_header.characteristics.contains(SectionCharacteristics::MEM_WRITE)
+                && scn_header.characteristics.contains(SectionCharacteristics::MEM_EXECUTE) {
+                    protect = Protect::ExecuteReadWrite
+                }
+            else if scn_header.characteristics.contains(SectionCharacteristics::MEM_READ)
+                && scn_header.characteristics.contains(SectionCharacteristics::MEM_WRITE) {
+                    protect = Protect::ReadWrite
+                }
+            else if scn_header.characteristics.contains(SectionCharacteristics::MEM_READ)
+                && scn_header.characteristics.contains(SectionCharacteristics::MEM_EXECUTE) {
+                    protect = Protect::ExecuteRead
+                }
+            else if scn_header.characteristics.contains(SectionCharacteristics::MEM_READ) {
+                protect = Protect::ReadOnly;
+            }
+            else if scn_header.characteristics.contains(SectionCharacteristics::MEM_EXECUTE) {
+                protect = Protect::Execute;
+            }
+            else {
+                return Err(Error::BadSectionCharacteristics(scn_header.characteristics));
+            }
+
+            let section_data = scn_header.read(pe)?;
+            let mut section_buffer = VallocBuffer::new(
+                alloc_address,
+                section_size,
+                AllocationType::MEM_COMMIT,
+                Protect::ReadWrite,
+            )?;
+            section_buffer.write(0, section_data)?;
+            section_buffer.protect(protect)?;
+
+            sections.push((scn_header.clone(), section_buffer));
+        }
+
+        let sum = PtrPE::new_memory(sections[0].1.as_ptr(), total_size);
+
+        Ok(Self { sections, sum })
+    }
+    /// Get the header section of the allocated [`PE`](PE) file.
+    pub fn get_header(&self) -> &VallocBuffer {
+        &self.sections[0].1
+    }
+    pub fn get_mut_header(&mut self) -> &mut VallocBuffer {
+        &mut self.sections[0].1
+    }
+    pub fn get_section(&self, index: usize) -> Result<&VallocBuffer, Error> {
+        let sections = &self.sections[1..];
+
+        if index > sections.len() { return Err(Error::OutOfBounds(sections.len(), index)); }
+
+        Ok(&sections[index].1)
+    }
+    pub fn get_mut_section(&mut self, index: usize) -> Result<&mut VallocBuffer, Error> {
+        let sections = &mut self.sections[1..];
+
+        if index > sections.len() { return Err(Error::OutOfBounds(sections.len(), index)); }
+
+        Ok(&mut sections[index].1)
+    }
+    pub fn get_section_by_name<S: AsRef<str>>(&self, name: S) -> Result<&VallocBuffer, Error> {
+        let sections = &self.sections[1..];
+        let name = name.as_ref();
+
+        for (header, section) in sections {
+            if name == header.name.as_str() { return Ok(section); }
+        }
+
+        Err(Error::SectionNotFound)
+    }
+    pub fn get_mut_section_by_name<S: AsRef<str>>(&mut self, name: S) -> Result<&mut VallocBuffer, Error> {
+        let sections = &mut self.sections[1..];
+        let name = name.as_ref();
+
+        for (header, scn) in sections.iter_mut() {
+            if name == header.name.as_str() { return Ok(scn); }
+        }
+
+        Err(Error::SectionNotFound)
+    }
+    pub fn mark_read_write(&mut self) -> Result<(), Error> {
+        for (_, scn) in &mut self.sections[1..] {
+            scn.protect(Protect::ReadWrite)?;
+        }
+
+        Ok(())
+    }
+    pub fn protect(&mut self) -> Result<(), Error> {
+        for (header, scn) in &mut self.sections[1..] {
+            let protect;
+
+            if header.characteristics.contains(SectionCharacteristics::MEM_READ)
+                && header.characteristics.contains(SectionCharacteristics::MEM_WRITE)
+                && header.characteristics.contains(SectionCharacteristics::MEM_EXECUTE) {
+                    protect = Protect::ExecuteReadWrite
+                }
+            else if header.characteristics.contains(SectionCharacteristics::MEM_READ)
+                && header.characteristics.contains(SectionCharacteristics::MEM_WRITE) {
+                    protect = Protect::ReadWrite
+                }
+            else if header.characteristics.contains(SectionCharacteristics::MEM_READ)
+                && header.characteristics.contains(SectionCharacteristics::MEM_EXECUTE) {
+                    protect = Protect::ExecuteRead
+                }
+            else if header.characteristics.contains(SectionCharacteristics::MEM_READ) {
+                protect = Protect::ReadOnly;
+            }
+            else if header.characteristics.contains(SectionCharacteristics::MEM_EXECUTE) {
+                protect = Protect::Execute;
+            }
+            else {
+                return Err(Error::BadSectionCharacteristics(header.characteristics));
+            }
+
+            scn.protect(protect)?;
+        }
+
+        Ok(())
+    }
+}
+#[cfg(feature="win32")]
 impl PE for VallocPE {
     fn get_type(&self) -> PEType { PEType::Memory }
     fn is_allocated(&self) -> bool { true }
 }
-#[cfg(windows)]
+#[cfg(feature="win32")]
 impl Buffer for VallocPE {
-    fn len(&self) -> usize { self.buffer.len() }
-    fn as_ptr(&self) -> *const u8 { self.buffer.as_ptr() }
-    fn as_mut_ptr(&mut self) -> *mut u8 { self.buffer.as_mut_ptr() }
-    fn as_slice(&self) -> &[u8] { self.buffer.as_slice() }
-    fn as_mut_slice(&mut self) -> &mut [u8] { self.buffer.as_mut_slice() }
+    fn len(&self) -> usize { self.sum.len() }
+    fn as_ptr(&self) -> *const u8 { self.sum.as_ptr() }
+    fn as_mut_ptr(&mut self) -> *mut u8 { self.sum.as_mut_ptr() }
+    fn as_slice(&self) -> &[u8] { self.sum.as_slice() }
+    fn as_mut_slice(&mut self) -> &mut [u8] { self.sum.as_mut_slice() }
 }
-#[cfg(windows)]
+#[cfg(feature="win32")]
 impl<Idx: slice::SliceIndex<[u8]>> Index<Idx> for VallocPE {
     type Output = Idx::Output;
         
@@ -2174,15 +2452,9 @@ impl<Idx: slice::SliceIndex<[u8]>> Index<Idx> for VallocPE {
         self.as_slice().index(index)
     }
 }
-#[cfg(windows)]
+#[cfg(feature="win32")]
 impl<Idx: slice::SliceIndex<[u8]>> IndexMut<Idx> for VallocPE {
     fn index_mut(&mut self, index: Idx) -> &mut Self::Output {
         self.as_mut_slice().index_mut(index)
-    }
-}
-#[cfg(windows)]
-impl Drop for VallocPE {
-    fn drop(&mut self) {
-        unsafe { VirtualFree(self.buffer.as_mut_ptr() as LPVOID, self.len(), 0x8000) };
     }
 }
