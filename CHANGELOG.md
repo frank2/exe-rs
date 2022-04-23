@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.2
+### Features
+* `pkbuffer` upgraded to 0.4.1, which features dynamic searching of buffer spaces.
+* A new object was created, `VallocBuffer`, and `VallocPE` was refactored to accomodate.
+* `VallocPE` now has a loader function, `from_pe`. This uses `VirtualAlloc` to reserve and contiguously load the PE's sections in as similar way to the kernel as possible. 
+
+### Bugfixes
+* Windows features are now behind the Cargo feature `win32`. This is mostly so that the Windows features show up in documentation.
+
 ## 0.5.1
 ### Features
 * `Offset` and other address types can now be converted into/from their base types via the `From` trait
