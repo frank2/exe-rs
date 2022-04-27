@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.4
+## Bugfixes
+* I really wish docs.rs had a way to test their documentation generation...
+
 ## 0.5.3
 ### Bugfixes
 * Fixed an issue with docs.rs not compiling the documentation properly due to misconfigured features.

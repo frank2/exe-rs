@@ -2,7 +2,7 @@
 name = "exe"
 description = "A PE (Portable Executable) library!"
 repository = "https://github.com/frank2/exe-rs"
-version = "0.5.3"
+version = "0.5.4"
 authors = ["frank2@dc949.org"]
 edition = "2018"
 license = "GPL-3.0"
@@ -32,3 +32,4 @@ win32 = ["winapi"]
 
 [package.metadata.docs.rs]
 features = ["win32"]
+default-target = "x86_64-pc-windows-msvc"
