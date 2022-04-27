@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.3
+### Bugfixes
+* Fixed an issue with docs.rs not compiling the documentation properly due to misconfigured features.
+
 ## 0.5.2
 ### Features
 * `pkbuffer` upgraded to 0.4.1, which features dynamic searching of buffer spaces.
