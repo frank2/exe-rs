@@ -5,9 +5,12 @@
 * `pkbuffer` upgraded to 0.4.1, which features dynamic searching of buffer spaces.
 * A new object was created, `VallocBuffer`, and `VallocPE` was refactored to accomodate.
 * `VallocPE` now has a loader function, `from_pe`. This uses `VirtualAlloc` to reserve and contiguously load the PE's sections in as similar way to the kernel as possible. 
+    * as a result of this, `load_image` has been moved to `VallocPE`
 
 ### Bugfixes
 * Windows features are now behind the Cargo feature `win32`. This is mostly so that the Windows features show up in documentation.
+* moved `VallocPE`, `VallocBuffer` and the `PE` trait into their own libraries, `exe::valloc` and `exe::pe` respectively.
+* `Protect` now matches more closely with the MSDN docs.
 
 ## 0.5.1
 ### Features
