@@ -744,17 +744,13 @@ impl<'data> RelocationEntry<'data> {
     /// Create a `RelocationEntry` object at the given RVA.
     pub fn create<P: PE>(pe: &'data mut P, rva: RVA, base_relocation: &ImageBaseRelocation, relocations: &[Relocation]) -> Result<Self, Error> {
         let mut offset = pe.translate(PETranslation::Memory(rva))?;
-        println!("writing base relocation {:?}", base_relocation);
         pe.write_ref(offset, base_relocation)?;
 
-        println!("writing relocations: {:?}", relocations);
         offset += mem::size_of::<ImageBaseRelocation>();
         pe.write_slice_ref(offset, relocations)?;
 
-        println!("parsing relocation {:?}", rva);
         let result = Self::parse(pe, rva);
 
-        println!("parsed: {:?}", result);
         result
     }
     /// Calculate the block size of this relocation entry.
@@ -934,10 +930,8 @@ impl<'data> RelocationDirectory<'data> {
     /// Add a given [`RVA`](RVA) as a relocation entry.
     pub fn add_relocation<P: PE>(&mut self, pe: &'data mut P, rva: RVA) -> Result<(), Error> {
         // error out immediately if we don't have a relocation directory
-        println!("getting image directory");
         let dir = pe.get_data_directory(ImageDirectoryEntry::BaseReloc)?;
-        println!("got image directory");
-        
+                
         if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
             return Err(Error::InvalidRVA(dir.virtual_address));
         }

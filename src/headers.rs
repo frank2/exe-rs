@@ -879,11 +879,12 @@ impl ImageImportDescriptor {
 
         loop {
             match arch {
-                Arch::X86 => match pe.get_ref::<Thunk32>(indexer) {
+                // sometimes this can be unaligned... thanks Microsoft
+                Arch::X86 => match unsafe { pe.force_get_ref::<Thunk32>(indexer) } {
                     Ok(r) => { if r.0 == 0 { break; } },
                     Err(e) => return Err(Error::from(e)),
                 },
-                Arch::X64 => match pe.get_ref::<Thunk64>(indexer) {
+                Arch::X64 => match unsafe { pe.force_get_ref::<Thunk64>(indexer) } {
                     Ok(r) => { if r.0 == 0 { break; } },
                     Err(e) => return Err(Error::from(e)),
                 },
@@ -908,11 +909,11 @@ impl ImageImportDescriptor {
         let offset = pe.translate(PETranslation::Memory(rva))?;
         
         match arch {
-            Arch::X86 => match pe.get_slice_ref::<Thunk32>(offset, thunks) {
+            Arch::X86 => match unsafe { pe.force_get_slice_ref::<Thunk32>(offset, thunks) } {
                 Ok(s) => Ok(s.iter().map(|x| Thunk::Thunk32(x)).collect()),
                 Err(e) => Err(Error::from(e)),
             },
-            Arch::X64 => match pe.get_slice_ref::<Thunk64>(offset, thunks) {
+            Arch::X64 => match unsafe { pe.force_get_slice_ref::<Thunk64>(offset, thunks) } {
                 Ok(s) => Ok(s.iter().map(|x| Thunk::Thunk64(x)).collect()),
                 Err(e) => Err(Error::from(e)),
             },
@@ -928,11 +929,11 @@ impl ImageImportDescriptor {
         let offset = pe.translate(PETranslation::Memory(rva))?;
 
         match arch {
-            Arch::X86 => match pe.get_mut_slice_ref::<Thunk32>(offset, thunks) {
+            Arch::X86 => match unsafe { pe.force_get_mut_slice_ref::<Thunk32>(offset, thunks) } {
                 Ok(s) => Ok(s.iter_mut().map(|x| ThunkMut::Thunk32(x)).collect()),
                 Err(e) => Err(Error::from(e)),
             },
-            Arch::X64 => match pe.get_mut_slice_ref::<Thunk64>(offset, thunks) {
+            Arch::X64 => match unsafe { pe.force_get_mut_slice_ref::<Thunk64>(offset, thunks) } {
                 Ok(s) => Ok(s.iter_mut().map(|x| ThunkMut::Thunk64(x)).collect()),
                 Err(e) => Err(Error::from(e)),
             },
@@ -1024,13 +1025,13 @@ impl ImageImportDescriptor {
             Ok(d) => d.as_str(),
             Err(e) => return Err(e),
         };
-        
+
         let dll_handle = unsafe { LoadLibraryA(dll_name.as_ptr() as LPCSTR) };
 
         if dll_handle == std::ptr::null_mut() {
             return Err(Error::Win32Error(unsafe { GetLastError() }));
         }
-
+        
         let lookup_table: Vec<Thunk> = match self.get_original_first_thunk(pe) {
             Ok(l) => l,
             Err(_) => match self.get_first_thunk(pe) {
@@ -1062,7 +1063,7 @@ impl ImageImportDescriptor {
 
             lookup_results.push(thunk_result);
         }
-            
+
         let mut address_table = self.get_mut_first_thunk(pe)?;
         
         if address_table.len() != lookup_results.len() {
