@@ -27,10 +27,8 @@ widestring = "0.4.3"
 winapi = { version = "0.3.9", features = ["errhandlingapi", "libloaderapi", "memoryapi", "impl-default"], optional = true }
 
 [features]
+default = []
 win32 = ["winapi"]
-
-[profile.test]
-default = ["win32"]
 
 [package.metadata.docs.rs]
 features = ["win32"]
