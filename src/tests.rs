@@ -539,4 +539,11 @@ fn test_add_relocation() {
     let relocations = reparsed.relocations(&pefile, 0x02000000).unwrap();
     assert_eq!(relocations[0], (RVA(0x11C0), RelocationValue::Relocation32(0x01000000)));
 }
+
+#[test]
+fn test_load_flareon() {
+    let flareon = VecPE::from_disk_file("test/flareon.noaslr.exe").unwrap();
+    let mut flareon_loaded = VallocPE::from_pe(&flareon).unwrap();
+    assert!(flareon_loaded.load_image().is_ok());
+}
     
