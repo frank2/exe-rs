@@ -1,7 +1,11 @@
 # Changelog
 
+## 0.5.5
+### Bugfixes
+* Fixed a bug in TLS directory parsing where offsets weren't being properly translated when considering virtually allocated PE buffers.
+
 ## 0.5.4
-## Bugfixes
+### Bugfixes
 * I really wish docs.rs had a way to test their documentation generation...
 
 ## 0.5.3
