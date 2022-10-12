@@ -1509,14 +1509,15 @@ impl ImageTLSDirectory32 {
 
     /// Get the size of the callback array pointed to by this directory.
     pub fn get_callback_size<P: PE>(&self, pe: &P) -> Result<usize, Error> {
-        let offset = self.address_of_callbacks.as_offset(pe)?;
+        let rva = self.address_of_callbacks.as_rva(pe)?;
+        let offset = pe.translate(PETranslation::Memory(rva))?;
         let mut result = 0usize;
         let mut scan_offset = offset.clone();
 
         loop {
-            let callback = pe.get_ref::<VA32>(scan_offset.into())?;
+            let callback = pe.get_ref::<VA32>(scan_offset)?;
             
-            scan_offset.0 += mem::size_of::<VA32>() as u32;
+            scan_offset += mem::size_of::<VA32>();
 
             if callback.0 == 0 {
                 return Ok(result);
@@ -1528,17 +1529,19 @@ impl ImageTLSDirectory32 {
 
     /// Get the callbacks array from the TLS directory.
     pub fn get_callbacks<'data, P: PE>(&self, pe: &'data P) -> Result<&'data [VA32], Error> {
-        let offset = self.address_of_callbacks.as_offset(pe)?;
+        let rva = self.address_of_callbacks.as_rva(pe)?;
+        let offset = pe.translate(PETranslation::Memory(rva))?;
         let size = self.get_callback_size(pe)?;
-        let result = pe.get_slice_ref::<VA32>(offset.into(), size)?;
+        let result = pe.get_slice_ref::<VA32>(offset, size)?;
         Ok(result)
     }
 
     /// Get a mutable array of the callbacks in this TLS directory.
     pub fn get_mut_callbacks<'data, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut [VA32], Error> {
-        let offset = self.address_of_callbacks.as_offset(pe)?;
+        let rva = self.address_of_callbacks.as_rva(pe)?;
+        let offset = pe.translate(PETranslation::Memory(rva))?;
         let size = self.get_callback_size(pe)?;
-        let result = pe.get_mut_slice_ref::<VA32>(offset.into(), size)?;
+        let result = pe.get_mut_slice_ref::<VA32>(offset, size)?;
         Ok(result)
     }
 }
@@ -1604,17 +1607,18 @@ impl ImageTLSDirectory64 {
 
     /// Get the size of the callback array pointed to by this directory.
     pub fn get_callback_size<P: PE>(&self, pe: &P) -> Result<usize, Error> {
-        let offset = self.address_of_callbacks.as_offset(pe)?;
+        let rva = self.address_of_callbacks.as_rva(pe)?;
+        let offset = pe.translate(PETranslation::Memory(rva))?;
         let mut result = 0usize;
         let mut scan_offset = offset.clone();
 
         loop {
-            let callback = pe.get_ref::<VA64>(scan_offset.into())?;
-            
-            scan_offset.0 += mem::size_of::<VA64>() as u32;
+            let callback = pe.get_ref::<VA64>(scan_offset)?;
+             
+            scan_offset += mem::size_of::<VA64>();
 
             if callback.0 == 0 {
-                return Ok(result);
+                 return Ok(result);
             }
 
             result += 1;
@@ -1623,17 +1627,19 @@ impl ImageTLSDirectory64 {
 
     /// Get the callbacks array from the TLS directory.
     pub fn get_callbacks<'data, P: PE>(&self, pe: &'data P) -> Result<&'data [VA64], Error> {
-        let offset = self.address_of_callbacks.as_offset(pe)?;
+        let rva = self.address_of_callbacks.as_rva(pe)?;
+        let offset = pe.translate(PETranslation::Memory(rva))?;
         let size = self.get_callback_size(pe)?;
-        let result = pe.get_slice_ref::<VA64>(offset.into(), size)?;
+        let result = pe.get_slice_ref::<VA64>(offset, size)?;
         Ok(result)
     }
 
     /// Get a mutable array of the callbacks in this TLS directory.
     pub fn get_mut_callbacks<'data, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut [VA64], Error> {
-        let offset = self.address_of_callbacks.as_offset(pe)?;
+        let rva = self.address_of_callbacks.as_rva(pe)?;
+        let offset = pe.translate(PETranslation::Memory(rva))?;
         let size = self.get_callback_size(pe)?;
-        let result = pe.get_mut_slice_ref::<VA64>(offset.into(), size)?;
+        let result = pe.get_mut_slice_ref::<VA64>(offset, size)?;
         Ok(result)
     }
 }
