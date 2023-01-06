@@ -16,7 +16,7 @@ documentation = "https://docs.rs/exe"
 [dependencies]
 bitflags = "1.2.1"
 byteorder = "1.1.0"
-chrono = "0.4"
+chrono = { version = "0.4", features = ["clock", "std", "wasmbind"], default-features = false }
 hex = "0.4.3"
 num-traits = "0.2.14"
 pkbuffer = "=0.4.2"
