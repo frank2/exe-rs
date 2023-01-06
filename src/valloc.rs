@@ -418,7 +418,7 @@ impl VallocPE {
 
             match tls_dir {
                 TLSDirectory::TLS32(tls32) => {
-                    let callbacks = match tls32.get_callbacks(&self_ro) {
+                    let callbacks = match tls32.get_callbacks(unsafe { &*(self as *mut VallocPE as *const VallocPE) }) {
                         Ok(c) => c,
                         Err(e) => return Err(e),
                     };
@@ -431,7 +431,7 @@ impl VallocPE {
                     }
                 },
                 TLSDirectory::TLS64(tls64) => {
-                    let callbacks = match tls64.get_callbacks(&self_ro) {
+                    let callbacks = match tls64.get_callbacks(unsafe { &*(self as *mut VallocPE as *const VallocPE) }) {
                         Ok(c) => c,
                         Err(e) => return Err(e),
                     };
