@@ -482,7 +482,8 @@ impl VallocPE {
         let name = name.as_ref();
 
         for (header, section) in sections {
-            if name == header.name.as_str() { return Ok(section); }
+            let s = header.name.as_str()?;
+            if name == s { return Ok(section); }
         }
 
         Err(Error::SectionNotFound)
@@ -492,7 +493,8 @@ impl VallocPE {
         let name = name.as_ref();
 
         for (header, scn) in sections.iter_mut() {
-            if name == header.name.as_str() { return Ok(scn); }
+            let s = header.name.as_str()?;
+            if name == s { return Ok(scn); }
         }
 
         Err(Error::SectionNotFound)

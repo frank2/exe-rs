@@ -62,9 +62,9 @@ fn test_compiled() {
 
     let section_table = get_section_table.unwrap();
     assert_eq!(section_table.len(), headers.file_header.number_of_sections as usize);
-    assert_eq!(section_table[0].name.as_str(), ".text");
-    assert_eq!(section_table[1].name.as_str(), ".rdata");
-    assert_eq!(section_table[2].name.as_str(), ".data");
+    assert_eq!(section_table[0].name.as_str().unwrap(), ".text");
+    assert_eq!(section_table[1].name.as_str().unwrap(), ".rdata");
+    assert_eq!(section_table[2].name.as_str().unwrap(), ".data");
 
     let data_directory_offset = pefile.get_data_directory_offset();
     assert!(data_directory_offset.is_ok());
@@ -84,7 +84,7 @@ fn test_compiled() {
 
     let name_0 = import_directory.descriptors[0].get_name(&pefile);
     assert!(name_0.is_ok());
-    assert_eq!(name_0.unwrap().as_str(), "kernel32.dll");
+    assert_eq!(name_0.unwrap().as_str().unwrap(), "kernel32.dll");
 
     let kernel32_thunks_result = import_directory.descriptors[0].get_original_first_thunk(&pefile);
     assert!(kernel32_thunks_result.is_ok());
@@ -104,7 +104,7 @@ fn test_compiled() {
 
     let name_1 = import_directory.descriptors[1].get_name(&pefile);
     assert!(name_1.is_ok());
-    assert_eq!(name_1.unwrap().as_str(), "msvcrt.dll");
+    assert_eq!(name_1.unwrap().as_str().unwrap(), "msvcrt.dll");
 
     let msvcrt_imports = import_directory.descriptors[1].get_imports(&pefile);
     let msvcrt_expected = vec![ImportData::ImportByName("printf")];
@@ -156,9 +156,9 @@ fn test_compiled_dumped() {
 
     let section_table = get_section_table.unwrap();
     assert_eq!(section_table.len(), headers.file_header.number_of_sections as usize);
-    assert_eq!(section_table[0].name.as_str(), ".text");
-    assert_eq!(section_table[1].name.as_str(), ".rdata");
-    assert_eq!(section_table[2].name.as_str(), ".data");
+    assert_eq!(section_table[0].name.as_str().unwrap(), ".text");
+    assert_eq!(section_table[1].name.as_str().unwrap(), ".rdata");
+    assert_eq!(section_table[2].name.as_str().unwrap(), ".data");
 
     assert!(pefile.has_data_directory(ImageDirectoryEntry::Import));
     assert!(!pefile.has_data_directory(ImageDirectoryEntry::Export));
@@ -174,7 +174,7 @@ fn test_compiled_dumped() {
 
     let name_0 = import_directory.descriptors[0].get_name(&pefile);
     assert!(name_0.is_ok());
-    assert_eq!(name_0.unwrap().as_str(), "kernel32.dll");
+    assert_eq!(name_0.unwrap().as_str().unwrap(), "kernel32.dll");
 
     let kernel32_thunks_result = import_directory.descriptors[0].get_original_first_thunk(&pefile);
     assert!(kernel32_thunks_result.is_ok());
@@ -194,7 +194,7 @@ fn test_compiled_dumped() {
 
     let name_1 = import_directory.descriptors[1].get_name(&pefile);
     assert!(name_1.is_ok());
-    assert_eq!(name_1.unwrap().as_str(), "msvcrt.dll");
+    assert_eq!(name_1.unwrap().as_str().unwrap(), "msvcrt.dll");
 
     let msvcrt_imports = import_directory.descriptors[1].get_imports(&pefile);
     let msvcrt_expected = vec![ImportData::ImportByName("printf")];
@@ -219,7 +219,7 @@ fn test_dll() {
     let export_table = directory.unwrap();
     let name = export_table.get_name(&pefile);
     assert!(name.is_ok());
-    assert_eq!(name.unwrap().as_str(), "dll.dll");
+    assert_eq!(name.unwrap().as_str().unwrap(), "dll.dll");
 
     let exports = export_table.get_export_map(&pefile);
     let expected: HashMap<&str, ThunkData> = [("export", ThunkData::Function(RVA(0x1024)))].iter().map(|&x| x).collect();
@@ -271,7 +271,7 @@ fn test_dll_fw() {
         let offset = forwarder_offset.unwrap();
         let string_data = pefile.get_cstring(offset.into(), false, None);
         assert!(string_data.is_ok());
-        assert_eq!(string_data.unwrap().as_str(), "msvcrt.printf");
+        assert_eq!(string_data.unwrap().as_str().unwrap(), "msvcrt.printf");
     }
     else {
         panic!("couldn't get forwarder string");
@@ -424,7 +424,7 @@ fn test_cff_explorer() {
                                                  ("LegalCopyright".to_string(), "© 2012 Daniel Pistelli.  All rights reserved.".to_string())
         ].iter().cloned().collect();
         let string_map = string_file_info.children[0].string_map();
-        assert_eq!(string_map, expected);
+        assert_eq!(string_map.unwrap(), expected);
     }
     else {
         panic!("couldn't get string file info");
@@ -460,7 +460,7 @@ fn test_creation() {
     let mut new_section = ImageSectionHeader::default();
     
     new_section.set_name(Some(".text"));
-    assert_eq!(new_section.name.as_str(), ".text");
+    assert_eq!(new_section.name.as_str().unwrap(), ".text");
 
     let created_section_check = created_file.append_section(&new_section);
     assert!(created_section_check.is_ok());

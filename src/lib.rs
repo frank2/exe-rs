@@ -9,7 +9,7 @@
 //! let import_directory = ImportDirectory::parse(&image).unwrap();
 //!
 //! for descriptor in import_directory.descriptors {
-//!    println!("Module: {}", descriptor.get_name(&image).unwrap().as_str());
+//!    println!("Module: {}", descriptor.get_name(&image).unwrap().as_str().unwrap());
 //!    println!("Imports:");
 //!
 //!    for import in descriptor.get_imports(&image).unwrap() {
@@ -56,6 +56,8 @@ use pkbuffer::Error as PKError;
 
 use std::collections::HashMap;
 use std::io::Error as IoError;
+use std::str::Utf8Error;
+use widestring::error::Utf16Error;
 
 /// Aligns a given `value` to the boundary specified by `boundary`.
 ///
@@ -147,8 +149,14 @@ pub fn find_embedded_images<P: PE>(pe: &P, pe_type: PEType) -> Result<Option<Vec
 pub enum Error {
     /// The error originated in `std::io`.
     IoError(IoError),
+    /// The error was a UTF8 error.
+    Utf8Error(Utf8Error),
+    /// The error was a UTF16 error.
+    Utf16Error(Utf16Error),
     /// The error originated in the [pkbuffer](pkbuffer) library.
     PKBufferError(PKError),
+    /// The error occurred while parsing a number.
+    ParseIntError(std::num::ParseIntError),
     /// The operation went out of bounds of something in the PE file.
     ///
     /// Arg0 is the expected boundary, arg1 is the offending boundary.
@@ -222,8 +230,14 @@ impl std::fmt::Display for Error {
         match *self {
             Error::IoError(ref io_error) =>
                 write!(f, "i/o error: {}", io_error.to_string()),
+            Error::Utf8Error(ref utf8_error) =>
+                write!(f, "UTF8 error: {}", utf8_error.to_string()),
+            Error::Utf16Error(ref utf16_error) =>
+                write!(f, "UTF16 error: {}", utf16_error.to_string()),
             Error::PKBufferError(ref pk_error) =>
                 write!(f, "PKBuffer error: {}", pk_error.to_string()),
+            Error::ParseIntError(ref int_error) =>
+                write!(f, "Int parsing error: {}", int_error.to_string()),
             Error::OutOfBounds(expected, got) =>
                 write!(f, "The PE buffer was too small to complete the operation. Buffer length is {}, got {}.", expected, got),
             Error::InvalidDOSSignature(sig) =>
@@ -285,9 +299,24 @@ impl std::convert::From<IoError> for Error {
         Self::IoError(io_error)
     }
 }
+impl std::convert::From<Utf8Error> for Error {
+    fn from(utf8_error: Utf8Error) -> Self {
+        Self::Utf8Error(utf8_error)
+    }
+}
+impl std::convert::From<Utf16Error> for Error {
+    fn from(utf16_error: Utf16Error) -> Self {
+        Self::Utf16Error(utf16_error)
+    }
+}
 impl std::convert::From<PKError> for Error {
     fn from(pk_error: PKError) -> Self {
         Self::PKBufferError(pk_error)
+    }
+}
+impl std::convert::From<std::num::ParseIntError> for Error {
+    fn from(int_error: std::num::ParseIntError) -> Self {
+        Self::ParseIntError(int_error)
     }
 }
 unsafe impl Send for Error {}
@@ -309,7 +338,7 @@ unsafe impl Sync for Error {}
 /// println!("=Section Hashes=");
 ///
 /// for section in section_table {
-///    println!("[{}]", section.name.as_str());
+///    println!("[{}]", section.name.as_str().unwrap());
 ///
 ///    let section_data = section.read(&pefile).unwrap();
 ///

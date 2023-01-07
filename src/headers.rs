@@ -827,7 +827,12 @@ impl ImageExportDirectory {
             let ordinal = ordinals[index as usize];
             let function = functions[ordinal as usize].parse_export(start, end);
 
-            result.insert(name.as_str(), function);
+            let name_str = match name.as_str() {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            
+            result.insert(name_str, function);
         }
 
         Ok(result)
@@ -846,7 +851,7 @@ impl ImageExportDirectory {
 
             let name_offset = pe.translate(PETranslation::Memory(name_rva))?;
             let name = pe.get_cstring(name_offset, false, None)?;
-            let name_str = name.as_str();
+            let name_str = name.as_str()?;
             let hash_result = hash_fn(name_str);
 
             if hash_result == hash_val {
@@ -1003,10 +1008,9 @@ impl ImageImportDescriptor {
             match thunk_data {
                 ThunkData::Ordinal(x) => results.push(ImportData::Ordinal(x)),
                 ThunkData::ImportByName(rva) => {
-                    match ImageImportByName::parse(pe, rva) {
-                        Ok(i) => results.push(ImportData::ImportByName(i.name.as_str())),
-                        Err(_) => continue,
-                    }
+                    let import = ImageImportByName::parse(pe, rva)?;
+                    let s = import.name.as_str()?;
+                    results.push(ImportData::ImportByName(s));
                 },
                 _ => (),
             }
@@ -1022,7 +1026,10 @@ impl ImageImportDescriptor {
     #[cfg(feature="win32")]
     pub fn resolve_iat<P: PE>(&self, pe: &mut P) -> Result<(), Error> {
         let dll_name = match self.get_name(pe) {
-            Ok(d) => d.as_str(),
+            Ok(d) => match d.as_str() {
+                Ok(s) => s,
+                Err(e) => return Err(e),
+            },
             Err(e) => return Err(e),
         };
 
@@ -1052,7 +1059,8 @@ impl ImageImportDescriptor {
                 ThunkData::Ordinal(o) => unsafe { GetProcAddress(dll_handle, o as LPCSTR) },
                 ThunkData::ImportByName(rva) => {
                     let import_by_name = ImageImportByName::parse(pe, rva)?;
-                    unsafe { GetProcAddress(dll_handle, import_by_name.name.as_str().as_ptr() as LPCSTR) }
+                    let import_str = import_by_name.name.as_str()?;
+                    unsafe { GetProcAddress(dll_handle, import_str.as_ptr() as LPCSTR) }
                 },
                 _ => return Err(Error::CorruptDataDirectory),
             };

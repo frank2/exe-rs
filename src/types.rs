@@ -8,7 +8,8 @@ use std::collections::HashMap;
 use std::mem;
 use std::slice;
 
-use widestring::U16Str;
+use widestring::utfstr::Utf16Str;
+use widestring::utfstring::Utf16String;
 
 use crate::*;
 use crate::headers::*;
@@ -42,7 +43,7 @@ pub trait CCharString {
     /// Get the zero-terminated representation of this string, or [`None`](None) if it is not zero-terminated.
     fn zero_terminated(&self) -> Option<&Self>;
     /// Get the string slice as a [`&str`](str).
-    fn as_str(&self) -> &str;
+    fn as_str(&self) -> Result<&str, Error>;
 }
 impl CCharString for [CChar] {
     fn zero_terminated(&self) -> Option<&Self> {
@@ -50,10 +51,16 @@ impl CCharString for [CChar] {
             .position(|&CChar(x)| x == 0)
             .map(|p| &self[..p])
     }
-    fn as_str(&self) -> &str {
+    fn as_str(&self) -> Result<&str, Error> {
         let cstr = self.zero_terminated().unwrap_or(&self);
+        let array: Vec<u8> = self.iter().map(|x| x.0).collect();
+        let result = std::str::from_utf8(array.as_slice());
 
-        unsafe { mem::transmute::<&[CChar],&str>(cstr) }
+        if result.is_err() {
+            return Err(Error::Utf8Error(result.unwrap_err()));
+        }
+
+        Ok(unsafe { mem::transmute::<&[CChar],&str>(cstr) })
     }
 }
 
@@ -76,8 +83,8 @@ impl From<WChar> for u16 {
 pub trait WCharString {
     /// Get the zero-terminated representation of this string, or [`None`](None) if it is not zero-terminated.
     fn zero_terminated(&self) -> Option<&Self>;
-    /// Get the string slice as a [`U16Str`](U16Str).
-    fn as_u16_str(&self) -> &U16Str;
+    /// Get the string slice as a [`Utf16Str`](Utf16Str).
+    fn as_u16_str(&self) -> Result<&Utf16Str, Error>;
 }
 impl WCharString for [WChar] {
     fn zero_terminated(&self) -> Option<&Self> {
@@ -85,10 +92,16 @@ impl WCharString for [WChar] {
             .position(|&WChar(x)| x == 0)
             .map(|p| &self[..p])
     }
-    fn as_u16_str(&self) -> &U16Str {
+    fn as_u16_str(&self) -> Result<&Utf16Str, Error> {
         let u16str = self.zero_terminated().unwrap_or(&self);
+        let u16vec: Vec<u16> = u16str.iter().map(|x| x.0).collect();
+        let result = Utf16String::from_vec(u16vec);
 
-        unsafe { mem::transmute::<&[WChar],&U16Str>(u16str) }
+        if result.is_err() {
+            return Err(Error::Utf16Error(result.unwrap_err()));
+        }
+
+        Ok(unsafe { mem::transmute::<&[WChar],&Utf16Str>(u16str) })
     }
 }
 
@@ -503,7 +516,10 @@ impl<'data> ImportDirectory<'data> {
 
         for import in self.descriptors {
             let name = match import.get_name(pe) {
-                Ok(n) => n.as_str(),
+                Ok(n) => match n.as_str() {
+                    Ok(s) => s,
+                    Err(e) => return Err(e),
+                },
                 Err(e) => return Err(e),
             };
 
@@ -553,7 +569,10 @@ impl<'data> ImportDirectoryMut<'data> {
 
         for import in self.descriptors.iter() {
             let name = match import.get_name(pe) {
-                Ok(n) => n.as_str(),
+                Ok(n) => match n.as_str() {
+                    Ok(s) => s,
+                    Err(e) => return Err(e),
+                },
                 Err(e) => return Err(e),
             };
 
@@ -1867,13 +1886,15 @@ impl<'data> VSStringTable<'data> {
         })
     }
     /// Grab the key data as a u32 value. Useful for grabbing the code page and language ID from the text representation.
-    pub fn key_as_u32(&self) -> Result<u32, std::num::ParseIntError> {
-        let key_str = self.key.as_u16_str().to_string_lossy();
+    pub fn key_as_u32(&self) -> Result<u32, Error> {
+        let key_str = self.key.as_u16_str()?;
+        let result = u32::from_str_radix(key_str.as_ustr().to_string_lossy().as_str(), 16);
 
-        u32::from_str_radix(key_str.as_str(), 16)
+        if result.is_err() { Err(Error::ParseIntError(result.unwrap_err())) }
+        else { Ok(result.unwrap()) }
     }
     /// Grab the codepage value of this string table.
-    pub fn get_code_page(&self) -> Result<u16, std::num::ParseIntError> {
+    pub fn get_code_page(&self) -> Result<u16, Error> {
         let key_val = match self.key_as_u32() {
             Ok(k) => k,
             Err(e) => return Err(e),
@@ -1882,7 +1903,7 @@ impl<'data> VSStringTable<'data> {
         Ok((key_val & 0xFFFF) as u16)
     }
     /// Grab the codepage value of this string table.
-    pub fn get_lang_id(&self) -> Result<u16, std::num::ParseIntError> {
+    pub fn get_lang_id(&self) -> Result<u16, Error> {
         let key_val = match self.key_as_u32() {
             Ok(k) => k,
             Err(e) => return Err(e),
@@ -1891,14 +1912,19 @@ impl<'data> VSStringTable<'data> {
         Ok((key_val >> 16) as u16)
     }
     /// Grab the string table data as a key/value [`HashMap`](HashMap) value.
-    pub fn string_map(&self) -> HashMap<String, String> {
+    ///
+    /// Returns a `Error::Utf16Error` if the entry key or its value fail to decode as UTF-16 values.
+    pub fn string_map(&self) -> Result<HashMap<String, String>, Error> {
         let mut result = HashMap::<String, String>::new();
 
         for entry in &self.children {
-            result.insert(entry.key.as_u16_str().to_string_lossy(), entry.value.as_u16_str().to_string_lossy());
+            let entry_key = entry.key.as_u16_str()?;
+            let entry_value = entry.value.as_u16_str()?;
+            
+            result.insert(entry_key.as_ustr().to_string_lossy(), entry_value.as_ustr().to_string_lossy());
         }
 
-        result
+        Ok(result)
     }
 }
 

@@ -164,7 +164,7 @@ pub trait PE: Buffer + Sized {
     /// let pefile = VecPE::from_disk_file("test/dll.dll").unwrap();
     /// let dll_name = pefile.get_cstring(Offset(0x328).into(), false, None).unwrap();
     ///
-    /// assert_eq!(dll_name.as_str(), "dll.dll");
+    /// assert_eq!(dll_name.as_str().unwrap(), "dll.dll");
     /// ```
     fn get_cstring(&self, offset: usize, thunk: bool, max_size: Option<usize>) -> Result<&[CChar], Error> {
         let found_size = self.get_cstring_size(offset, thunk, max_size)?;
@@ -772,12 +772,14 @@ pub trait PE: Buffer + Sized {
 
     /// Get a reference to a section in the PE file by its name. Yields a
     /// [`Error::SectionNotFound`](Error::SectionNotFound) error if the name wasn't found in the section table.
-    fn get_section_by_name(&self, name: String) -> Result<&ImageSectionHeader, Error> {
+    fn get_section_by_name<S: AsRef<str>>(&self, name: S) -> Result<&ImageSectionHeader, Error> {
         let sections = self.get_section_table()?;
-        let s = name.as_str();
+        let s = name.as_ref();
 
         for section in sections {
-            if section.name.as_str() == s {
+            let name = section.name.as_str()?;
+            
+            if name == s {
                 return Ok(section);
             }
         }
@@ -792,7 +794,9 @@ pub trait PE: Buffer + Sized {
         let s = name.as_str();
         
         for section in sections {
-            if section.name.as_str() == s {
+            let name = section.name.as_str()?;
+            
+            if name == s {
                 return Ok(section);
             }
         }
@@ -893,7 +897,7 @@ pub trait PE: Buffer + Sized {
             NTHeaders::NTHeaders32(h32) => h32.optional_header.size_of_image as u64,
             NTHeaders::NTHeaders64(h64) => h64.optional_header.size_of_image as u64,
         };
-
+        
         let start = image_base;
         let end = start + image_size;
 
@@ -1185,7 +1189,10 @@ pub trait PE: Buffer + Sized {
 
         for import in import_directory.descriptors {
             let dll_name = match import.get_name(self) {
-                Ok(n) => n.as_str().to_string().to_ascii_lowercase(),
+                Ok(n) => match n.as_str() {
+                    Ok(s) => s.to_string().to_ascii_lowercase(),
+                    Err(e) => return Err(e),
+                },
                 Err(e) => return Err(e),
             };
 
