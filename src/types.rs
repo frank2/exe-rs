@@ -1767,17 +1767,18 @@ pub struct VSFixedFileInfo {
     pub file_date_ls: u32,
 }
 
-/// Represents a [`String`](https://docs.microsoft.com/en-us/windows/win32/menurc/string-str) structure.
-pub struct VSString<'data> {
+/// Represents a header for a VS_VERSION structure.
+///
+/// This is not an officially documented header, but rather is added to make parsing these aspects of the structures
+/// a little bit easier.
+pub struct VSHeader<'data> {
     pub length: &'data u16,
     pub value_length: &'data u16,
     pub type_: &'data u16,
     pub key: &'data [WChar],
-    pub value: &'data [WChar],
 }
-impl<'data> VSString<'data> {
-    /// Parse a `VSString` object at the given [`RVA`](RVA).
-    pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
+impl<'data> VSHeader<'data> {
+    pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<(usize, Self), Error> {
         let mut consumed = 0usize;
         let mut offset = pe.translate(PETranslation::Memory(rva))?;
         let length = pe.get_ref::<u16>(offset)?;
@@ -1787,7 +1788,7 @@ impl<'data> VSString<'data> {
         if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
 
         let value_length = pe.get_ref::<u16>(offset)?;
-        
+                
         consumed += mem::size_of::<u16>();
         offset += mem::size_of::<u16>();
         if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
@@ -1804,18 +1805,35 @@ impl<'data> VSString<'data> {
         offset += key_size;
         if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
 
+        Ok((offset, VSHeader {
+            length,
+            value_length,
+            type_: type_value,
+            key
+        }))
+    }
+}
+
+/// Represents a [`String`](https://docs.microsoft.com/en-us/windows/win32/menurc/string-str) structure.
+pub struct VSString<'data> {
+    pub header: VSHeader<'data>,
+    pub value: &'data [WChar],
+}
+impl<'data> VSString<'data> {
+    /// Parse a `VSString` object at the given [`RVA`](RVA).
+    pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
+        let base_offset = pe.translate(PETranslation::Memory(rva))?;
+        let (mut offset, header) = VSHeader::parse(pe, rva)?;
+        let mut consumed = offset - base_offset;
         offset = align(offset, 4);
         
         let value = pe.get_widestring(offset.into(), None)?;
         let value_size = value.len() * mem::size_of::<WChar>();
         consumed += value_size;
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+        if consumed > *header.length as usize { return Err(Error::CorruptDataDirectory); }
 
         Ok(Self {
-            length,
-            value_length,
-            type_: type_value,
-            key,
+            header,
             value,
         })
     }
@@ -1823,71 +1841,41 @@ impl<'data> VSString<'data> {
 
 /// Represents a [`StringTable`](https://docs.microsoft.com/en-us/windows/win32/menurc/stringtable) structure.
 pub struct VSStringTable<'data> {
-    pub length: &'data u16,
-    pub value_length: &'data u16,
-    pub type_: &'data u16,
-    pub key: &'data [WChar],
+    pub header: VSHeader<'data>,
     pub children: Vec<VSString<'data>>,
 }
 impl<'data> VSStringTable<'data> {
     /// Parse a `VSStringTable` structure at the given RVA.
     pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
-        let mut consumed = 0usize;
-        let mut offset = pe.translate(PETranslation::Memory(rva))?;
-        let base_offset = offset;
-        let length = pe.get_ref::<u16>(offset)?;
-        
-        consumed += mem::size_of::<u16>();
-        offset += mem::size_of::<u16>();
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
-
-        let value_length = pe.get_ref::<u16>(offset)?;
-        
-        consumed += mem::size_of::<u16>();
-        offset += mem::size_of::<u16>();
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
-
-        let type_value = pe.get_ref::<u16>(offset)?;
-        
-        consumed += mem::size_of::<u16>();
-        offset += mem::size_of::<u16>();
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
-
-        let key = pe.get_widestring(offset, None)?;
-        let key_size = key.len() * mem::size_of::<WChar>();
-        consumed += key_size;
-        offset += key_size;
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
-
+        let base_offset = pe.translate(PETranslation::Memory(rva))?;
+        let (mut offset, header) = VSHeader::parse(pe, rva)?;
+        let mut consumed = offset - base_offset;
         offset = align(offset, 4);
 
         let mut children = Vec::<VSString>::new();
 
-        while consumed < (*length as usize) {
+        while consumed < (*header.length as usize) {
             let rva = match pe.get_type() {
                 PEType::Disk => Offset(offset as u32).as_rva(pe)?,
                 PEType::Memory => RVA(offset as u32),
             };
-            
+
             let child = VSString::parse(pe, rva)?;
             
-            offset += *child.length as usize;
+            offset += *child.header.length as usize;
             offset = align(offset, 4);
             consumed = offset - base_offset;
             children.push(child);
         }
         
         Ok(Self {
-            length,
-            value_length,
-            type_: type_value,
-            key,
+            header,
             children,
         })
     }
     /// Grab the key data as a u32 value. Useful for grabbing the code page and language ID from the text representation.
     pub fn key_as_u32(&self) -> Result<u32, Error> {
-        let key_str = self.key.as_u16_str()?;
+        let key_str = self.header.key.as_u16_str()?;
         let result = u32::from_str_radix(key_str.as_ustr().to_string_lossy().as_str(), 16);
 
         if result.is_err() { Err(Error::ParseIntError(result.unwrap_err())) }
@@ -1918,7 +1906,7 @@ impl<'data> VSStringTable<'data> {
         let mut result = HashMap::<String, String>::new();
 
         for entry in &self.children {
-            let entry_key = entry.key.as_u16_str()?;
+            let entry_key = entry.header.key.as_u16_str()?;
             let entry_value = entry.value.as_u16_str()?;
             
             result.insert(entry_key.as_ustr().to_string_lossy(), entry_value.as_ustr().to_string_lossy());
@@ -1930,65 +1918,35 @@ impl<'data> VSStringTable<'data> {
 
 /// Represents a [`StringFileInfo`](https://docs.microsoft.com/en-us/windows/win32/menurc/stringfileinfo) structure.
 pub struct VSStringFileInfo<'data> {
-    pub length: &'data u16,
-    pub value_length: &'data u16,
-    pub type_: &'data u16,
-    pub key: &'data [WChar],
+    pub header: VSHeader<'data>,
     pub children: Vec<VSStringTable<'data>>,
 }
 impl<'data> VSStringFileInfo<'data> {
     /// Parse a `VSStringFileInfo` structure at the given [`RVA`](RVA).
     pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
-        let mut consumed = 0usize;
-        let mut offset = pe.translate(PETranslation::Memory(rva))?;
-        let base_offset = offset;
-        let length = pe.get_ref::<u16>(offset)?;
-        
-        consumed += mem::size_of::<u16>();
-        offset += mem::size_of::<u16>();
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
-
-        let value_length = pe.get_ref::<u16>(offset)?;
-        
-        consumed += mem::size_of::<u16>();
-        offset += mem::size_of::<u16>();
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
-
-        let type_value = pe.get_ref::<u16>(offset)?;
-        
-        consumed += mem::size_of::<u16>();
-        offset += mem::size_of::<u16>();
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
-
-        let key = pe.get_widestring(offset, None)?;        
-        let key_size = key.len() * mem::size_of::<WChar>();
-        consumed += key_size;
-        offset += key_size;
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
-
+        let base_offset = pe.translate(PETranslation::Memory(rva))?;
+        let (mut offset, header) = VSHeader::parse(pe, rva)?;
+        let mut consumed = offset - base_offset;
         offset = align(offset, 4);
 
         let mut children = Vec::<VSStringTable>::new();
 
-        while consumed < (*length as usize) {
+        while consumed < (*header.length as usize) {
             let rva = match pe.get_type() {
                 PEType::Disk => Offset(offset as u32).as_rva(pe)?,
                 PEType::Memory => RVA(offset as u32),
             };
-            
+
             let child = VSStringTable::parse(pe, rva)?;
 
-            offset += *child.length as usize;
+            offset += *child.header.length as usize;
             offset = align(offset, 4);
             consumed = offset - base_offset;
             children.push(child);
         }
-        
+
         Ok(Self {
-            length,
-            value_length,
-            type_: type_value,
-            key,
+            header,
             children,
         })
     }
@@ -2004,47 +1962,20 @@ pub struct VarDword {
 
 /// Represents a [`Var`](https://docs.microsoft.com/en-us/windows/win32/menurc/var-str) structure.
 pub struct VSVar<'data> {
-    pub length: &'data u16,
-    pub value_length: &'data u16,
-    pub type_: &'data u16,
-    pub key: &'data [WChar],
+    pub header: VSHeader<'data>,
     pub children: Vec<&'data VarDword>,
 }
 impl<'data> VSVar<'data> {
     /// Parse a `VSVar` structure at the given [`RVA`](RVA).
     pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
-        let mut consumed = 0usize;
-        let mut offset = pe.translate(PETranslation::Memory(rva))?;
-        let base_offset = offset;
-        let length = pe.get_ref::<u16>(offset)?;
-        
-        consumed += mem::size_of::<u16>();
-        offset += mem::size_of::<u16>();
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
-
-        let value_length = pe.get_ref::<u16>(offset)?;
-        
-        consumed += mem::size_of::<u16>();
-        offset += mem::size_of::<u16>();
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
-
-        let type_value = pe.get_ref::<u16>(offset)?;
-        
-        consumed += mem::size_of::<u16>();
-        offset += mem::size_of::<u16>();
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
-
-        let key = pe.get_widestring(offset, None)?;        
-        let key_size = key.len() * mem::size_of::<WChar>();
-        consumed += key_size;
-        offset += key_size;
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
-
+        let base_offset = pe.translate(PETranslation::Memory(rva))?;
+        let (mut offset, header) = VSHeader::parse(pe, rva)?;
+        let mut consumed = offset;
         offset = align(offset, 4);
 
         let mut children = Vec::<&'data VarDword>::new();
 
-        while consumed < (*length as usize) {
+        while consumed < (*header.length as usize) {
             let child = pe.get_ref::<VarDword>(offset.into())?;
 
             offset += mem::size_of::<VarDword>();
@@ -2054,10 +1985,7 @@ impl<'data> VSVar<'data> {
         }
         
         Ok(Self {
-            length,
-            value_length,
-            type_: type_value,
-            key,
+            header,
             children,
         })
     }
@@ -2065,47 +1993,20 @@ impl<'data> VSVar<'data> {
 
 /// Represents a [`VarFileInfo`](https://docs.microsoft.com/en-us/windows/win32/menurc/varfileinfo) structure.
 pub struct VSVarFileInfo<'data> {
-    pub length: &'data u16,
-    pub value_length: &'data u16,
-    pub type_: &'data u16,
-    pub key: &'data [WChar],
+    pub header: VSHeader<'data>,
     pub children: Vec<VSVar<'data>>,
 }
 impl<'data> VSVarFileInfo<'data> {
     /// Parse a `VSVarFileInfo` structure at the given [`RVA`](RVA).
     pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
-        let mut consumed = 0usize;
-        let mut offset = pe.translate(PETranslation::Memory(rva))?;
-        let base_offset = offset;
-        let length = pe.get_ref::<u16>(offset)?;
-        
-        consumed += mem::size_of::<u16>();
-        offset += mem::size_of::<u16>();
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
-
-        let value_length = pe.get_ref::<u16>(offset)?;
-        
-        consumed += mem::size_of::<u16>();
-        offset += mem::size_of::<u16>();
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
-
-        let type_value = pe.get_ref::<u16>(offset)?;
-        
-        consumed += mem::size_of::<u16>();
-        offset += mem::size_of::<u16>();
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
-
-        let key = pe.get_widestring(offset, None)?;        
-        let key_size = key.len() * mem::size_of::<WChar>();
-        consumed += key_size;
-        offset += key_size;
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
-
+        let base_offset = pe.translate(PETranslation::Memory(rva))?;
+        let (mut offset, header) = VSHeader::parse(pe, rva)?;
+        let mut consumed = offset;
         offset = align(offset, 4);
 
         let mut children = Vec::<VSVar>::new();
 
-        while consumed < (*length as usize) {
+        while consumed < (*header.length as usize) {
             let rva = match pe.get_type() {
                 PEType::Disk => Offset(offset as u32).as_rva(pe)?,
                 PEType::Memory => RVA(offset as u32),
@@ -2113,17 +2014,14 @@ impl<'data> VSVarFileInfo<'data> {
             
             let child = VSVar::parse(pe, rva)?;
 
-            offset += *child.length as usize;
+            offset += *child.header.length as usize;
             offset = align(offset, 4);
             consumed = offset - base_offset;
             children.push(child);
         }
         
         Ok(Self {
-            length,
-            value_length,
-            type_: type_value,
-            key,
+            header,
             children,
         })
     }
@@ -2131,10 +2029,7 @@ impl<'data> VSVarFileInfo<'data> {
 
 /// Represents a [`VS_VERSIONINFO`](https://docs.microsoft.com/en-us/windows/win32/menurc/vs-versioninfo) structure.
 pub struct VSVersionInfo<'data> {
-    pub length: &'data u16,
-    pub value_length: &'data u16,
-    pub type_: &'data u16,
-    pub key: &'data [WChar],
+    pub header: VSHeader<'data>,
     pub value: Option<&'data VSFixedFileInfo>,
     pub string_file_info: Option<VSStringFileInfo<'data>>,
     pub var_file_info: Option<VSVarFileInfo<'data>>,
@@ -2146,43 +2041,19 @@ impl<'data> VSVersionInfo<'data> {
     /// find the [`Version`](ResourceID::Version) resource.
     pub fn parse<P: PE>(pe: &'data P) -> Result<Self, Error> {
         let resource_dir = ResourceDirectory::parse(pe)?;
-
+        
         let version_rsrc = resource_dir.filter_by_type(ResourceID::Version);
         if version_rsrc.len() == 0 { return Err(Error::CorruptDataDirectory); }
 
         let rsrc_node = version_rsrc[0].get_data_entry(pe)?;        
-        let mut consumed = 0usize;
-        let mut offset = pe.translate(PETranslation::Memory(rsrc_node.offset_to_data))?;
-        let base_offset = offset;
-        let length = pe.get_ref::<u16>(offset)?;
-        
-        consumed += mem::size_of::<u16>();
-        offset += mem::size_of::<u16>();
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
-
-        let value_length = pe.get_ref::<u16>(offset)?;
-        
-        consumed += mem::size_of::<u16>();
-        offset += mem::size_of::<u16>();
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
-
-        let type_value = pe.get_ref::<u16>(offset)?;
-        
-        consumed += mem::size_of::<u16>();
-        offset += mem::size_of::<u16>();
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
-
-        let key = pe.get_widestring(offset, None)?;        
-        let key_size = key.len() * mem::size_of::<WChar>();
-        consumed += key_size;
-        offset += key_size;
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
-
+        let base_offset = pe.translate(PETranslation::Memory(rsrc_node.offset_to_data))?;
+        let (mut offset, header) = VSHeader::parse(pe, rsrc_node.offset_to_data)?;
+        let mut consumed = offset;
         offset = align(offset, 4);
 
         let value;
         
-        if *value_length == 0 {
+        if *header.value_length == 0 {
             value = None;
         }
         else
@@ -2195,56 +2066,79 @@ impl<'data> VSVersionInfo<'data> {
             let struct_size = mem::size_of::<VSFixedFileInfo>();
             offset += struct_size;
             consumed = offset - base_offset;
-            if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+            if consumed > *header.length as usize { return Err(Error::CorruptDataDirectory); }
         }
 
         offset = align(offset, 4);
-        let string_file_info;
+        let mut string_file_info = None;
+        let mut var_file_info = None;
 
-        if consumed >= *length as usize {
-            string_file_info = None;
-        }
-        else {
+        if consumed < *header.length as usize {
             let rva = match pe.get_type() { // compensate for potentially translated offset
                 PEType::Disk => Offset(offset as u32).as_rva(pe)?,
                 PEType::Memory => RVA(offset as u32),
             };
-           
-            let string_file_info_tmp = VSStringFileInfo::parse(pe, rva)?;
 
-            offset += *string_file_info_tmp.length as usize;
-            consumed = offset - base_offset;
-            if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+            let (_, header_check) = VSHeader::parse(pe, rva)?;
+            let header_key = header_check.key.as_u16_str()?;
+            let header_str = header_key.as_ustr().to_string_lossy();
 
-            string_file_info = Some(string_file_info_tmp);
+            if header_str == "StringFileInfo" {
+                let string_file_info_tmp = VSStringFileInfo::parse(pe, rva)?;
+
+                offset += *string_file_info_tmp.header.length as usize;
+                consumed = offset - base_offset;
+                if consumed > *header.length as usize { return Err(Error::CorruptDataDirectory); }
+
+                string_file_info = Some(string_file_info_tmp);
+            }
+            else if header_str == "VarFileInfo" {
+                let var_file_info_tmp = VSVarFileInfo::parse(pe, rva)?;
+
+                offset += *var_file_info_tmp.header.length as usize;
+                consumed = offset - base_offset;
+                if consumed > *header.length as usize { return Err(Error::CorruptDataDirectory); }
+
+                var_file_info = Some(var_file_info_tmp);
+            }
+            else { panic!("Unknown VS_VERSIONINFO structure header, please report this bug to github.com/frank2/exe-rs with the offending binary."); }
         }
 
         offset = align(offset, 4);
-        let var_file_info;
 
-        if consumed >= *length as usize {
-            var_file_info = None;
-        }
-        else {
-            let rva = match pe.get_type() {
+        if consumed < *header.length as usize {
+            let rva = match pe.get_type() { // compensate for potentially translated offset
                 PEType::Disk => Offset(offset as u32).as_rva(pe)?,
                 PEType::Memory => RVA(offset as u32),
             };
-            
-            let var_file_info_tmp = VSVarFileInfo::parse(pe, rva)?;
 
-            offset += *var_file_info_tmp.length as usize;
-            consumed = offset - base_offset;
-            if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+            let (_, header_check) = VSHeader::parse(pe, rva)?;
+            let header_key = header_check.key.as_u16_str()?;
+            let header_str = header_key.as_ustr().to_string_lossy();
 
-            var_file_info = Some(var_file_info_tmp);
+            if header_str == "StringFileInfo" {
+                let string_file_info_tmp = VSStringFileInfo::parse(pe, rva)?;
+
+                offset += *string_file_info_tmp.header.length as usize;
+                consumed = offset - base_offset;
+                if consumed > *header.length as usize { return Err(Error::CorruptDataDirectory); }
+
+                string_file_info = Some(string_file_info_tmp);
+            }
+            else if header_str == "VarFileInfo" {
+                let var_file_info_tmp = VSVarFileInfo::parse(pe, rva)?;
+
+                offset += *var_file_info_tmp.header.length as usize;
+                consumed = offset - base_offset;
+                if consumed > *header.length as usize { return Err(Error::CorruptDataDirectory); }
+
+                var_file_info = Some(var_file_info_tmp);
+            }
+            else { panic!("Unknown VS_VERSIONINFO structure header, please report this bug to github.com/frank2/exe-rs with the offending binary."); }
         }
         
         Ok(Self {
-            length,
-            value_length,
-            type_: type_value,
-            key,
+            header,
             value,
             string_file_info,
             var_file_info,
