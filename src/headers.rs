@@ -165,7 +165,7 @@ impl ImageFileHeader {
         Self {
             machine: ImageFileMachine::AMD64 as u16,
             number_of_sections: 0,
-            time_date_stamp: LocalTime.timestamp(0, 0).timestamp() as u32,
+            time_date_stamp: LocalTime.timestamp_opt(0, 0).unwrap().timestamp() as u32,
             pointer_to_symbol_table: Offset(0),
             number_of_symbols: 0,
             size_of_optional_header: mem::size_of::<ImageOptionalHeader64>() as u16 + ((mem::size_of::<ImageDataDirectory>() * 16) as u16),
@@ -178,7 +178,7 @@ impl Default for ImageFileHeader {
         Self {
             machine: ImageFileMachine::I386 as u16,
             number_of_sections: 0,
-            time_date_stamp: LocalTime.timestamp(0, 0).timestamp() as u32,
+            time_date_stamp: LocalTime.timestamp_opt(0, 0).unwrap().timestamp() as u32,
             pointer_to_symbol_table: Offset(0),
             number_of_symbols: 0,
             size_of_optional_header: (mem::size_of::<ImageOptionalHeader32>() as u16) + ((mem::size_of::<ImageDataDirectory>() * 16) as u16),
@@ -1743,7 +1743,7 @@ impl<'data> GrpIconDir<'data> {
 ///
 /// See [the Microsoft Icons article](https://learn.microsoft.com/en-us/previous-versions/ms997538(v=msdn.10)?redirectedfrom=MSDN)
 /// for a thorough explanation.
-struct GrpIconDirMut<'data> {
+pub struct GrpIconDirMut<'data> {
     pub reserved: &'data mut u16,
     pub icon_type: &'data mut u16,
     pub count: &'data mut u16,
