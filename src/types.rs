@@ -1685,7 +1685,8 @@ impl<'data> ResourceDirectory<'data> {
     ///
     /// See [`ResolvedDirectoryID`](ResolvedDirectoryID). The `type_id` represents either a [`ResourceID`](ResourceID) or a type name.
     /// The `rsrc_id` represents the ID of the individual resource. For example, for icons, one possible value would be
-    /// `ResolvedDirectoryID::ID(1)` for the first icon. The `lang_id` represents a language from the
+    /// `ResolvedDirectoryID::ID(1)` for the first icon or `ResolvedDirectoryID::Name(String("MAINICON"))` for the main icon.
+    /// The `lang_id` represents a language from the
     /// [Windows locale](https://learn.microsoft.com/en-us/windows/win32/intl/locales-and-languages). Typically, this value is 1033,
     /// representing United States English.
     pub fn filter(
@@ -1825,7 +1826,8 @@ impl<'data> ResourceDirectoryMut<'data> {
     ///
     /// See [`ResolvedDirectoryID`](ResolvedDirectoryID). The `type_id` represents either a [`ResourceID`](ResourceID) or a type name.
     /// The `rsrc_id` represents the ID of the individual resource. For example, for icons, one possible value would be
-    /// `ResolvedDirectoryID::ID(1)` for the first icon. The `lang_id` represents a language from the
+    /// `ResolvedDirectoryID::ID(1)` for the first icon or `ResolvedDirectoryID::Name(String("MAINICON"))` for the main icon.
+    /// The `lang_id` represents a language from the
     /// [Windows locale](https://learn.microsoft.com/en-us/windows/win32/intl/locales-and-languages). Typically, this value is 1033,
     /// representing United States English.
     pub fn filter(
