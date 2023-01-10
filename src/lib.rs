@@ -209,6 +209,8 @@ pub enum Error {
     ///
     /// Arg0 represents the expected arch, arg1 represents the offending arch.
     ArchMismatch(Arch, Arch),
+    /// The resource was not found with the given arguments.
+    ResourceNotFound,
     /// Only available on Windows. The function returned a Win32 error.
     ///
     /// Arg0 represents the Win32 error.
@@ -274,6 +276,8 @@ impl std::fmt::Display for Error {
                 write!(f, "The data directory is corrupt and cannot be parsed."),
             Error::ArchMismatch(expected, got) =>
                 write!(f, "The architecture of the Rust binary and the given PE file do not match: expected {:?}, got {:?}", expected, got),
+            Error::ResourceNotFound =>
+                write!(f, "The resource was not found by the provided parameters."),
             #[cfg(feature="win32")]
             Error::Win32Error(err) => write!(f, "The function returned a Win32 error: {:#x}", err),
             #[cfg(feature="win32")]
