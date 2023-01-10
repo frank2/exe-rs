@@ -337,11 +337,11 @@ fn test_hello_world_packed() {
     let resource_table = data_directory.unwrap();
     assert_eq!(resource_table.resources.len(), 1);
 
-    let rsrc = resource_table.resources[0];
+    let rsrc = &resource_table.resources[0];
 
-    assert_eq!(rsrc.type_id, ResourceDirectoryID::ID(24));
-    assert_eq!(rsrc.rsrc_id, ResourceDirectoryID::ID(1));
-    assert_eq!(rsrc.lang_id, ResourceDirectoryID::ID(1033));
+    assert_eq!(rsrc.type_id, ResolvedDirectoryID::ID(24));
+    assert_eq!(rsrc.rsrc_id, ResolvedDirectoryID::ID(1));
+    assert_eq!(rsrc.lang_id, ResolvedDirectoryID::ID(1033));
     assert_eq!(rsrc.data, ResourceOffset(0x48));
 }
 
@@ -384,16 +384,16 @@ fn test_cff_explorer() {
     assert!(data_directory.is_ok());
 
     let resource_table = data_directory.unwrap();
-    let cursors = resource_table.filter_by_type(ResourceID::Cursor);
+    let cursors = resource_table.filter(Some(ResolvedDirectoryID::ID(ResourceID::Cursor as u32)), None, None);
     assert_eq!(cursors.len(), 17);
 
-    let bitmaps = resource_table.filter_by_type(ResourceID::Bitmap);
+    let bitmaps = resource_table.filter(Some(ResolvedDirectoryID::ID(ResourceID::Bitmap as u32)), None, None);
     assert_eq!(bitmaps.len(), 30);
 
-    let icons = resource_table.filter_by_type(ResourceID::Icon);
+    let icons = resource_table.filter(Some(ResolvedDirectoryID::ID(ResourceID::Icon as u32)), None, None);
     assert_eq!(icons.len(), 43);
 
-    let fonts = resource_table.filter_by_type(ResourceID::Font);
+    let fonts = resource_table.filter(Some(ResolvedDirectoryID::ID(ResourceID::Font as u32)), None, None);
     assert_eq!(fonts.len(), 0);
 
     let vs_version_check = VSVersionInfo::parse(&pefile);
@@ -546,4 +546,33 @@ fn test_load_flareon() {
     let mut flareon_loaded = VallocPE::from_pe(&flareon).unwrap();
     assert!(flareon_loaded.load_image().is_ok());
 }
-    
+
+#[test]
+fn test_bakunawa() {
+    let bakunawa = VecPE::from_disk_file("test/bakunawa.exe").unwrap();
+    let resources = ResourceDirectory::parse(&bakunawa).unwrap();
+    let search = resources.filter(Some(ResolvedDirectoryID::Name("CHIPTUNE".into())), None, None);
+
+    assert!(search.len() == 6);
+
+    let groups_check = resources.icon_groups(&bakunawa);
+    assert!(groups_check.is_ok());
+
+    if groups_check.is_ok() {
+        let groups = groups_check.unwrap();
+        assert!(groups.len() == 1);
+
+        for (id, grp) in &groups {
+            let buffer_check = grp.to_icon_buffer(&bakunawa);
+
+            assert!(buffer_check.is_ok());
+
+            if buffer_check.is_ok() {
+                let buffer = buffer_check.unwrap();
+                let known_hash = hex::decode("cce8557e73622fe5b2c93216578fd3bfece8468ba27e76c7b6360f9a686e606e").unwrap();
+                let calc_hash = buffer.as_slice().sha256();
+                assert!(known_hash == calc_hash);
+            }
+        }
+    }
+}
