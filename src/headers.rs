@@ -10,7 +10,7 @@ use bitflags::bitflags;
 use chrono::offset::TimeZone;
 use chrono::{Local as LocalTime};
 
-use pkbuffer::Castable;
+use pkbuffer::{Castable, VecBuffer};
 
 use std::clone::Clone;
 use std::cmp;
@@ -1649,5 +1649,153 @@ impl ImageTLSDirectory64 {
         let size = self.get_callback_size(pe)?;
         let result = pe.get_mut_slice_ref::<VA64>(offset, size)?;
         Ok(result)
+    }
+}
+
+/// Represent an entry in a resource-encoded icon group.
+///
+/// See [the Microsoft Icons article](https://learn.microsoft.com/en-us/previous-versions/ms997538(v=msdn.10)?redirectedfrom=MSDN)
+/// for a thorough explanation.
+#[repr(packed)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+pub struct GrpIconDirEntry {
+    pub width: u8,
+    pub height: u8,
+    pub color_count: u8,
+    pub reserved: u8,
+    pub planes: u16,
+    pub bit_count: u16,
+    pub bytes_in_res: u32,
+    pub id: u16,
+}
+impl GrpIconDirEntry {
+    /// Convert this icon directory entry from a resource directory (`GrpIconDirEntry`)
+    /// to a file directory ([`IconDirEntry`](IconDirEntry)).
+    pub fn to_icon_dir_entry(&self) -> IconDirEntry {
+        IconDirEntry {
+            width: self.width,
+            height: self.height,
+            color_count: self.color_count,
+            reserved: self.reserved,
+            planes: self.planes,
+            bit_count: self.bit_count,
+            bytes_in_res: self.bytes_in_res,
+            image_offset: 0,
+        }
+    }
+}
+
+/// Represent a directory in a resource-encoded icon group.
+///
+/// See [the Microsoft Icons article](https://learn.microsoft.com/en-us/previous-versions/ms997538(v=msdn.10)?redirectedfrom=MSDN)
+/// for a thorough explanation.
+#[derive(Clone)]
+pub struct GrpIconDir<'data> {
+    pub reserved: &'data u16,
+    pub icon_type: &'data u16,
+    pub count: &'data u16,
+    pub entries: &'data [GrpIconDirEntry]
+}
+impl<'data> GrpIconDir<'data> {
+    /// Parse a resource icon at the given RVA.
+    pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
+        let offset = pe.translate(PETranslation::Memory(rva))?;
+        let reserved = pe.get_ref::<u16>(offset)?;
+        let icon_type = pe.get_ref::<u16>(offset+2)?;
+        let count = pe.get_ref::<u16>(offset+4)?;
+        let entries = pe.get_slice_ref::<GrpIconDirEntry>(offset+6, *count as usize)?;
+
+        Ok(Self { reserved, icon_type, count, entries })
+    }
+    /// Convert this resource icon into a file icon.
+    ///
+    /// In other words, compile this group icon directory into an icon file.
+    pub fn to_icon_buffer<P: PE>(&self, pe: &'data P) -> Result<VecBuffer, Error> {
+        let icon_vec = IconDirVec {
+            reserved: *self.reserved,
+            icon_type: *self.icon_type,
+            count: *self.count,
+            entries: self.entries.iter().map(|x| x.to_icon_dir_entry()).collect(),
+        };
+        let mut icon_buf = icon_vec.to_vec_buffer()?;
+        let resource_dir = ResourceDirectory::parse(pe)?;
+
+        for index in 0..self.entries.len() {
+            let entry = &self.entries[index];
+            let id = ResolvedDirectoryID::ID(entry.id as u32);
+            let search = resource_dir.filter(Some(ResolvedDirectoryID::ID(ResourceID::Icon as u32)), Some(id), None);
+            if search.len() == 0 { return Err(Error::ResourceNotFound); }
+
+            let entry = search[0].get_data_entry(pe)?;
+            let offset = icon_buf.len();
+            let data = entry.read(pe)?;
+
+            icon_buf.append_slice_ref::<u8>(data)?;
+            let vec_dir = IconDirMut::parse(&mut icon_buf)?;
+            vec_dir.entries[index].image_offset = offset as u32;
+        }
+
+        Ok(icon_buf)
+    }
+}
+
+/// Represent a mutable directory in a resource-encoded icon group.
+///
+/// See [the Microsoft Icons article](https://learn.microsoft.com/en-us/previous-versions/ms997538(v=msdn.10)?redirectedfrom=MSDN)
+/// for a thorough explanation.
+struct GrpIconDirMut<'data> {
+    pub reserved: &'data mut u16,
+    pub icon_type: &'data mut u16,
+    pub count: &'data mut u16,
+    pub entries: &'data mut [GrpIconDirEntry]
+}
+impl<'data> GrpIconDirMut<'data> {
+    /// Parse a mutable resource icon at the given RVA.
+    pub fn parse<P: PE>(pe: &'data mut P, rva: RVA) -> Result<Self, Error> {
+        let offset = pe.translate(PETranslation::Memory(rva))?;
+
+        unsafe {
+            let mut ptr = pe.offset_to_mut_ptr(offset)?;
+            let reserved = &mut *(ptr as *mut u16);
+
+            ptr = pe.offset_to_mut_ptr(offset+2)?;
+            let icon_type = &mut *(ptr as *mut u16);
+
+            ptr = pe.offset_to_mut_ptr(offset+4)?;
+            let count = &mut *(ptr as *mut u16);
+            let entries = pe.get_mut_slice_ref::<GrpIconDirEntry>(offset+6, *count as usize)?;
+
+            Ok(Self { reserved, icon_type, count, entries })
+        }
+    }
+    /// Convert this resource icon into a file icon.
+    ///
+    /// In other words, compile this group icon directory into an icon file.
+    pub fn to_icon_buffer<P: PE>(&self, pe: &'data P) -> Result<VecBuffer, Error> {
+        let icon_vec = IconDirVec {
+            reserved: *self.reserved,
+            icon_type: *self.icon_type,
+            count: *self.count,
+            entries: self.entries.iter().map(|x| x.to_icon_dir_entry()).collect(),
+        };
+        let mut icon_buf = icon_vec.to_vec_buffer()?;
+        let resource_dir = ResourceDirectory::parse(pe)?;
+
+        for index in 0..self.entries.len() {
+            let entry = &self.entries[index];
+            let id = ResolvedDirectoryID::ID(entry.id as u32);
+            let search = resource_dir.filter(Some(ResolvedDirectoryID::ID(ResourceID::Icon as u32)), Some(id), None);
+            if search.len() == 0 { return Err(Error::ResourceNotFound); }
+
+            let entry = search[0].get_data_entry(pe)?;
+            let offset = icon_buf.len();
+            let data = entry.read(pe)?;
+
+            icon_buf.append_slice_ref::<u8>(data)?;
+            let vec_dir = IconDirMut::parse(&mut icon_buf)?;
+            vec_dir.entries[index].image_offset = offset as u32;
+        }
+
+        Ok(icon_buf)
     }
 }

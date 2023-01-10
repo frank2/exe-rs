@@ -2,7 +2,7 @@
 
 use bitflags::bitflags;
 
-use pkbuffer::Castable;
+use pkbuffer::{Buffer, Castable, VecBuffer};
 
 use std::collections::HashMap;
 use std::mem;
@@ -1308,6 +1308,35 @@ pub enum ResourceDirectoryID {
     ID(u32),
     Name(ResourceOffset),
 }
+impl ResourceDirectoryID {
+    /// Resolve this ID, if any resolution is needed.
+    ///
+    /// For [`ResourceDirectoryID::ID`](ResourceDirectoryID::ID), this is a no-op.
+    /// For [`ResourceDirectoryID::Name`](ResourceDirectoryID::Name), this goes out and
+    /// resolves the [`ResourceOffset`](ResourceOffset) to collect the string from the
+    /// structure being pointed to.
+    fn resolve<P: PE>(&self, pe: &P) -> Result<ResolvedDirectoryID, Error> {
+        match *self {
+            ResourceDirectoryID::ID(id) => Ok(ResolvedDirectoryID::ID(id)),
+            ResourceDirectoryID::Name(offset) => {
+                let resolved = offset.resolve(pe)?;
+                let dir_string = ImageResourceDirStringU::parse(pe, resolved)?;
+                let string_data = dir_string.name.as_u16_str()?;
+                Ok(ResolvedDirectoryID::Name(string_data.to_string()))
+            },
+        }
+    }
+}
+
+/// Represents a [`ResourceDirectoryID`](ResourceDirectoryID) that has been resolved.
+///
+/// For the most part, the ID value is the same. However, the name is resolved into a string
+/// object for easier access.
+#[derive(Clone, Eq, PartialEq, Debug, Hash)]
+pub enum ResolvedDirectoryID {
+    ID(u32),
+    Name(String),
+}
 
 /// Represents the data contained in the resource directory.
 ///
@@ -1318,6 +1347,58 @@ pub enum ResourceDirectoryID {
 pub enum ResourceDirectoryData {
     Directory(ResourceOffset),
     Data(ResourceOffset),
+}
+impl ResourceDirectoryData {
+    /// Resolves the offsets into their expected types.
+    ///
+    /// For [`Directory`](ResourceDirectoryData::Directory), this goes out and attempts to parse a new
+    /// [`ResourceNode`](ResourceNode) at the given offset. For [`Data`](ResourceDirectoryData::Data),
+    /// this goes out and attempts to parse a [`ImageResourceDataEntry`](ImageResourceDataEntry) object
+    /// at the given offset.
+    pub fn resolve<'data, P: PE>(&self, pe: &'data P) -> Result<ResolvedDirectoryData<'data>, Error> {
+        match *self {
+            ResourceDirectoryData::Directory(dir_offset) => {
+                let result = ResourceNode::parse(pe, dir_offset)?;
+                Ok(ResolvedDirectoryData::Directory(result))
+            },
+            ResourceDirectoryData::Data(data_offset) => {
+                let resolved = data_offset.resolve(pe)?;
+                let offset = pe.translate(PETranslation::Memory(resolved))?;
+                let result = pe.get_ref::<ImageResourceDataEntry>(offset)?;
+                Ok(ResolvedDirectoryData::Data(result))
+            },
+        }
+    }
+    /// Resolves the offsets into their expected mutable types.
+    ///
+    /// See [`resolve`](ResourceDirectoryData::resolve).
+    pub fn resolve_mut<'data, P: PE>(&self, pe: &'data mut P) -> Result<ResolvedDirectoryDataMut<'data>, Error> {
+        match *self {
+            ResourceDirectoryData::Directory(dir_offset) => {
+                let result = ResourceNodeMut::parse(pe, dir_offset)?;
+                Ok(ResolvedDirectoryDataMut::Directory(result))
+            },
+            ResourceDirectoryData::Data(data_offset) => {
+                let resolved = data_offset.resolve(pe)?;
+                let offset = pe.translate(PETranslation::Memory(resolved))?;
+                let result = pe.get_mut_ref::<ImageResourceDataEntry>(offset)?;
+                Ok(ResolvedDirectoryDataMut::Data(result))
+            },
+        }
+    }
+}
+
+/// Represents a [`ResourceDirectoryData`](ResourceDirectoryData) that has been resolved.
+#[derive(Clone)]
+pub enum ResolvedDirectoryData<'data> {
+    Directory(ResourceNode<'data>),
+    Data(&'data ImageResourceDataEntry),
+}
+
+/// Represents a [`ResourceDirectoryData`](ResourceDirectoryData) that has been resolved with mutable references.
+pub enum ResolvedDirectoryDataMut<'data> {
+    Directory(ResourceNodeMut<'data>),
+    Data(&'data mut ImageResourceDataEntry),
 }
 
 /// Represents a directory node in the greater resource directory.
@@ -1340,6 +1421,25 @@ impl<'data> ResourceNode<'data> {
         let entries = pe.get_slice_ref::<ImageResourceDirectoryEntry>(image_offset, directory.entries())?;
         
         Ok(Self { directory, entries })
+    }
+    /// Get the [`ResourceDirectoryData`](ResourceDirectoryData) pointed to by the underlying
+    /// [`ImageResourceDirectoryEntry`](ImageResourceDirectoryEntry) with the given ID.
+    ///
+    /// Returns [`Error::ResourceNotFound`](Error::ResourceNotFound) when the ID is not found.
+    pub fn entry_by_id<P: PE>(&self, pe: &'data P, id: &ResolvedDirectoryID) -> Result<ResourceDirectoryData, Error> {
+        for entry in self.entries {
+            let resolved_id = entry.get_id().resolve(pe)?;
+
+            if resolved_id != *id { continue; }
+            return Ok(entry.get_data());
+        }
+
+        Err(Error::ResourceNotFound)
+    }
+    pub fn entry_by_offset(&self, offset: usize) -> Result<ResourceDirectoryData, Error> {
+        if offset >= self.entries.len() { return Err(Error::OutOfBounds(self.entries.len(), offset)); }
+
+        Ok(self.entries[offset].get_data())
     }
 }
 
@@ -1383,17 +1483,36 @@ impl<'data> ResourceNodeMut<'data> {
 
         Ok(Self { directory, entries })
     }
+    /// Get the [`ResourceDirectoryData`](ResourceDirectoryData) pointed to by the underlying
+    /// [`ImageResourceDirectoryEntry`](ImageResourceDirectoryEntry) with the given ID.
+    ///
+    /// Returns [`Error::ResourceNotFound`](Error::ResourceNotFound) when the ID is not found.
+    pub fn entry_by_id<P: PE>(&self, pe: &'data P, id: &ResolvedDirectoryID) -> Result<ResourceDirectoryData, Error> {
+        for entry in self.entries.iter() {
+            let resolved_id = entry.get_id().resolve(pe)?;
+
+            if resolved_id != *id { continue; }
+            return Ok(entry.get_data());
+        }
+
+        Err(Error::ResourceNotFound)
+    }
+    pub fn entry_by_offset(&self, offset: usize) -> Result<ResourceDirectoryData, Error> {
+        if offset >= self.entries.len() { return Err(Error::OutOfBounds(self.entries.len(), offset)); }
+
+        Ok(self.entries[offset].get_data())
+    }
 }
 
 /// Represents a flattened node of data in a given resource tree.
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct FlattenedResourceDataEntry {
-    /// The type ID of this resource, or alternatively, depth 1 of the resource tree.
-    pub type_id: ResourceDirectoryID,
-    /// The resource ID of this resource, or alternatively, depth 2 of the resource tree.
-    pub rsrc_id: ResourceDirectoryID,
-    /// The language ID of this resource, or alternatively, depth 3 of the resource tree.
-    pub lang_id: ResourceDirectoryID,
+    /// The type node of this resource, or alternatively, depth 1 of the resource tree.
+    pub type_id: ResolvedDirectoryID,
+    /// The resource node of this resource, or alternatively, depth 2 of the resource tree.
+    pub rsrc_id: ResolvedDirectoryID,
+    /// The language node of this resource, or alternatively, depth 3 of the resource tree.
+    pub lang_id: ResolvedDirectoryID,
     /// The data leaf ultimately representing this resource.
     pub data: ResourceOffset,
 }
@@ -1410,6 +1529,104 @@ impl FlattenedResourceDataEntry {
         let rva = self.data.resolve(pe)?;
         let offset = pe.translate(PETranslation::Memory(rva))?;
         let result = pe.get_mut_ref::<ImageResourceDataEntry>(offset)?;
+        Ok(result)
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+/// Represents an entry in the directory of an icon file.
+pub struct IconDirEntry {
+    pub width: u8,
+    pub height: u8,
+    pub color_count: u8,
+    pub reserved: u8,
+    pub planes: u16,
+    pub bit_count: u16,
+    pub bytes_in_res: u32,
+    pub image_offset: u32,
+}
+
+#[derive(Clone)]
+/// Represents a non-mutable icon file directory.
+pub struct IconDir<'data> {
+    pub reserved: &'data u16,
+    pub icon_type: &'data u16,
+    pub count: &'data u16,
+    pub entries: &'data [IconDirEntry],
+}
+impl<'data> IconDir<'data> {
+    /// Parse an icon file directory from the given buffer-like object.
+    ///
+    /// The buffer is not a PE file-- it is a [`Buffer`](Buffer) object, like [`VecBuffer`](VecBuffer).
+    pub fn parse<B: Buffer>(buf: &'data B) -> Result<Self, Error> {
+        let reserved = buf.get_ref::<u16>(0)?;
+        let icon_type = buf.get_ref::<u16>(2)?;
+        let count = buf.get_ref::<u16>(4)?;
+        let entries = buf.get_slice_ref::<IconDirEntry>(6, *count as usize)?;
+
+        Ok(Self { reserved, icon_type, count, entries })
+    }
+    /// Convert this icon directory file into a [`VecBuffer`](VecBuffer).
+    ///
+    /// This essentially prepares the header for an icon file for appending icon data to a file.
+    pub fn to_vec_buffer(&self) -> Result<VecBuffer, Error> {
+        let mut result = VecBuffer::new();
+        result.append_ref::<u16>(self.reserved)?;
+        result.append_ref::<u16>(self.icon_type)?;
+        result.append_ref::<u16>(self.count)?;
+        result.append_slice_ref::<IconDirEntry>(self.entries)?;
+
+        Ok(result)
+    }
+}
+
+/// Represents a mutable icon file directory.
+pub struct IconDirMut<'data> {
+    pub reserved: &'data mut u16,
+    pub icon_type: &'data mut u16,
+    pub count: &'data mut u16,
+    pub entries: &'data mut [IconDirEntry],
+}
+impl<'data> IconDirMut<'data> {
+    /// Parse a mutable icon file directory from the given buffer-like object.
+    ///
+    /// The buffer is not a PE file-- it is a [`Buffer`](Buffer) object, like [`VecBuffer`](VecBuffer).
+    pub fn parse<B: Buffer>(buf: &'data mut B) -> Result<Self, Error> {
+        unsafe {
+            let mut ptr = buf.offset_to_mut_ptr(0)?;
+            let reserved = &mut *(ptr as *mut u16);
+
+            ptr = buf.offset_to_mut_ptr(2)?;
+            let icon_type = &mut *(ptr as *mut u16);
+
+            ptr = buf.offset_to_mut_ptr(4)?;
+            let count = &mut *(ptr as *mut u16);
+
+            let entries = buf.get_mut_slice_ref_unaligned::<IconDirEntry>(6, *count as usize)?;
+
+            Ok(Self { reserved, icon_type, count, entries })
+        }
+    }
+}
+
+#[derive(Clone, Eq, PartialEq, Debug)]
+/// Create an owned [`IconDir`](IconDir) object.
+pub struct IconDirVec {
+    pub reserved: u16,
+    pub icon_type: u16,
+    pub count: u16,
+    pub entries: Vec<IconDirEntry>
+}
+impl IconDirVec {
+    /// Convert this `IconDirVec` object into a [`VecBuffer`](VecBuffer).
+    pub fn to_vec_buffer(&self) -> Result<VecBuffer, Error> {
+        let mut result = VecBuffer::new();
+        result.append_ref::<u16>(&self.reserved)?;
+        result.append_ref::<u16>(&self.icon_type)?;
+        result.append_ref::<u16>(&self.count)?;
+        result.append_slice_ref::<IconDirEntry>(self.entries.as_slice())?;
+
         Ok(result)
     }
 }
@@ -1448,10 +1665,14 @@ impl<'data> ResourceDirectory<'data> {
                         ResourceDirectoryData::Data(d) => d,
                     };
 
+                    let type_resolved = type_entry.get_id().resolve(pe)?;
+                    let rsrc_resolved = id_entry.get_id().resolve(pe)?;
+                    let lang_resolved = lang_entry.get_id().resolve(pe)?;
+
                     resources.push(FlattenedResourceDataEntry {
-                        type_id: type_entry.get_id(),
-                        rsrc_id: id_entry.get_id(),
-                        lang_id: lang_entry.get_id(),
+                        type_id: type_resolved,
+                        rsrc_id: rsrc_resolved,
+                        lang_id: lang_resolved,
                         data: data_offset,
                     });
                 }
@@ -1460,16 +1681,60 @@ impl<'data> ResourceDirectory<'data> {
 
         Ok(Self { root_node, resources })
     }
-    /// Filter the parsed resources by the given default [`ResourceID`](ResourceID).
-    pub fn filter_by_type(&self, id: ResourceID) -> Vec<FlattenedResourceDataEntry> {
-        self.resources
-            .iter()
-            .filter(|x| match x.type_id {
-                ResourceDirectoryID::Name(_) => false,
-                ResourceDirectoryID::ID(v) => ResourceID::from_u32(v) == id,
-            })
-            .map(|&x| x)
-            .collect()
+    /// Filter the parsed resources by the given identifiers.
+    ///
+    /// See [`ResolvedDirectoryID`](ResolvedDirectoryID). The `type_id` represents either a [`ResourceID`](ResourceID) or a type name.
+    /// The `rsrc_id` represents the ID of the individual resource. For example, for icons, one possible value would be
+    /// `ResolvedDirectoryID::ID(1)` for the first icon. The `lang_id` represents a language from the
+    /// [Windows locale](https://learn.microsoft.com/en-us/windows/win32/intl/locales-and-languages). Typically, this value is 1033,
+    /// representing United States English.
+    pub fn filter(
+        &self,
+        type_id: Option<ResolvedDirectoryID>,
+        rsrc_id: Option<ResolvedDirectoryID>,
+        lang_id: Option<ResolvedDirectoryID>
+    ) -> Vec<FlattenedResourceDataEntry> {
+        let mut resources = self.resources.clone();
+
+        if type_id.is_some() {
+            let type_search = type_id.unwrap();
+            resources = resources.iter()
+                .filter(|x| x.type_id == type_search)
+                .cloned()
+                .collect();
+        }
+
+        if rsrc_id.is_some() {
+            let rsrc_search = rsrc_id.unwrap();
+            resources = resources.iter()
+                .filter(|x| x.rsrc_id == rsrc_search)
+                .cloned()
+                .collect();
+        }
+
+        if lang_id.is_some() {
+            let lang_search = lang_id.unwrap();
+            resources = resources.iter()
+                .filter(|x| x.lang_id == lang_search)
+                .cloned()
+                .collect();
+        }
+
+        resources
+    }
+    /// Get the icon groups in this resource directory, if any.
+    pub fn icon_groups<P: PE>(&self, pe: &'data P) -> Result<HashMap<ResolvedDirectoryID, GrpIconDir>, Error> {
+        let groups = self.filter(Some(ResolvedDirectoryID::ID(ResourceID::GroupIcon as u32)), None, None);
+        let mut result = HashMap::<ResolvedDirectoryID, GrpIconDir>::new();
+
+        for rsrc in &groups {
+            let id = rsrc.rsrc_id.clone();
+            let entry = rsrc.get_data_entry(pe)?;
+            let dir = GrpIconDir::parse(pe, entry.offset_to_data)?;
+            result.insert(id, dir);
+        }
+
+        Ok(result)
     }
 }
 
@@ -1539,10 +1804,14 @@ impl<'data> ResourceDirectoryMut<'data> {
                             ResourceDirectoryData::Data(d) => d,
                         };
 
+                        let type_resolved = type_entry.get_id().resolve(pe)?;
+                        let rsrc_resolved = id_entry.get_id().resolve(pe)?;
+                        let lang_resolved = lang_entry.get_id().resolve(pe)?;
+
                         resources.push(FlattenedResourceDataEntry {
-                            type_id: type_entry.get_id(),
-                            rsrc_id: id_entry.get_id(),
-                            lang_id: lang_entry.get_id(),
+                            type_id: type_resolved,
+                            rsrc_id: rsrc_resolved,
+                            lang_id: lang_resolved,
                             data: data_offset,
                         });
                     }
@@ -1552,16 +1821,60 @@ impl<'data> ResourceDirectoryMut<'data> {
             Ok(Self { root_node, resources })
         }
     }
-    /// Filter the parsed resources by the given default [`ResourceID`](ResourceID).
-    pub fn filter_by_type(&self, id: ResourceID) -> Vec<FlattenedResourceDataEntry> {
-        self.resources
-            .iter()
-            .filter(|x| match x.type_id {
-                ResourceDirectoryID::Name(_) => false,
-                ResourceDirectoryID::ID(v) => ResourceID::from_u32(v) == id,
-            })
-            .map(|&x| x)
-            .collect()
+    /// Filter the parsed resources by the given identifiers.
+    ///
+    /// See [`ResolvedDirectoryID`](ResolvedDirectoryID). The `type_id` represents either a [`ResourceID`](ResourceID) or a type name.
+    /// The `rsrc_id` represents the ID of the individual resource. For example, for icons, one possible value would be
+    /// `ResolvedDirectoryID::ID(1)` for the first icon. The `lang_id` represents a language from the
+    /// [Windows locale](https://learn.microsoft.com/en-us/windows/win32/intl/locales-and-languages). Typically, this value is 1033,
+    /// representing United States English.
+    pub fn filter(
+        &self,
+        type_id: Option<ResolvedDirectoryID>,
+        rsrc_id: Option<ResolvedDirectoryID>,
+        lang_id: Option<ResolvedDirectoryID>
+    ) -> Vec<FlattenedResourceDataEntry> {
+        let mut resources = self.resources.clone();
+
+        if type_id.is_some() {
+            let type_search = type_id.unwrap();
+            resources = resources.iter()
+                .filter(|x| x.type_id == type_search)
+                .cloned()
+                .collect();
+        }
+
+        if rsrc_id.is_some() {
+            let rsrc_search = rsrc_id.unwrap();
+            resources = resources.iter()
+                .filter(|x| x.rsrc_id == rsrc_search)
+                .cloned()
+                .collect();
+        }
+
+        if lang_id.is_some() {
+            let lang_search = lang_id.unwrap();
+            resources = resources.iter()
+                .filter(|x| x.lang_id == lang_search)
+                .cloned()
+                .collect();
+        }
+
+        resources
+    }
+    /// Get the icon groups in this resource directory, if any.
+    pub fn icon_groups<P: PE>(&self, pe: &'data P) -> Result<HashMap<ResolvedDirectoryID, GrpIconDir>, Error> {
+        let groups = self.filter(Some(ResolvedDirectoryID::ID(ResourceID::GroupIcon as u32)), None, None);
+        let mut result = HashMap::<ResolvedDirectoryID, GrpIconDir>::new();
+
+        for rsrc in &groups {
+            let id = rsrc.rsrc_id.clone();
+            let entry = rsrc.get_data_entry(pe)?;
+            let dir = GrpIconDir::parse(pe, entry.offset_to_data)?;
+            result.insert(id, dir);
+        }
+
+        Ok(result)
     }
 }
 
@@ -2042,8 +2355,8 @@ impl<'data> VSVersionInfo<'data> {
     pub fn parse<P: PE>(pe: &'data P) -> Result<Self, Error> {
         let resource_dir = ResourceDirectory::parse(pe)?;
         
-        let version_rsrc = resource_dir.filter_by_type(ResourceID::Version);
-        if version_rsrc.len() == 0 { return Err(Error::CorruptDataDirectory); }
+        let version_rsrc = resource_dir.filter(Some(ResolvedDirectoryID::ID(ResourceID::Version as u32)), None, None);
+        if version_rsrc.len() == 0 { return Err(Error::ResourceNotFound); }
 
         let rsrc_node = version_rsrc[0].get_data_entry(pe)?;        
         let base_offset = pe.translate(PETranslation::Memory(rsrc_node.offset_to_data))?;
