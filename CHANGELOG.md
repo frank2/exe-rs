@@ -9,17 +9,17 @@
   * `ResourceDirectory` now has a new function `ResourceDirectory::icon_groups`, which converts all resources of type
     `ResourceID::GroupIcon` into `GrpIconDir` objects. These objects can eventually be converted into icon files, see
     [the provided example](https://github.com/frank2/exe-rs/blob/main/examples/resources/src/main.rs) for more info.
-    Thanks to @HMingtk for requesting!
+    Thanks to [@HMingtk](https://github.com/HMingtk) for requesting!
     
 ### Bugfixes
 * Fixed a bug in the loader: the TLS directory wasn't properly translating certain offsets.
 * Altered execution of `ImageImportDescriptor::get_imports`-- errors parsing import thunks are now returned instead of skipped.
-* Fixed the execution speed of binary searching by upgrading to [PKBuffer](https://github.com/frank2/pkbuffer) 0.4.2, thanks to @Thell for providing the fix.
+* Fixed the execution speed of binary searching by upgrading to [PKBuffer](https://github.com/frank2/pkbuffer) 0.4.2, thanks to [@Thell](https://github.com/Thell) for providing the fix.
 * Fixed an issue where non-UTF8 sequences could be turned into `str` objects. `CCharString::as_str()` now returns a `Result<str>` instead of a `str`.
   * Additionally, this was fixed in `WCharString::as_u16_str`, with the addition of switching `widestring::U16Str` and `widestring::U16String` to `widestring::Utf16Str` and `widestring::Utf16String`.
-* Changed `PE::get_section_by_name` to take an `AsRef<str>` argument instead of a `String`, thanks to @LunNova for reporting.
-* Fixed an issue in the `chrono` library with pulling in a dependency with CVE-2020-26235, thanks to @LunNova for reporting.
-* Fixed an issue with VS_VERSIONINFO not parsing out-of-order structures, thanks to @theflakes for reporting!
+* Changed `PE::get_section_by_name` to take an `AsRef<str>` argument instead of a `String`, thanks to [@LunNova](https://github.com/LunNova) for reporting.
+* Fixed an issue in the `chrono` library with pulling in a dependency with CVE-2020-26235, thanks to [@LunNova](https://github.com/LunNova) for reporting.
+* Fixed an issue with VS_VERSIONINFO not parsing out-of-order structures, thanks to [@theflakes](https://github.com/theflakes) for reporting!
 * Fixed a deprecation issue with the `chrono` library, now using `timestamp_opt` where it complained.
 
 ## 0.5.4
@@ -75,7 +75,7 @@ This refactor has caused the main `PE` module to become a trait! This means you 
 ### Bugfixes
 * now using `AsRef`/`AsMut` in instances where `[u8]` is being used.
 * question mark operator used throughout the code instead of explicit match/return cases.
-* `Error` now implements `Send` and `Sync`, thanks to @[__the_sylph__](https://twitter.com/__the_sylph__/) for reporting this!
+* `Error` now implements `Send` and `Sync`, thanks to [@__the_sylph__](https://twitter.com/__the_sylph__/) for reporting this!
 
 ## 0.4.6
 ### Features
@@ -86,7 +86,7 @@ This refactor has caused the main `PE` module to become a trait! This means you 
 ### Features
 * Errors now feature more context! For example, `InvalidRVA` now contains the offending RVA. See the docs for more details!
 ### Bugfixes
-* `Error` now implements the `std::error::Error` trait and `std::fmt::Display` trait, thanks to p0lloloco for reporting!
+* `Error` now implements the `std::error::Error` trait and `std::fmt::Display` trait, thanks to [@p0lloloco](https://github.com/p0lloloco) for reporting!
 
 ## 0.4.4
 ### Features
