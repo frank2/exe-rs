@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.5
+## 0.5.6
 ### Features
 * Resources got refactored a bit.
   * `ResourceDirectory::find_by_type` is deprecated for the superior `ResourceDirectory::filter` function, take a look!
@@ -21,6 +21,9 @@
 * Fixed an issue in the `chrono` library with pulling in a dependency with CVE-2020-26235, thanks to [@LunNova](https://github.com/LunNova) for reporting.
 * Fixed an issue with VS_VERSIONINFO not parsing out-of-order structures, thanks to [@theflakes](https://github.com/theflakes) for reporting!
 * Fixed a deprecation issue with the `chrono` library, now using `timestamp_opt` where it complained.
+
+## 0.5.5
+Phantom release! I have no idea why this one was published.
 
 ## 0.5.4
 ### Bugfixes
