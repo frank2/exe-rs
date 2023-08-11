@@ -407,52 +407,103 @@ bitflags! {
     /// A series of bitflags representing section characteristics.
     #[repr(C)]
     pub struct SectionCharacteristics: u32 {
+        /// Reserved for future use.
         const TYPE_REG               = 0x00000000;
+        /// Reserved for future use.
         const TYPE_DSECT             = 0x00000001;
+        /// Reserved for future use.
         const TYPE_NOLOAD            = 0x00000002;
+        /// Reserved for future use.
         const TYPE_GROUP             = 0x00000004;
+        /// The section should not be padded to the next boundary.
+        /// This flag is obsolete and is replaced by IMAGE_SCN_ALIGN_1BYTES.
+        /// This is valid only for object files.
         const TYPE_NO_PAD            = 0x00000008;
+        /// Reserved for future use.
         const TYPE_COPY              = 0x00000010;
+        /// The section contains executable code.
         const CNT_CODE               = 0x00000020;
+        /// The section contains initialized data.
         const CNT_INITIALIZED_DATA   = 0x00000040;
+        /// The section contains uninitialized data.
         const CNT_UNINITIALIZED_DATA = 0x00000080;
+        /// Reserved for future use.
         const LNK_OTHER              = 0x00000100;
+        /// The section contains comments or other information.
+        /// The .drectve section has this type. This is valid for object files only.
         const LNK_INFO               = 0x00000200;
+        /// Reserved for future use.
         const TYPE_OVER              = 0x00000400;
+        /// The section will not become part of the image.
+        /// This is valid only for object files.
         const LNK_REMOVE             = 0x00000800;
+        /// The section contains COMDAT data. This is valid only for object files.
         const LNK_COMDAT             = 0x00001000;
+        /// Unknown/Reserved.
         const RESERVED               = 0x00002000;
+        /// Unknown flag.
         const MEM_PROTECTED          = 0x00004000;
+        /// Unknown flag.
         const NO_DEFER_SPEC_EXC      = 0x00004000;
+        /// The section contains data referenced through the global pointer (GP).
         const GPREL                  = 0x00008000;
+        /// Reserved for future use.
         const MEM_FARDATA            = 0x00008000;
+        /// Reserved for future use.
         const MEM_SYSHEAP            = 0x00010000;
+        /// Reserved for future use.
         const MEM_PURGEABLE          = 0x00020000;
+        /// Reserved for future use.
         const MEM_16BIT              = 0x00020000;
+        /// Reserved for future use.
         const MEM_LOCKED             = 0x00040000;
+        /// Reserved for future use.
         const MEM_PRELOAD            = 0x00080000;
+        /// Align data on a 1-byte boundary. Valid only for object files.
         const ALIGN_1BYTES           = 0x00100000;
+        /// Align data on a 2-byte boundary. Valid only for object files.
         const ALIGN_2BYTES           = 0x00200000;
+        /// Align data on a 4-byte boundary. Valid only for object files.
         const ALIGN_4BYTES           = 0x00300000;
+        /// Align data on an 8-byte boundary. Valid only for object files.
         const ALIGN_8BYTES           = 0x00400000;
+        /// Align data on a 16-byte boundary. Valid only for object files.
         const ALIGN_16BYTES          = 0x00500000;
+        /// Align data on a 32-byte boundary. Valid only for object files.
         const ALIGN_32BYTES          = 0x00600000;
+        /// Align data on a 64-byte boundary. Valid only for object files.
         const ALIGN_64BYTES          = 0x00700000;
+        /// Align data on a 128-byte boundary. Valid only for object files.
         const ALIGN_128BYTES         = 0x00800000;
+        /// Align data on a 256-byte boundary. Valid only for object files.
         const ALIGN_256BYTES         = 0x00900000;
+        /// Align data on a 512-byte boundary. Valid only for object files.
         const ALIGN_512BYTES         = 0x00A00000;
+        /// Align data on a 1024-byte boundary. Valid only for object files.
         const ALIGN_1024BYTES        = 0x00B00000;
+        /// Align data on a 2048-byte boundary. Valid only for object files.
         const ALIGN_2048BYTES        = 0x00C00000;
+        /// Align data on a 4096-byte boundary. Valid only for object files.
         const ALIGN_4096BYTES        = 0x00D00000;
+        /// Align data on an 8192-byte boundary. Valid only for object files.
         const ALIGN_8192BYTES        = 0x00E00000;
+        /// Mask for alignment.
         const ALIGN_MASK             = 0x00F00000;
+        /// The section contains extended relocations.
         const LNK_NRELOC_OVFL        = 0x01000000;
+        /// The section can be discarded as needed.
         const MEM_DISCARDABLE        = 0x02000000;
+        /// The section cannot be cached.
         const MEM_NOT_CACHED         = 0x04000000;
+        /// The section is not pageable.
         const MEM_NOT_PAGED          = 0x08000000;
+        /// The section can be shared in memory.
         const MEM_SHARED             = 0x10000000;
+        /// The section can be executed as code.
         const MEM_EXECUTE            = 0x20000000;
+        /// The section can be read.
         const MEM_READ               = 0x40000000;
+        /// The section can be written to.
         const MEM_WRITE              = 0x80000000;
     }
 }
