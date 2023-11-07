@@ -1737,6 +1737,21 @@ impl<'data> ResourceDirectory<'data> {
 
         Ok(result)
     }
+    /// Get the single icon group in this resource directory, if any.
+    pub fn icon_groups_single<P: PE>(&self, pe: &'data P) -> Result<HashMap<ResolvedDirectoryID, GrpIconDir>, Error> {
+        let groups = self.filter(Some(ResolvedDirectoryID::ID(ResourceID::GroupIcon as u32)), None, None);
+        let mut result = HashMap::<ResolvedDirectoryID, GrpIconDir>::new();
+
+        for rsrc in &groups {
+            let id = rsrc.rsrc_id.clone();
+            let entry = rsrc.get_data_entry(pe)?;
+            let dir = GrpIconDir::parse(pe, entry.offset_to_data)?;
+            result.insert(id, dir);
+            break;
+        }
+
+        Ok(result)
+    }
 }
 
 /// Represents a mutable resource directory, containing flattened resources and the root node of the resource tree.
@@ -1874,6 +1889,21 @@ impl<'data> ResourceDirectoryMut<'data> {
             let entry = rsrc.get_data_entry(pe)?;
             let dir = GrpIconDir::parse(pe, entry.offset_to_data)?;
             result.insert(id, dir);
+        }
+
+        Ok(result)
+    }
+    /// Get the single icon group in this resource directory, if any.
+    pub fn icon_groups_single<P: PE>(&self, pe: &'data P) -> Result<HashMap<ResolvedDirectoryID, GrpIconDir>, Error> {
+        let groups = self.filter(Some(ResolvedDirectoryID::ID(ResourceID::GroupIcon as u32)), None, None);
+        let mut result = HashMap::<ResolvedDirectoryID, GrpIconDir>::new();
+
+        for rsrc in &groups {
+            let id = rsrc.rsrc_id.clone();
+            let entry = rsrc.get_data_entry(pe)?;
+            let dir = GrpIconDir::parse(pe, entry.offset_to_data)?;
+            result.insert(id, dir);
+            break;
         }
 
         Ok(result)
