@@ -1930,6 +1930,7 @@ bitflags! {
     /// A series of bitflags representing the file flags for the [`VS_FIXEDFILEINFO`](https://docs.microsoft.com/en-us/windows/win32/api/verrsrc/ns-verrsrc-vs_fixedfileinfo)
     /// structure.
     #[repr(C)]
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
     pub struct VSFileFlags: u32 {
         const DEBUG = 0x00000001;
         const PRERELEASE = 0x00000002;
