@@ -124,6 +124,7 @@ pub enum ImageFileMachine {
 bitflags! {
     /// A bitflag structure representing file characteristics in the file header.
     #[repr(C)]
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
     pub struct FileCharacteristics: u16 {
         const RELOCS_STRIPPED         = 0x0001;
         const EXECUTABLE_IMAGE        = 0x0002;
@@ -209,6 +210,7 @@ pub enum ImageSubsystem {
 bitflags! {
     /// A series of bitflags representing DLL characteristics.
     #[repr(C)]
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
     pub struct DLLCharacteristics: u16 {
         const RESERVED1             = 0x0001;
         const RESERVED2             = 0x0002;
@@ -406,6 +408,7 @@ impl Default for ImageNTHeaders64 {
 bitflags! {
     /// A series of bitflags representing section characteristics.
     #[repr(C)]
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
     pub struct SectionCharacteristics: u32 {
         /// Reserved for future use.
         const TYPE_REG               = 0x00000000;
@@ -1487,6 +1490,7 @@ impl ImageDebugDirectory {
 bitflags! {
     /// A series of bitflags representing TLS directory characteristics.
     #[repr(C)]
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
     pub struct TLSCharacteristics: u32 {
         const ALIGN_1BYTES           = 0x00100000;
         const ALIGN_2BYTES           = 0x00200000;
