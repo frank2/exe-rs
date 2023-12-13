@@ -20,9 +20,9 @@ chrono = { version = "0.4", features = ["clock", "std", "wasmbind"], default-fea
 hex = "0.4.3"
 num-traits = "0.2.14"
 pkbuffer = "=0.4.2"
-md-5 = "0.9.1"
-sha-1 = "0.9.6"
-sha2 = "0.9.5"
+md-5 = "0.10"
+sha-1 = "0.10"
+sha2 = "0.10"
 widestring = "1.0.2"
 winapi = { version = "0.3.9", features = ["errhandlingapi", "libloaderapi", "memoryapi", "impl-default"], optional = true }
 
