@@ -46,7 +46,7 @@ pub use crate::valloc::*;
 #[cfg(test)]
 mod tests;
 
-use md5::{Md5, Digest};
+use md5::{Digest, Md5};
 use sha1::Sha1;
 use sha2::Sha256;
 
@@ -360,31 +360,13 @@ pub trait HashData {
 }
 impl HashData for [u8] {
     fn md5(&self) -> Vec<u8> {
-        let mut hash = Md5::new();
-        hash.update(self);
-        hash.finalize()
-            .as_slice()
-            .iter()
-            .cloned()
-            .collect()
+        Md5::digest(self).to_vec()
     }
     fn sha1(&self) -> Vec<u8> {
-        let mut hash = Sha1::new();
-        hash.update(self);
-        hash.finalize()
-            .as_slice()
-            .iter()
-            .cloned()
-            .collect()
+        Sha1::digest(self).to_vec()
     }
     fn sha256(&self) -> Vec<u8> {
-        let mut hash = Sha256::new();
-        hash.update(self);
-        hash.finalize()
-            .as_slice()
-            .iter()
-            .cloned()
-            .collect()
+        Sha256::digest(self).to_vec()
     }
 }
 impl<T> HashData for T
