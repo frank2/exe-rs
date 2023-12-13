@@ -360,13 +360,13 @@ pub trait HashData {
 }
 impl HashData for [u8] {
     fn md5(&self) -> Vec<u8> {
-        Md5::digest(self).iter().cloned().collect()
+        Md5::digest(self).to_vec()
     }
     fn sha1(&self) -> Vec<u8> {
-        Sha1::digest(self).iter().cloned().collect()
+        Sha1::digest(self).to_vec()
     }
     fn sha256(&self) -> Vec<u8> {
-        Sha256::digest(self).iter().cloned().collect()
+        Sha256::digest(self).to_vec()
     }
 }
 impl<T> HashData for T
