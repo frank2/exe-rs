@@ -3,7 +3,7 @@
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use pkbuffer::{PtrBuffer, VecBuffer, Error as PKError};
-pub use pkbuffer::{Buffer, Castable};
+pub use pkbuffer::Buffer;
 
 use std::clone::Clone;
 use std::cmp;
@@ -233,15 +233,15 @@ pub trait PE: Buffer + Sized {
     }
 
     /// Get the DOS header without verifying its contents.
-    fn get_dos_header(&self) -> Result<&ImageDOSHeader, Error> {
-        let result = self.get_ref::<ImageDOSHeader>(0)?; Ok(result)
+    fn get_dos_header(&self) -> Result<ImageDOSHeader, Error> {
+        self.read_val::<ImageDOSHeader>(0).map_err(Error::from)
     }
     /// Get a mutable DOS header without verifying its contents.
-    fn get_mut_dos_header(&mut self) -> Result<&mut ImageDOSHeader, Error> {
-        let result = self.get_mut_ref::<ImageDOSHeader>(0)?; Ok(result)
+    fn get_mut_dos_header(&mut self) -> Result<ImageDOSHeader, Error> {
+        self.read_val::<ImageDOSHeader>(0).map_err(Error::from)
     }
     /// Get the DOS header and verify it's a valid DOS header.
-    fn get_valid_dos_header(&self) -> Result<&ImageDOSHeader, Error> {
+    fn get_valid_dos_header(&self) -> Result<ImageDOSHeader, Error> {
         let dos_header = self.get_dos_header()?;
 
         if dos_header.e_magic != DOS_SIGNATURE {
@@ -251,7 +251,7 @@ pub trait PE: Buffer + Sized {
         Ok(dos_header)
     }
     /// Get a mutable DOS header and verify it's a valid DOS header.
-    fn get_valid_mut_dos_header(&mut self) -> Result<&mut ImageDOSHeader, Error> {
+    fn get_valid_mut_dos_header(&mut self) -> Result<ImageDOSHeader, Error> {
         let dos_header = self.get_mut_dos_header()?;
 
         if dos_header.e_magic != DOS_SIGNATURE {
@@ -283,25 +283,23 @@ pub trait PE: Buffer + Sized {
     }
 
     /// Get 32-bit NT headers without verifying its contents.
-    fn get_nt_headers_32(&self) -> Result<&ImageNTHeaders32, Error> {
+    fn get_nt_headers_32(&self) -> Result<ImageNTHeaders32, Error> {
         let e_lfanew = self.e_lfanew()?;
-        let result = self.get_ref::<ImageNTHeaders32>(e_lfanew.into())?;
-        Ok(result)
+        self.read_val::<ImageNTHeaders32>(e_lfanew.into()).map_err(Error::from)
     }
     /// Get mutable 32-bit NT headers without verifying its contents.
-    fn get_mut_nt_headers_32(&mut self) -> Result<&mut ImageNTHeaders32, Error> {
+    fn get_mut_nt_headers_32(&mut self) -> Result<ImageNTHeaders32, Error> {
         let e_lfanew = self.e_lfanew()?;
-        let result = self.get_mut_ref::<ImageNTHeaders32>(e_lfanew.into())?;
-        Ok(result)
+        self.read_val::<ImageNTHeaders32>(e_lfanew.into()).map_err(Error::from)
     }
     /// Get 32-bit NT headers and verify that they're 32-bit NT headers.
-    fn get_valid_nt_headers_32(&self) -> Result<&ImageNTHeaders32, Error> {
+    fn get_valid_nt_headers_32(&self) -> Result<ImageNTHeaders32, Error> {
         let e_lfanew = self.e_lfanew()?;
 
         if e_lfanew.0 % 4 != 0 {
             return Err(Error::BadAlignment);
         }
-        
+
         let nt_headers = self.get_nt_headers_32()?;
 
         if nt_headers.signature != NT_SIGNATURE {
@@ -315,7 +313,7 @@ pub trait PE: Buffer + Sized {
         Ok(nt_headers)
     }
     /// Get mutable 32-bit NT headers and verify that they're 32-bit NT headers.
-    fn get_valid_mut_nt_headers_32(&mut self) -> Result<&mut ImageNTHeaders32, Error> {
+    fn get_valid_mut_nt_headers_32(&mut self) -> Result<ImageNTHeaders32, Error> {
         let e_lfanew = self.e_lfanew()?;
 
         if e_lfanew.0 % 4 != 0 {
@@ -335,21 +333,19 @@ pub trait PE: Buffer + Sized {
         Ok(nt_headers)
     }
     /// Get 64-bit NT headers without verifying its contents.
-    fn get_nt_headers_64(&self) -> Result<&ImageNTHeaders64, Error> {
+    fn get_nt_headers_64(&self) -> Result<ImageNTHeaders64, Error> {
         let e_lfanew = self.e_lfanew()?;
-        let result = self.get_ref::<ImageNTHeaders64>(e_lfanew.into())?;
-        Ok(result)
+        self.read_val::<ImageNTHeaders64>(e_lfanew.into()).map_err(Error::from)
     }
     /// Get mutable 64-bit NT headers without verifying its contents.
-    fn get_mut_nt_headers_64(&mut self) -> Result<&mut ImageNTHeaders64, Error> {
+    fn get_mut_nt_headers_64(&mut self) -> Result<ImageNTHeaders64, Error> {
         let e_lfanew = self.e_lfanew()?;
-        let result = self.get_mut_ref::<ImageNTHeaders64>(e_lfanew.into())?;
-        Ok(result)
+        self.read_val::<ImageNTHeaders64>(e_lfanew.into()).map_err(Error::from)
     }
     /// Get 64-bit NT headers and verify that they're 64-bit NT headers.
-    fn get_valid_nt_headers_64(&self) -> Result<&ImageNTHeaders64, Error> {
+    fn get_valid_nt_headers_64(&self) -> Result<ImageNTHeaders64, Error> {
         let e_lfanew = self.e_lfanew()?;
-        
+
         if e_lfanew.0 % 4 != 0 {
             return Err(Error::BadAlignment);
         }
@@ -363,11 +359,11 @@ pub trait PE: Buffer + Sized {
         if nt_headers.optional_header.magic != HDR64_MAGIC {
             return Err(Error::InvalidNTSignature(nt_headers.optional_header.magic));
         }
-        
+
         Ok(nt_headers)
     }
     /// Get mutable 64-bit NT headers and verify that they're 64-bit NT headers.
-    fn get_valid_mut_nt_headers_64(&mut self) -> Result<&mut ImageNTHeaders64, Error> {
+    fn get_valid_mut_nt_headers_64(&mut self) -> Result<ImageNTHeaders64, Error> {
         let e_lfanew = self.e_lfanew()?;
 
         if e_lfanew.0 % 4 != 0 {
@@ -483,15 +479,18 @@ pub trait PE: Buffer + Sized {
 
     /// Calculate the checksum of the PE image.
     fn calculate_checksum(&self) -> Result<u32, Error> {
-        let checksum_ref = match self.get_valid_nt_headers() {
-            Ok(h) => match h {
-                NTHeaders::NTHeaders32(h32) => &h32.optional_header.checksum,
-                NTHeaders::NTHeaders64(h64) => &h64.optional_header.checksum,
-            },
-            Err(e) => return Err(e),
+        let magic = self.get_nt_magic()?;
+        let e_lfanew = self.e_lfanew()?;
+
+        // Checksum is at a fixed offset within the optional header
+        // For PE32: e_lfanew + 4 (signature) + 0x58 (sizeof(ImageFileHeader) + offset in optional)
+        // For PE64: e_lfanew + 4 (signature) + 0x64
+        let checksum_offset = if magic == HDR32_MAGIC {
+            e_lfanew.0 as usize + 4 + 0x58
+        } else {
+            e_lfanew.0 as usize + 4 + 0x64
         };
 
-        let checksum_offset = self.ref_to_offset(checksum_ref)?;
         let eof = self.len();
         let mut checksum = 0u64;
 
@@ -501,8 +500,9 @@ pub trait PE: Buffer + Sized {
             let data: Vec<u8> = match self.read(offset, 4) {
                 Ok(d) => d.iter().cloned().collect(),
                 Err(e) => {
-                    if let PKError::OutOfBounds(_,_) = e { () }
-                    else { return Err(Error::from(e)); }
+                    let pk_err = Error::from(e);
+                    if let Error::PKBufferError(PKError::OutOfBounds(_,_)) = pk_err { () }
+                    else { return Err(pk_err); }
 
                     let real_size = eof - offset;
                     let real_output = self.read(offset, real_size)?;                        
@@ -603,21 +603,21 @@ pub trait PE: Buffer + Sized {
     fn get_data_directory_table(&self) -> Result<&[ImageDataDirectory], Error> {
         let offset = self.get_data_directory_offset()?;
         let size = self.get_data_directory_size()?;
-        let result = self.get_slice_ref::<ImageDataDirectory>(offset.into(), size)?;
+        let result = self.get_slice_ref::<ImageDataDirectory>(offset.into(), size).map_err(Error::from)?;
         Ok(result)
     }
     /// Get a mutable data directory table.
     fn get_mut_data_directory_table(&mut self) -> Result<&mut [ImageDataDirectory], Error> {
         let offset = self.get_data_directory_offset()?;
         let size = self.get_data_directory_size()?;
-        let result = self.get_mut_slice_ref::<ImageDataDirectory>(offset.into(), size)?;
+        let result = self.get_mut_slice_ref::<ImageDataDirectory>(offset.into(), size).map_err(Error::from)?;
         Ok(result)
     }
 
     /// Get the data directory reference represented by the [`ImageDirectoryEntry`](crate::headers::ImageDirectoryEntry) enum.
     /// Returns [`Error::BadDirectory`](Error::BadDirectory) if the given directory is inaccessible due to the directory
     /// size.
-    fn get_data_directory(&self, dir: ImageDirectoryEntry) -> Result<&ImageDataDirectory, Error> {
+    fn get_data_directory(&self, dir: ImageDirectoryEntry) -> Result<ImageDataDirectory, Error> {
         let directory_table = self.get_data_directory_table()?;
         let index = dir as usize;
 
@@ -625,18 +625,18 @@ pub trait PE: Buffer + Sized {
             return Err(Error::BadDirectory(dir));
         }
 
-        Ok(&directory_table[index])
+        Ok(directory_table[index])
     }
     /// Get the mutable data directory reference represented by the [`ImageDirectoryEntry`](crate::headers::ImageDirectoryEntry) enum.
-    fn get_mut_data_directory(&mut self, dir: ImageDirectoryEntry) -> Result<&mut ImageDataDirectory, Error> {
-        let directory_table = self.get_mut_data_directory_table()?;
+    fn get_mut_data_directory(&mut self, dir: ImageDirectoryEntry) -> Result<ImageDataDirectory, Error> {
+        let mut directory_table = self.get_mut_data_directory_table()?;
         let index = dir as usize;
 
         if index >= directory_table.len() {
             return Err(Error::BadDirectory(dir));
         }
 
-        Ok(&mut directory_table[index])
+        Ok(directory_table[index])
     }
     /// Check whether or not this PE file has a given data directory.
     ///
@@ -655,14 +655,12 @@ pub trait PE: Buffer + Sized {
         self.validate_rva(dir_obj.virtual_address)
     }
     /// Parse an object at the given data directory identified by [`ImageDirectoryEntry`](ImageDirectoryEntry).
-    fn cast_directory<T: Castable>(&self, dir: ImageDirectoryEntry) -> Result<&T, Error> {
+    fn cast_directory<T: Copy>(&self, dir: ImageDirectoryEntry) -> Result<T, Error> {
         let directory = self.get_data_directory(dir)?;
         directory.cast::<T,Self>(self)
     }
     /// Parse a mutable object at the given data directory identified by [`ImageDirectoryEntry`](ImageDirectoryEntry).
-    fn cast_directory_mut<T: Castable>(&mut self, dir: ImageDirectoryEntry) -> Result<&mut T, Error> {
-        // I don't know how to do this properly, so do some casting magic to get around
-        // the borrow checker
+    fn cast_directory_mut<T: Copy>(&mut self, dir: ImageDirectoryEntry) -> Result<T, Error> {
         let bypass = unsafe { &mut *(self as *mut Self) };
         let directory = self.get_data_directory(dir)?;
         directory.cast_mut::<T,Self>(bypass)
@@ -698,7 +696,7 @@ pub trait PE: Buffer + Sized {
             NTHeaders::NTHeaders64(h) => h.file_header.number_of_sections,
         };
 
-        let result = self.get_slice_ref::<ImageSectionHeader>(offset.into(), sections as usize)?;
+        let result = self.get_slice_ref::<ImageSectionHeader>(offset.into(), sections as usize).map_err(Error::from)?;
         Ok(result)
     }
     /// Get a mutable section table from the PE file.
@@ -710,15 +708,15 @@ pub trait PE: Buffer + Sized {
             NTHeaders::NTHeaders64(h) => h.file_header.number_of_sections,
         };
 
-        let result = self.get_mut_slice_ref::<ImageSectionHeader>(offset.into(), sections as usize)?;
+        let result = self.get_mut_slice_ref::<ImageSectionHeader>(offset.into(), sections as usize).map_err(Error::from)?;
         Ok(result)
     }
 
     /// Get a reference to a section in the PE file by a given offset. Yields a
     /// [`Error::SectionNotFound`](Error::SectionNotFound) error if the offset wasn't found to be in a section.
-    fn get_section_by_offset(&self, offset: Offset) -> Result<&ImageSectionHeader, Error> {
+    fn get_section_by_offset(&self, offset: Offset) -> Result<ImageSectionHeader, Error> {
         let section_table = self.get_section_table()?;
-        
+
         for section in section_table {
             if section.has_offset(offset) {
                 return Ok(section);
@@ -730,8 +728,8 @@ pub trait PE: Buffer + Sized {
 
     /// Get a mutable reference to a section in the PE file by a given offset. Yields a
     /// [`Error::SectionNotFound`](Error::SectionNotFound) error if the offset wasn't found to be in a section.
-    fn get_mut_section_by_offset(&mut self, offset: Offset) -> Result<&mut ImageSectionHeader, Error> {
-        let section_table = self.get_mut_section_table()?;
+    fn get_mut_section_by_offset(&mut self, offset: Offset) -> Result<ImageSectionHeader, Error> {
+        let mut section_table = self.get_mut_section_table()?;
 
         for section in section_table {
             if section.has_offset(offset) {
@@ -744,9 +742,9 @@ pub trait PE: Buffer + Sized {
 
     /// Get a reference to a section in the PE file by a given RVA. Yields a
     /// [`Error::SectionNotFound`](Error::SectionNotFound) error if the RVA wasn't found to be in a section.
-    fn get_section_by_rva(&self, rva: RVA) -> Result<&ImageSectionHeader, Error> {
+    fn get_section_by_rva(&self, rva: RVA) -> Result<ImageSectionHeader, Error> {
         let section_table = self.get_section_table()?;
-        
+
         for section in section_table {
             if section.has_rva(rva) {
                 return Ok(section);
@@ -758,8 +756,8 @@ pub trait PE: Buffer + Sized {
 
     /// Get a mutable reference to a section in the PE file by a given RVA. Yields a
     /// [`Error::SectionNotFound`](Error::SectionNotFound) error if the RVA wasn't found to be in a section.
-    fn get_mut_section_by_rva(&mut self, rva: RVA) -> Result<&mut ImageSectionHeader, Error> {
-        let section_table = self.get_mut_section_table()?;
+    fn get_mut_section_by_rva(&mut self, rva: RVA) -> Result<ImageSectionHeader, Error> {
+        let mut section_table = self.get_mut_section_table()?;
 
         for section in section_table {
             if section.has_rva(rva) {
@@ -772,13 +770,13 @@ pub trait PE: Buffer + Sized {
 
     /// Get a reference to a section in the PE file by its name. Yields a
     /// [`Error::SectionNotFound`](Error::SectionNotFound) error if the name wasn't found in the section table.
-    fn get_section_by_name<S: AsRef<str>>(&self, name: S) -> Result<&ImageSectionHeader, Error> {
+    fn get_section_by_name<S: AsRef<str>>(&self, name: S) -> Result<ImageSectionHeader, Error> {
         let sections = self.get_section_table()?;
         let s = name.as_ref();
 
         for section in sections {
             let name = section.name.as_str()?;
-            
+
             if name == s {
                 return Ok(section);
             }
@@ -789,13 +787,13 @@ pub trait PE: Buffer + Sized {
 
     /// Get a mutable reference to a section in the PE file by its name. Yields a
     /// [`Error::SectionNotFound`](Error::SectionNotFound) error if the name wasn't found in the section table.
-    fn get_mut_section_by_name(&mut self, name: String) -> Result<&mut ImageSectionHeader, Error> {
-        let sections = self.get_mut_section_table()?;
+    fn get_mut_section_by_name(&mut self, name: String) -> Result<ImageSectionHeader, Error> {
+        let mut sections = self.get_mut_section_table()?;
         let s = name.as_str();
-        
+
         for section in sections {
             let name = section.name.as_str()?;
-            
+
             if name == s {
                 return Ok(section);
             }
@@ -805,7 +803,7 @@ pub trait PE: Buffer + Sized {
     }
     /// Add a given section header to the section table. Returns a mutable reference to the section header as it exists
     /// in the section table.
-    fn add_section(&mut self, section: &ImageSectionHeader) -> Result<&mut ImageSectionHeader, Error> {
+    fn add_section(&mut self, section: &ImageSectionHeader) -> Result<ImageSectionHeader, Error> {
         match self.get_valid_mut_nt_headers() {
             Ok(ref mut h) => match h {
                 NTHeadersMut::NTHeaders32(ref mut h32) => h32.file_header.number_of_sections += 1,
@@ -814,18 +812,18 @@ pub trait PE: Buffer + Sized {
             Err(e) => return Err(e),
         }
 
-        let section_table = self.get_mut_section_table()?;
+        let mut section_table = self.get_mut_section_table()?;
 
         section_table[section_table.len()-1].clone_from(section);
 
-        Ok(&mut section_table[section_table.len()-1])
+        Ok(section_table[section_table.len()-1])
     }
     /// Append a given section header to the end of the PE sections. This function differs from [`add_section`](PE::add_section) by setting the
     /// new section's [`pointer_to_raw_data`](ImageSectionHeader::pointer_to_raw_data) and [`virtual_address`](ImageSectionHeader::virtual_address)
     /// to the end of the previous section's boundaries.
     ///
     /// Returns a mutable reference to the new section as it exists in the section table.
-    fn append_section(&mut self, section: &ImageSectionHeader) -> Result<&mut ImageSectionHeader, Error> {
+    fn append_section(&mut self, section: &ImageSectionHeader) -> Result<ImageSectionHeader, Error> {
         let section_table_ro = self.get_section_table()?;
         let last_section_file_size;
         let last_section_virtual_size;
@@ -851,7 +849,7 @@ pub trait PE: Buffer + Sized {
 
         let next_offset = self.align_to_file(Offset(last_offset.0 + last_section_file_size))?;
         let next_rva = self.align_to_section(RVA(last_rva.0 + last_section_virtual_size))?;
-        let added_section = self.add_section(section)?;
+        let mut added_section = self.add_section(section)?;
 
         added_section.pointer_to_raw_data = next_offset;
         added_section.virtual_address = next_rva;
@@ -1460,13 +1458,13 @@ impl VecPE {
         let asm_data = asm_ref.as_ref();
         let mut result = Self::new_disk(0x400);
 
-        result.write_ref(0, &ImageDOSHeader::default())?;
+        result.write_val(0, &ImageDOSHeader::default()).map_err(Error::from)?;
         
         let e_lfanew = result.e_lfanew()?;
         
         match arch {
-            Arch::X86 => result.write_ref(e_lfanew.into(), &ImageNTHeaders32::default())?,
-            Arch::X64 => result.write_ref(e_lfanew.into(), &ImageNTHeaders64::default())?,
+            Arch::X86 => result.write_val(e_lfanew.into(), &ImageNTHeaders32::default()).map_err(Error::from)?,
+            Arch::X64 => result.write_val(e_lfanew.into(), &ImageNTHeaders64::default()).map_err(Error::from)?,
         }
 
         let mut new_section = ImageSectionHeader::default();
@@ -1520,13 +1518,13 @@ impl VecPE {
     pub fn append<B: AsRef<[u8]>>(&mut self, data: B) {
         self.buffer.append(data);
     }
-    /// Appends the given reference to the end of the `VecPE` object. See [`VecBuffer::append_ref`](VecBuffer::append_ref).
-    pub fn append_ref<T: Castable>(&mut self, data: &T) -> Result<(), Error> {
-        self.buffer.append_ref(data)?; Ok(())
+    /// Appends the given value to the end of the `VecPE` object.
+    pub fn append_val<T: Copy>(&mut self, data: &T) -> Result<(), Error> {
+        self.buffer.append_val(data); Ok(())
     }
-    /// Appends the given slice reference to the end of the `VecPE` object. See [`VecBuffer::append_slice_ref`](VecBuffer::append_slice_ref).
-    pub fn append_slice_ref<T: Castable>(&mut self, data: &[T]) -> Result<(), Error> {
-        self.buffer.append_slice_ref(data)?; Ok(())
+    /// Appends the given slice value to the end of the `VecPE` object.
+    pub fn append_slice_val<T: Copy>(&mut self, data: &[T]) -> Result<(), Error> {
+        self.buffer.append_slice_val(data); Ok(())
     }
     /// Insert a byte at the given offset. See [`VecBuffer::insert`](VecBuffer::insert).
     pub fn insert(&mut self, offset: usize, element: u8) {

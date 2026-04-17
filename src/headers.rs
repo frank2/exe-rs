@@ -10,7 +10,7 @@ use bitflags::bitflags;
 use chrono::offset::TimeZone;
 use chrono::{Local as LocalTime};
 
-use pkbuffer::{Castable, VecBuffer};
+use pkbuffer::VecBuffer;
 
 use std::clone::Clone;
 use std::cmp;
@@ -38,7 +38,7 @@ pub const HDR64_MAGIC: u16 = 0x020B;
 pub const ROM_MAGIC: u16   = 0x0107;
 
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ImageDOSHeader {
     pub e_magic: u16,
     pub e_cblp: u16,
@@ -142,10 +142,9 @@ bitflags! {
         const BYTES_REVERSED_HI       = 0x8000;
     }
 }
-unsafe impl Castable for FileCharacteristics { }
 
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ImageFileHeader {
     pub machine: u16,
     pub number_of_sections: u16,
@@ -227,10 +226,9 @@ bitflags! {
         const TERMINAL_SERVER_AWARE = 0x8000;
     }
 }
-unsafe impl Castable for DLLCharacteristics { }
 
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ImageOptionalHeader32 {
     pub magic: u16,
     pub major_linker_version: u8,
@@ -301,7 +299,7 @@ impl Default for ImageOptionalHeader32 {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ImageOptionalHeader64 {
     pub magic: u16,
     pub major_linker_version: u8,
@@ -370,7 +368,7 @@ impl Default for ImageOptionalHeader64 {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ImageNTHeaders32 {
     pub signature: u32,
     pub file_header: ImageFileHeader,
@@ -387,7 +385,7 @@ impl Default for ImageNTHeaders32 {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ImageNTHeaders64 {
     pub signature: u32,
     pub file_header: ImageFileHeader,
@@ -456,10 +454,9 @@ bitflags! {
         const MEM_WRITE              = 0x80000000;
     }
 }
-unsafe impl Castable for SectionCharacteristics { }
 
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ImageSectionHeader {
     pub name: [CChar; 8],
     pub virtual_size: u32,
@@ -620,36 +617,34 @@ pub enum ImageDirectoryEntry {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Default, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Default, Debug)]
 pub struct ImageDataDirectory {
     pub virtual_address: RVA,
     pub size: u32,
 }
 impl ImageDataDirectory {
     /// Parse an object at the given data directory
-    pub fn cast<'data, T: Castable, P: PE>(&self, pe: &'data P) -> Result<&'data T, Error> {
+    pub fn cast<T: Copy, P: PE>(&self, pe: &P) -> Result<T, Error> {
         if self.virtual_address.0 == 0 || !pe.validate_rva(self.virtual_address) {
             return Err(Error::InvalidRVA(self.virtual_address));
         }
 
         let offset = pe.translate(PETranslation::Memory(self.virtual_address))?;
-        let result = pe.get_ref::<T>(offset)?;
-        Ok(result)
+        pe.read_val::<T>(offset.into()).map_err(|e| Error::from(e))
     }
     /// Parse a mutable object at the given data directory
-    pub fn cast_mut<'data, T: Castable, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut T, Error> {
+    pub fn cast_mut<T: Copy, P: PE>(&self, pe: &mut P) -> Result<T, Error> {
         if self.virtual_address.0 == 0 || !pe.validate_rva(self.virtual_address) {
             return Err(Error::InvalidRVA(self.virtual_address));
         }
 
         let offset = pe.translate(PETranslation::Memory(self.virtual_address))?;
-        let result = pe.get_mut_ref::<T>(offset)?;
-        Ok(result)
+        pe.read_val::<T>(offset.into()).map_err(|e| Error::from(e))
     }
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ImageExportDirectory {
     pub characteristics: u32,
     pub time_date_stamp: u32,
@@ -665,12 +660,12 @@ pub struct ImageExportDirectory {
 }
 impl ImageExportDirectory {
     /// Parse the export table in the PE file.
-    pub fn parse<'data, P: PE>(pe: &'data P) -> Result<&'data ImageExportDirectory, Error> {
+    pub fn parse<P: PE>(pe: &P) -> Result<ImageExportDirectory, Error> {
         pe.cast_directory::<Self>(ImageDirectoryEntry::Export)
     }
 
     /// Parse a mutable export table in the PE file.
-    pub fn parse_mut<'data, P: PE>(pe: &'data mut P) -> Result<&'data mut ImageExportDirectory, Error> {
+    pub fn parse_mut<P: PE>(pe: &mut P) -> Result<ImageExportDirectory, Error> {
         let dir = pe.get_data_directory(ImageDirectoryEntry::Export)?;
 
         if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
@@ -678,7 +673,7 @@ impl ImageExportDirectory {
         }
 
         let offset = pe.translate(PETranslation::Memory(dir.virtual_address))?;
-        let result = pe.get_mut_ref::<ImageExportDirectory>(offset)?;
+        let result = pe.read_val::<ImageExportDirectory>(offset)?;
         Ok(result)
     }
     
@@ -707,21 +702,25 @@ impl ImageExportDirectory {
     /// Get the function array of this export entry. This array represents thunk data pointing to either
     /// ordinals [`ThunkData::Ordinal`](ThunkData::Ordinal), forwarder strings ([`ThunkData::ForwarderString`](ThunkData::ForwarderString)
     /// or function data [`ThunkData::Function`](ThunkData::Function).
-    pub fn get_functions<'data, P: PE>(&self, pe: &'data P) -> Result<&'data [Thunk32], Error> {
+    pub fn get_functions<P: PE>(&self, pe: &P) -> Result<Vec<Thunk32>, Error> {
         if self.address_of_functions.0 == 0 {
             return Err(Error::InvalidRVA(self.address_of_functions));
         }
 
         match pe.translate(PETranslation::Memory(self.address_of_functions)) {
-            Err(e) => return Err(e),
+            Err(e) => Err(e),
             Ok(a) => {
-                let result = pe.get_slice_ref::<Thunk32>(a, self.number_of_functions as usize)?;
+                let mut result = Vec::with_capacity(self.number_of_functions as usize);
+                for i in 0..self.number_of_functions as usize {
+                    let val: Thunk32 = pe.read_val(a + i * 4)?;
+                    result.push(val);
+                }
                 Ok(result)
             }
         }
     }
     /// Get the mutable function array of this export entry.
-    pub fn get_mut_functions<'data, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut [Thunk32], Error> {
+    pub fn get_mut_functions<P: PE>(&self, pe: &mut P) -> Result<Vec<Thunk32>, Error> {
         if self.address_of_functions.0 == 0 {
             return Err(Error::InvalidRVA(self.address_of_functions));
         }
@@ -729,14 +728,18 @@ impl ImageExportDirectory {
         match pe.translate(PETranslation::Memory(self.address_of_functions)) {
             Err(e) => return Err(e),
             Ok(a) => {
-                let result = pe.get_mut_slice_ref::<Thunk32>(a, self.number_of_functions as usize)?;
+                let mut result = Vec::with_capacity(self.number_of_functions as usize);
+                for i in 0..self.number_of_functions as usize {
+                    let val: Thunk32 = pe.read_val(a + i * 4).map_err(|e| Error::from(e))?;
+                    result.push(val);
+                }
                 Ok(result)
-            },
+            }
         }
     }
     /// Get the name array of this export entry. This array represents RVA values pointing to zero-terminated
     /// C-style strings.
-    pub fn get_names<'data, P: PE>(&self, pe: &'data P) -> Result<&'data [RVA], Error> {
+    pub fn get_names<P: PE>(&self, pe: &P) -> Result<Vec<RVA>, Error> {
         if self.address_of_names.0 == 0 {
             return Err(Error::InvalidRVA(self.address_of_names));
         }
@@ -744,7 +747,7 @@ impl ImageExportDirectory {
         match pe.translate(PETranslation::Memory(self.address_of_names)) {
             Err(e) => return Err(e),
             Ok(a) => {
-                let result = pe.get_slice_ref::<RVA>(a, self.number_of_names as usize)?;
+                let result = pe.read_val_array::<RVA>(a, self.number_of_names as usize)?;
                 Ok(result)
             }
         }
@@ -864,7 +867,7 @@ impl ImageExportDirectory {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ImageImportDescriptor {
     pub original_first_thunk: RVA,
     pub time_date_stamp: u32,
@@ -885,11 +888,11 @@ impl ImageImportDescriptor {
         loop {
             match arch {
                 // sometimes this can be unaligned... thanks Microsoft
-                Arch::X86 => match unsafe { pe.force_get_ref::<Thunk32>(indexer) } {
+                Arch::X86 => match unsafe { pe.read_val::<Thunk32>(indexer) } {
                     Ok(r) => { if r.0 == 0 { break; } },
                     Err(e) => return Err(Error::from(e)),
                 },
-                Arch::X64 => match unsafe { pe.force_get_ref::<Thunk64>(indexer) } {
+                Arch::X64 => match unsafe { pe.read_val::<Thunk64>(indexer) } {
                     Ok(r) => { if r.0 == 0 { break; } },
                     Err(e) => return Err(Error::from(e)),
                 },
@@ -914,11 +917,11 @@ impl ImageImportDescriptor {
         let offset = pe.translate(PETranslation::Memory(rva))?;
         
         match arch {
-            Arch::X86 => match unsafe { pe.force_get_slice_ref::<Thunk32>(offset, thunks) } {
+            Arch::X86 => match unsafe { pe.read_val_array::<Thunk32>(offset, thunks) } {
                 Ok(s) => Ok(s.iter().map(|x| Thunk::Thunk32(x)).collect()),
                 Err(e) => Err(Error::from(e)),
             },
-            Arch::X64 => match unsafe { pe.force_get_slice_ref::<Thunk64>(offset, thunks) } {
+            Arch::X64 => match unsafe { pe.read_val_array::<Thunk64>(offset, thunks) } {
                 Ok(s) => Ok(s.iter().map(|x| Thunk::Thunk64(x)).collect()),
                 Err(e) => Err(Error::from(e)),
             },
@@ -934,11 +937,11 @@ impl ImageImportDescriptor {
         let offset = pe.translate(PETranslation::Memory(rva))?;
 
         match arch {
-            Arch::X86 => match unsafe { pe.force_get_mut_slice_ref::<Thunk32>(offset, thunks) } {
+            Arch::X86 => match unsafe { pe.read_val_array::<Thunk32>(offset, thunks) } {
                 Ok(s) => Ok(s.iter_mut().map(|x| ThunkMut::Thunk32(x)).collect()),
                 Err(e) => Err(Error::from(e)),
             },
-            Arch::X64 => match unsafe { pe.force_get_mut_slice_ref::<Thunk64>(offset, thunks) } {
+            Arch::X64 => match unsafe { pe.read_val_array::<Thunk64>(offset, thunks) } {
                 Ok(s) => Ok(s.iter_mut().map(|x| ThunkMut::Thunk64(x)).collect()),
                 Err(e) => Err(Error::from(e)),
             },
@@ -1098,51 +1101,35 @@ impl ImageImportDescriptor {
 /// a special case for imports by name to try and still retain consistent functionality. This is why
 /// this struct is a series of references instead of itself being a raw reference into data. Ultimately,
 /// the locations of the two references in memory is equivalent to the C struct.
-#[derive(Copy, Clone, Debug)]
-pub struct ImageImportByName<'data> {
-    pub hint: &'data u16,
-    pub name: &'data [CChar],
+#[derive(Clone, Debug)]
+pub struct ImageImportByName {
+    pub hint: u16,
+    pub name: Vec<CChar>,
 }
-impl<'data> ImageImportByName<'data> {
+impl ImageImportByName {
     /// Get an ```ImageImportByName``` object at the given RVA.
-    pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
-        let offset = pe.translate(PETranslation::Memory(rva))?;        
-        let hint = pe.get_ref::<u16>(offset)?;
+    pub fn parse<P: PE>(pe: &P, rva: RVA) -> Result<Self, Error> {
+        let offset = pe.translate(PETranslation::Memory(rva))?;
+        let hint = pe.read_val::<u16>(offset)?;
         let name = pe.get_cstring(offset + mem::size_of::<u16>(), true, None)?;
 
-        Ok(ImageImportByName { hint, name })
+        Ok(ImageImportByName { hint, name: name.to_vec() })
     }
 }
 
 /// Represents a mutable ```IMAGE_IMPORT_BY_NAME``` structure.
-pub struct ImageImportByNameMut<'data> {
-    pub hint: &'data mut u16,
-    pub name: &'data mut [CChar],
+pub struct ImageImportByNameMut {
+    pub hint: u16,
+    pub name: Vec<CChar>,
 }
-impl<'data> ImageImportByNameMut<'data> {
+impl ImageImportByNameMut {
     /// Get a mutable ```ImageImportByName``` object at the given RVA.
-    pub fn parse<P: PE>(pe: &'data mut P, rva: RVA) -> Result<Self, Error> {
-        let mut offset = pe.translate(PETranslation::Memory(rva))?;
+    pub fn parse<P: PE>(pe: &mut P, rva: RVA) -> Result<Self, Error> {
+        let offset = pe.translate(PETranslation::Memory(rva))?;
+        let hint = pe.read_val::<u16>(offset)?;
+        let name = pe.get_cstring(offset + mem::size_of::<u16>(), true, None)?;
 
-        unsafe {
-            let mut ptr = pe.offset_to_mut_ptr(offset)?;
-
-            let hint = &mut *(ptr as *mut u16);
-            let u16_size = mem::size_of::<u16>();
-
-            ptr = ptr.add(u16_size);
-
-            if !pe.validate_ptr(ptr) {
-                return Err(Error::BadPointer(ptr));
-            }
-
-            offset += u16_size;
-
-            let name_size = pe.get_cstring_size(offset, true, None)?;            
-            let name = slice::from_raw_parts_mut(ptr as *mut CChar, name_size);
-
-            Ok(Self { hint, name })
-        }
+        Ok(Self { hint, name: name.to_vec() })
     }
 }
 
@@ -1164,7 +1151,7 @@ pub enum ImageRelBased {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ImageBaseRelocation {
     pub virtual_address: RVA,
     pub size_of_block: u32,
@@ -1188,7 +1175,7 @@ impl ImageBaseRelocation {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ImageResourceDirectory {
     pub characteristics: u32,
     pub time_date_stamp: u32,
@@ -1205,7 +1192,7 @@ impl ImageResourceDirectory {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ImageResourceDirectoryEntry {
     pub name: FlaggedDword,
     pub offset_to_data: FlaggedDword,
@@ -1240,18 +1227,19 @@ impl ImageResourceDirectoryEntry {
 /// See [`ImageImportByName`](ImageImportByName) for an explanation as to why this structure
 /// is different from the others.
 #[derive(Clone, Debug)]
-pub struct ImageResourceDirString<'data> {
-    pub length: &'data u16,
-    pub name: &'data [CChar],
+pub struct ImageResourceDirString {
+    pub length: u16,
+    pub name: Vec<CChar>,
 }
-impl<'data> ImageResourceDirString<'data> {
+impl ImageResourceDirString {
     /// Get a ```ImageResourceDirString``` object at the given RVA.
-    pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
-        let offset = pe.translate(PETranslation::Memory(rva))?;        
-        let length = pe.get_ref::<u16>(offset)?;        
-        let name = pe.get_slice_ref::<CChar>(offset + mem::size_of::<u16>(), *length as usize)?;
+    pub fn parse<P: PE>(pe: &P, rva: RVA) -> Result<Self, Error> {
+        let offset = pe.translate(PETranslation::Memory(rva))?;
+        let length = pe.read_val::<u16>(offset)?;
+        let name = pe.get_slice_ref::<CChar>(offset + mem::size_of::<u16>(), length as usize)?;
+        let name_vec = name.iter().copied().collect();
 
-        Ok(Self { length, name })
+        Ok(Self { length, name: name_vec })
     }
 }
 
@@ -1259,30 +1247,19 @@ impl<'data> ImageResourceDirString<'data> {
 ///
 /// See [`ImageImportByName`](ImageImportByName) for an explanation as to why this structure
 /// is different from the others.
-pub struct ImageResourceDirStringMut<'data> {
-    pub length: &'data mut u16,
-    pub name: &'data mut [CChar],
+pub struct ImageResourceDirStringMut {
+    pub length: u16,
+    pub name: Vec<CChar>,
 }
-impl<'data> ImageResourceDirStringMut<'data> {
+impl ImageResourceDirStringMut {
     /// Get a mutable ```ImageResourceDirString``` object at the given RVA.
-    pub fn parse<P: PE>(pe: &'data mut P, rva: RVA) -> Result<Self, Error> {
+    pub fn parse<P: PE>(pe: &mut P, rva: RVA) -> Result<Self, Error> {
         let offset = pe.translate(PETranslation::Memory(rva))?;
+        let length = pe.read_val::<u16>(offset)?;
+        let name = pe.get_slice_ref::<CChar>(offset + mem::size_of::<u16>(), length as usize)?;
+        let name_vec = name.iter_mut().map(|c| *c).collect();
 
-        unsafe {
-            let mut ptr = pe.offset_to_mut_ptr(offset)?;
-            let length = &mut *(ptr as *mut u16);
-            let u16_size = mem::size_of::<u16>();
-
-            ptr = ptr.add(u16_size);
-
-            if !pe.validate_ptr(ptr) {
-                return Err(Error::BadPointer(ptr));
-            }
-
-            let name = slice::from_raw_parts_mut(ptr as *mut CChar, *length as usize);
-
-            Ok(Self { length, name })
-        }
+        Ok(Self { length, name: name_vec })
     }
 }
 
@@ -1291,18 +1268,19 @@ impl<'data> ImageResourceDirStringMut<'data> {
 /// See [`ImageImportByName`](ImageImportByName) for an explanation as to why this structure
 /// is different from the others.
 #[derive(Clone, Debug)]
-pub struct ImageResourceDirStringU<'data> {
-    pub length: &'data u16,
-    pub name: &'data [WChar],
+pub struct ImageResourceDirStringU {
+    pub length: u16,
+    pub name: Vec<WChar>,
 }
-impl<'data> ImageResourceDirStringU<'data> {
+impl ImageResourceDirStringU {
     /// Get a ```ImageResourceDirStringU``` object at the given RVA.
-    pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
-        let offset = pe.translate(PETranslation::Memory(rva))?;        
-        let length = pe.get_ref::<u16>(offset)?;
-        let name = pe.get_slice_ref::<WChar>(offset + mem::size_of::<u16>(), *length as usize)?;
+    pub fn parse<P: PE>(pe: &P, rva: RVA) -> Result<Self, Error> {
+        let offset = pe.translate(PETranslation::Memory(rva))?;
+        let length = pe.read_val::<u16>(offset)?;
+        let name = pe.get_slice_ref::<WChar>(offset + mem::size_of::<u16>(), length as usize)?;
+        let name_vec = name.iter().copied().collect();
 
-        Ok(Self { length, name })
+        Ok(Self { length, name: name_vec })
     }
 }
 
@@ -1310,35 +1288,24 @@ impl<'data> ImageResourceDirStringU<'data> {
 ///
 /// See [`ImageImportByName`](ImageImportByName) for an explanation as to why this structure
 /// is different from the others.
-pub struct ImageResourceDirStringUMut<'data> {
-    pub length: &'data mut u16,
-    pub name: &'data mut [WChar],
+pub struct ImageResourceDirStringUMut {
+    pub length: u16,
+    pub name: Vec<WChar>,
 }
-impl<'data> ImageResourceDirStringUMut<'data> {
+impl ImageResourceDirStringUMut {
     /// Get a mutable ```ImageResourceDirStringU``` object at the given RVA.
-    pub fn parse<P: PE>(pe: &'data mut P, rva: RVA) -> Result<Self, Error> {
+    pub fn parse<P: PE>(pe: &mut P, rva: RVA) -> Result<Self, Error> {
         let offset = pe.translate(PETranslation::Memory(rva))?;
-        
-        unsafe {
-            let mut ptr = pe.offset_to_mut_ptr(offset)?;
-            let length = &mut *(ptr as *mut u16);
-            let u16_size = mem::size_of::<u16>();
+        let length = pe.read_val::<u16>(offset)?;
+        let name = pe.get_slice_ref::<WChar>(offset + mem::size_of::<u16>(), length as usize)?;
+        let name_vec = name.iter_mut().map(|c| *c).collect();
 
-            ptr = ptr.add(u16_size);
-
-            if !pe.validate_ptr(ptr) {
-                return Err(Error::BadPointer(ptr));
-            }
-
-            let name = slice::from_raw_parts_mut(ptr as *mut WChar, *length as usize);
-
-            Ok(Self { length, name })
-        }
+        Ok(Self { length, name: name_vec })
     }
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ImageResourceDataEntry {
     pub offset_to_data: RVA,
     pub size: u32,
@@ -1415,7 +1382,7 @@ impl ImageDebugType {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ImageDebugDirectory {
     pub characteristics: u32,
     pub time_date_stamp: u32,
@@ -1428,7 +1395,7 @@ pub struct ImageDebugDirectory {
 }
 impl ImageDebugDirectory {
     /// Parse the debug directory in the PE file.
-    pub fn parse<'data, P: PE>(pe: &'data P) -> Result<&'data Self, Error> {
+    pub fn parse<P: PE>(pe: &P) -> Result<Self, Error> {
         pe.cast_directory::<Self>(ImageDirectoryEntry::Debug)
     }
 }
@@ -1454,10 +1421,9 @@ bitflags! {
         const ALIGN_MASK             = 0x00F00000;
     }
 }
-unsafe impl Castable for TLSCharacteristics {}
-    
+
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ImageTLSDirectory32 {
     pub start_address_of_raw_data: VA32,
     pub end_address_of_raw_data: VA32,
@@ -1468,12 +1434,12 @@ pub struct ImageTLSDirectory32 {
 }
 impl ImageTLSDirectory32 {
     /// Get the 32-bit TLS directory from the [`PE`](PE) object.
-    pub fn parse<'data, P: PE>(pe: &'data P) -> Result<&'data Self, Error> {
+    pub fn parse<P: PE>(pe: &P) -> Result<Self, Error> {
         pe.cast_directory::<Self>(ImageDirectoryEntry::TLS)
     }
 
     /// Get a mutable 32-bit TLS directory from the [`PE`](PE) object.
-    pub fn parse_mut<'data, P: PE>(pe: &'data mut P) -> Result<&'data mut Self, Error> {
+    pub fn parse_mut<P: PE>(pe: &mut P) -> Result<Self, Error> {
         pe.cast_directory_mut::<Self>(ImageDirectoryEntry::TLS)
     }
 
@@ -1523,7 +1489,7 @@ impl ImageTLSDirectory32 {
         let mut scan_offset = offset.clone();
 
         loop {
-            let callback = pe.get_ref::<VA32>(scan_offset)?;
+            let callback = pe.read_val::<VA32>(scan_offset)?;
             
             scan_offset += mem::size_of::<VA32>();
 
@@ -1555,7 +1521,7 @@ impl ImageTLSDirectory32 {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ImageTLSDirectory64 {
     pub start_address_of_raw_data: VA64,
     pub end_address_of_raw_data: VA64,
@@ -1566,12 +1532,12 @@ pub struct ImageTLSDirectory64 {
 }
 impl ImageTLSDirectory64 {
     /// Get the 64-bit TLS directory from the [`PE`](PE) object.
-    pub fn parse<'data, P: PE>(pe: &'data P) -> Result<&'data Self, Error> {
+    pub fn parse<P: PE>(pe: &P) -> Result<Self, Error> {
         pe.cast_directory::<Self>(ImageDirectoryEntry::TLS)
     }
 
     /// Get a mutable 64-bit TLS directory from the [`PE`](PE) object.
-    pub fn parse_mut<'data, P: PE>(pe: &'data mut P) -> Result<&'data mut Self, Error> {
+    pub fn parse_mut<P: PE>(pe: &mut P) -> Result<Self, Error> {
         pe.cast_directory_mut::<Self>(ImageDirectoryEntry::TLS)
     }
 
@@ -1621,7 +1587,7 @@ impl ImageTLSDirectory64 {
         let mut scan_offset = offset.clone();
 
         loop {
-            let callback = pe.get_ref::<VA64>(scan_offset)?;
+            let callback = pe.read_val::<VA64>(scan_offset)?;
              
             scan_offset += mem::size_of::<VA64>();
 
@@ -1657,7 +1623,7 @@ impl ImageTLSDirectory64 {
 /// See [the Microsoft Icons article](https://learn.microsoft.com/en-us/previous-versions/ms997538(v=msdn.10)?redirectedfrom=MSDN)
 /// for a thorough explanation.
 #[repr(packed)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct GrpIconDirEntry {
     pub width: u8,
     pub height: u8,
@@ -1690,31 +1656,31 @@ impl GrpIconDirEntry {
 /// See [the Microsoft Icons article](https://learn.microsoft.com/en-us/previous-versions/ms997538(v=msdn.10)?redirectedfrom=MSDN)
 /// for a thorough explanation.
 #[derive(Clone)]
-pub struct GrpIconDir<'data> {
-    pub reserved: &'data u16,
-    pub icon_type: &'data u16,
-    pub count: &'data u16,
-    pub entries: &'data [GrpIconDirEntry]
+pub struct GrpIconDir {
+    pub reserved: u16,
+    pub icon_type: u16,
+    pub count: u16,
+    pub entries: Vec<GrpIconDirEntry>
 }
-impl<'data> GrpIconDir<'data> {
+impl GrpIconDir {
     /// Parse a resource icon at the given RVA.
-    pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
+    pub fn parse<P: PE>(pe: &P, rva: RVA) -> Result<Self, Error> {
         let offset = pe.translate(PETranslation::Memory(rva))?;
-        let reserved = pe.get_ref::<u16>(offset)?;
-        let icon_type = pe.get_ref::<u16>(offset+2)?;
-        let count = pe.get_ref::<u16>(offset+4)?;
-        let entries = pe.get_slice_ref::<GrpIconDirEntry>(offset+6, *count as usize)?;
+        let reserved = pe.read_val::<u16>(offset)?;
+        let icon_type = pe.read_val::<u16>(offset+2)?;
+        let count = pe.read_val::<u16>(offset+4)?;
+        let entries = pe.get_slice_ref::<GrpIconDirEntry>(offset+6, count as usize)?;
 
-        Ok(Self { reserved, icon_type, count, entries })
+        Ok(Self { reserved, icon_type, count, entries: entries.to_vec() })
     }
     /// Convert this resource icon into a file icon.
     ///
     /// In other words, compile this group icon directory into an icon file.
-    pub fn to_icon_buffer<P: PE>(&self, pe: &'data P) -> Result<VecBuffer, Error> {
+    pub fn to_icon_buffer<P: PE>(&self, pe: &P) -> Result<VecBuffer, Error> {
         let icon_vec = IconDirVec {
-            reserved: *self.reserved,
-            icon_type: *self.icon_type,
-            count: *self.count,
+            reserved: self.reserved,
+            icon_type: self.icon_type,
+            count: self.count,
             entries: self.entries.iter().map(|x| x.to_icon_dir_entry()).collect(),
         };
         let mut icon_buf = icon_vec.to_vec_buffer()?;
@@ -1730,7 +1696,7 @@ impl<'data> GrpIconDir<'data> {
             let offset = icon_buf.len();
             let data = entry.read(pe)?;
 
-            icon_buf.append_slice_ref::<u8>(data)?;
+            icon_buf.append_slice_val::<u8>(data);
             let vec_dir = IconDirMut::parse(&mut icon_buf)?;
             vec_dir.entries[index].image_offset = offset as u32;
         }
@@ -1743,39 +1709,31 @@ impl<'data> GrpIconDir<'data> {
 ///
 /// See [the Microsoft Icons article](https://learn.microsoft.com/en-us/previous-versions/ms997538(v=msdn.10)?redirectedfrom=MSDN)
 /// for a thorough explanation.
-pub struct GrpIconDirMut<'data> {
-    pub reserved: &'data mut u16,
-    pub icon_type: &'data mut u16,
-    pub count: &'data mut u16,
-    pub entries: &'data mut [GrpIconDirEntry]
+pub struct GrpIconDirMut {
+    pub reserved: u16,
+    pub icon_type: u16,
+    pub count: u16,
+    pub entries: Vec<GrpIconDirEntry>
 }
-impl<'data> GrpIconDirMut<'data> {
+impl GrpIconDirMut {
     /// Parse a mutable resource icon at the given RVA.
-    pub fn parse<P: PE>(pe: &'data mut P, rva: RVA) -> Result<Self, Error> {
+    pub fn parse<P: PE>(pe: &mut P, rva: RVA) -> Result<Self, Error> {
         let offset = pe.translate(PETranslation::Memory(rva))?;
+        let reserved = pe.read_val::<u16>(offset)?;
+        let icon_type = pe.read_val::<u16>(offset+2)?;
+        let count = pe.read_val::<u16>(offset+4)?;
+        let entries = pe.get_slice_ref::<GrpIconDirEntry>(offset+6, count as usize)?;
 
-        unsafe {
-            let mut ptr = pe.offset_to_mut_ptr(offset)?;
-            let reserved = &mut *(ptr as *mut u16);
-
-            ptr = pe.offset_to_mut_ptr(offset+2)?;
-            let icon_type = &mut *(ptr as *mut u16);
-
-            ptr = pe.offset_to_mut_ptr(offset+4)?;
-            let count = &mut *(ptr as *mut u16);
-            let entries = pe.get_mut_slice_ref::<GrpIconDirEntry>(offset+6, *count as usize)?;
-
-            Ok(Self { reserved, icon_type, count, entries })
-        }
+        Ok(Self { reserved, icon_type, count, entries: entries.to_vec() })
     }
     /// Convert this resource icon into a file icon.
     ///
     /// In other words, compile this group icon directory into an icon file.
-    pub fn to_icon_buffer<P: PE>(&self, pe: &'data P) -> Result<VecBuffer, Error> {
+    pub fn to_icon_buffer<P: PE>(&self, pe: &P) -> Result<VecBuffer, Error> {
         let icon_vec = IconDirVec {
-            reserved: *self.reserved,
-            icon_type: *self.icon_type,
-            count: *self.count,
+            reserved: self.reserved,
+            icon_type: self.icon_type,
+            count: self.count,
             entries: self.entries.iter().map(|x| x.to_icon_dir_entry()).collect(),
         };
         let mut icon_buf = icon_vec.to_vec_buffer()?;
@@ -1791,7 +1749,7 @@ impl<'data> GrpIconDirMut<'data> {
             let offset = icon_buf.len();
             let data = entry.read(pe)?;
 
-            icon_buf.append_slice_ref::<u8>(data)?;
+            icon_buf.append_slice_val::<u8>(data);
             let vec_dir = IconDirMut::parse(&mut icon_buf)?;
             vec_dir.entries[index].image_offset = offset as u32;
         }

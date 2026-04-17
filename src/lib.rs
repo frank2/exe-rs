@@ -90,25 +90,25 @@ pub fn find_embedded_images<P: PE>(pe: &P, pe_type: PEType) -> Result<Option<Vec
     while index < pe.len() {
         if index > (u32::MAX as usize) { break; }
 
-        let mz = match pe.get_ref::<u16>(index) {
+        let mz = match pe.read_val::<u16>(index) {
             Ok(u) => u,
             Err(_) => { index += 1; continue; },
         };
-        if *mz != DOS_SIGNATURE { index += 1; continue; }
+        if mz != DOS_SIGNATURE { index += 1; continue; }
 
-        let dos_header = match pe.get_ref::<ImageDOSHeader>(index) {
+        let dos_header = match pe.read_val::<ImageDOSHeader>(index) {
             Ok(h) => h,
             Err(_) => { index += 1; continue; },
         };
 
         let e_lfanew: usize = index + dos_header.e_lfanew.0 as usize;
 
-        let nt_signature = match pe.get_ref::<u32>(e_lfanew) {
+        let nt_signature = match pe.read_val::<u32>(e_lfanew) {
             Ok(s) => s,
             Err(_) => { index += 1; continue; },
         };
 
-        if *nt_signature != NT_SIGNATURE { index += 1; continue; }
+        if nt_signature != NT_SIGNATURE { index += 1; continue; }
 
         // we now have some kind of PE image. whether it's a valid PE image
         // is yet to be determined. so read to the end of the buffer as a

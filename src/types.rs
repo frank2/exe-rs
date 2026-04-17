@@ -2,7 +2,7 @@
 
 use bitflags::bitflags;
 
-use pkbuffer::{Buffer, Castable, VecBuffer};
+use pkbuffer::{Buffer, VecBuffer};
 
 use std::collections::HashMap;
 use std::mem;
@@ -24,7 +24,7 @@ pub enum Arch {
 
 /// Represents a C-style character unit. Basically a wrapper for [`u8`](u8).
 #[repr(C)]
-#[derive(Copy, Clone, Default, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct CChar(pub u8);
 impl From<u8> for CChar {
     fn from(c: u8) -> Self {
@@ -66,7 +66,7 @@ impl CCharString for [CChar] {
 
 /// Represents a UTF16 character unit. Basically a wrapper for [`u16`](u16).
 #[repr(C)]
-#[derive(Copy, Clone, Default, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct WChar(pub u16);
 impl From<u16> for WChar {
     fn from(c: u16) -> Self {
@@ -121,24 +121,16 @@ pub trait Address {
 ///
 /// This typically represents an address of the file on disk versus the file in memory.
 #[repr(C)]
-#[derive(Copy, Clone, Default, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct Offset(pub u32);
 impl Offset {
-    /// Gets a reference to an object in the [`PE`](PE) object's buffer data. See [`Buffer::get_ref`](pkbuffer::Buffer::get_ref).
-    pub fn get_ref<'data, T: Castable, P: PE>(&self, pe: &'data P) -> Result<&'data T, Error> {
-        let result = pe.get_ref::<T>((*self).into())?; Ok(result)
+    /// Read a value from the [`PE`](PE) object's buffer data.
+    pub fn read_val<T: Copy, P: PE>(&self, pe: &P) -> Result<T, Error> {
+        pe.read_val::<T>((*self).into()).map_err(|e| Error::from(e))
     }
-    /// Gets a mutable reference to an object in the [`PE`](PE) object's buffer data. See [`Buffer::get_mut_ref`](pkbuffer::Buffer::get_mut_ref).
-    pub fn get_mut_ref<'data, T: Castable, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut T, Error> {
-        let result = pe.get_mut_ref::<T>((*self).into())?; Ok(result)
-    }
-    /// Gets a slice reference in the [`PE`](PE) buffer. See [`Buffer::get_slice_ref`](pkbuffer::Buffer::get_slice_ref).
-    pub fn get_slice_ref<'data, T: Castable, P: PE>(&self, pe: &'data P, count: usize) -> Result<&'data [T], Error> {
-        let result = pe.get_slice_ref::<T>((*self).into(), count)?; Ok(result)
-    }
-    /// Gets a mutable slice reference in the [`PE`](PE) buffer. See [`Buffer::get_mut_slice_ref`](pkbuffer::Buffer::get_mut_slice_ref).
-    pub fn get_mut_slice_ref<'data, T: Castable, P: PE>(&self, pe: &'data mut P, count: usize) -> Result<&'data mut [T], Error> {
-        let result = pe.get_mut_slice_ref::<T>((*self).into(), count)?; Ok(result)
+    /// Write a value to the [`PE`](PE) object's buffer data.
+    pub fn write_val<T: Copy, P: PE>(&self, pe: &mut P, data: &T) -> Result<(), Error> {
+        pe.write_val::<T>((*self).into(), data).map_err(|e| Error::from(e))
     }
     /// Gets the size of a zero-terminated C-string in the data at the offset.
     pub fn get_cstring_size<P: PE>(&self, pe: &P, thunk: bool, max_size: Option<usize>) -> Result<usize, Error> {
@@ -174,15 +166,7 @@ impl Offset {
     }
     /// Write arbitrary data to the offset.
     pub fn write<P: PE, B: AsRef<[u8]>>(&self, pe: &mut P, data: B) -> Result<(), Error> {
-        pe.write((*self).into(), data)?; Ok(())
-    }
-    /// Write a reference to an object at the offset.
-    pub fn write_ref<T: Castable, P: PE>(&self, pe: &mut P, data: &T) -> Result<(), Error> {
-        pe.write_ref::<T>((*self).into(), data)?; Ok(())
-    }
-    /// Write a slice reference at the offset.
-    pub fn write_slice_ref<T: Castable, P: PE>(&self, pe: &mut P, data: &[T]) -> Result<(), Error> {
-        pe.write_slice_ref::<T>((*self).into(), data)?; Ok(())
+        pe.write((*self).into(), data).map_err(Error::from)
     }
 }
 impl Address for Offset {
@@ -219,7 +203,7 @@ impl From<Offset> for u32 {
 
 /// Represents a relative virtual address (i.e., RVA). This address typically points to data in memory versus data on disk.
 #[repr(C)]
-#[derive(Copy, Clone, Default, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct RVA(pub u32);
 impl Address for RVA {
     fn as_offset<P: PE>(&self, pe: &P) -> Result<Offset, Error> {
@@ -257,7 +241,7 @@ impl From<RVA> for u32 {
 ///
 /// This address typically points directly to active memory.
 #[repr(C)]
-#[derive(Copy, Clone, Default, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct VA32(pub u32);
 impl Address for VA32 {
     fn as_offset<P: PE>(&self, pe: &P) -> Result<Offset, Error> {
@@ -290,7 +274,7 @@ impl From<VA32> for u32 {
 ///
 /// This address typically points directly to active memory.
 #[repr(C)]
-#[derive(Copy, Clone, Default, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub struct VA64(pub u64);
 impl Address for VA64 {
     fn as_offset<P: PE>(&self, pe: &P) -> Result<Offset, Error> {
@@ -352,15 +336,17 @@ impl From<u64> for VA {
 }
 
 /// Represents either a 32-bit or 64-bit NT header.
-pub enum NTHeaders<'data> {
-    NTHeaders32(&'data ImageNTHeaders32),
-    NTHeaders64(&'data ImageNTHeaders64),
+#[derive(Clone, Debug)]
+pub enum NTHeaders {
+    NTHeaders32(ImageNTHeaders32),
+    NTHeaders64(ImageNTHeaders64),
 }
 
 /// Represents a mutable 32-bit or 64-bit NT header.
-pub enum NTHeadersMut<'data> {
-    NTHeaders32(&'data mut ImageNTHeaders32),
-    NTHeaders64(&'data mut ImageNTHeaders64),
+#[derive(Clone, Debug)]
+pub enum NTHeadersMut {
+    NTHeaders32(ImageNTHeaders32),
+    NTHeaders64(ImageNTHeaders64),
 }
 
 /// An enum representing thunk data for imports and exports.
@@ -383,7 +369,7 @@ pub trait ThunkFunctions {
 
 /// Represents a 32-bit thunk entry.
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct Thunk32(pub u32);
 impl ThunkFunctions for Thunk32 {
     fn is_ordinal(&self) -> bool {
@@ -416,7 +402,7 @@ impl ThunkFunctions for Thunk32 {
 
 /// Represents a 64-bit thunk entry.
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct Thunk64(pub u64);
 impl ThunkFunctions for Thunk64 {
     fn is_ordinal(&self) -> bool {
@@ -485,7 +471,7 @@ impl<'data> ImportDirectory<'data> {
         let mut imports = 0usize;
 
         loop {
-            match pe.get_ref::<ImageImportDescriptor>(address) {
+            match pe.read_val::<ImageImportDescriptor>(address) {
                 Ok(x) => { if x.original_first_thunk.0 == 0 && x.first_thunk.0 == 0 { break; } },
                 Err(e) => return Err(Error::from(e)),
             }
@@ -608,7 +594,7 @@ pub enum RelocationValue {
 
 /// Represents a unit of a relocation, which contains a type and an offset in a ```u16``` value.
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct Relocation(pub u16);
 impl Relocation {
     /// Create a new relocation entry.
@@ -676,20 +662,20 @@ impl Relocation {
         match self.get_type() {
             ImageRelBased::High => {
                 let high = delta & 0xFFFF0000;
-                let current = unsafe { pe.force_get_ref::<i32>(offset)? };
-                
-                Ok(RelocationValue::Relocation32( ( (*current as i64) + high) as u32))
+                let current = pe.read_val::<i32>(offset)?;
+
+                Ok(RelocationValue::Relocation32(((current as i64) + high) as u32))
             },
             ImageRelBased::Low => {
                 let low = delta & 0xFFFF;
-                let current = unsafe { pe.force_get_ref::<i32>(offset)? };
+                let current = pe.read_val::<i32>(offset)?;
 
-                Ok(RelocationValue::Relocation32( ( (*current as i64) + low) as u32))
+                Ok(RelocationValue::Relocation32(((current as i64) + low) as u32))
             },
             ImageRelBased::HighLow => {
-                let current = unsafe { pe.force_get_ref::<i32>(offset)? };
+                let current = pe.read_val::<i32>(offset)?;
 
-                Ok(RelocationValue::Relocation32( ( (*current as i64) + delta) as u32))
+                Ok(RelocationValue::Relocation32(((current as i64) + delta) as u32))
             },
             ImageRelBased::HighAdj => {
                 if next_relocation.is_none() {
@@ -698,10 +684,10 @@ impl Relocation {
 
                 let next_entry = next_relocation.unwrap();
                 let next_rva = next_entry.get_address(base_rva);
-                let current = unsafe { pe.force_get_ref::<i16>(offset)? };
+                let current = pe.read_val::<i16>(offset)?;
                 let high = delta & 0xFFFF0000;
-                
-                let mut value = (*current as i64) << 16;
+
+                let mut value = (current as i64) << 16;
                 value += next_rva.0 as i64;
                 value += high;
                 value >>= 16;
@@ -709,9 +695,9 @@ impl Relocation {
                 Ok(RelocationValue::Relocation16(value as u16))
             },
             ImageRelBased::Dir64 => {
-                let current = unsafe { pe.force_get_ref::<i64>(offset)? };
-                
-                Ok(RelocationValue::Relocation64(((*current as i128) + (delta as i128)) as u64))
+                let current = pe.read_val::<i64>(offset)?;
+
+                Ok(RelocationValue::Relocation64(((current as i128) + (delta as i128)) as u64))
             },
             _ => Ok(RelocationValue::None),
         }
@@ -742,31 +728,32 @@ impl Relocation {
 /// assert_eq!(addresses[0], RVA(0x1008));
 /// ```
 #[derive(Debug)]
-pub struct RelocationEntry<'data> {
-    pub base_relocation: &'data ImageBaseRelocation,
-    pub relocations: &'data [Relocation]
+pub struct RelocationEntry {
+    pub base_relocation: ImageBaseRelocation,
+    pub relocations: Vec<Relocation>
 }
-impl<'data> RelocationEntry<'data> {
+impl RelocationEntry {
     /// Parse a relocation entry at the given RVA.
-    pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
+    pub fn parse<P: PE>(pe: &P, rva: RVA) -> Result<Self, Error> {
         let relocation_size = mem::size_of::<ImageBaseRelocation>();
 
         let offset = pe.translate(PETranslation::Memory(rva))?;
-        let base_relocation = unsafe { pe.force_get_ref::<ImageBaseRelocation>(offset)? };
-        
+        let base_relocation = pe.read_val::<ImageBaseRelocation>(offset)?;
+
         let block_addr = offset + relocation_size;
         let block_size = base_relocation.relocations();
-        let relocations = pe.get_slice_ref::<Relocation>(block_addr, block_size)?;
+        let relocations = pe.read_val_array::<Relocation>(block_addr, block_size)?;
 
         Ok(Self { base_relocation, relocations })
     }
     /// Create a `RelocationEntry` object at the given RVA.
-    pub fn create<P: PE>(pe: &'data mut P, rva: RVA, base_relocation: &ImageBaseRelocation, relocations: &[Relocation]) -> Result<Self, Error> {
+    pub fn create<P: PE>(pe: &mut P, rva: RVA, base_relocation: &ImageBaseRelocation, relocations: &[Relocation]) -> Result<Self, Error> {
         let mut offset = pe.translate(PETranslation::Memory(rva))?;
-        pe.write_ref(offset, base_relocation)?;
+        pe.write_val(offset, base_relocation).map_err(Error::from)?;
 
         offset += mem::size_of::<ImageBaseRelocation>();
-        pe.write_slice_ref(offset, relocations)?;
+        let reloc_bytes = unsafe { std::slice::from_raw_parts(relocations.as_ptr() as *const u8, relocations.len() * mem::size_of::<Relocation>()) };
+        pe.write(offset, reloc_bytes)?;
 
         let result = Self::parse(pe, rva);
 
@@ -779,57 +766,34 @@ impl<'data> RelocationEntry<'data> {
 }
 
 /// Represents a mutable parsed relocation entry.
-pub struct RelocationEntryMut<'data> {
-    pub base_relocation: &'data mut ImageBaseRelocation,
-    pub relocations: &'data mut [Relocation],
+pub struct RelocationEntryMut {
+    pub base_relocation: ImageBaseRelocation,
+    pub relocations: Vec<Relocation>,
 }
-impl<'data> RelocationEntryMut<'data> {
+impl RelocationEntryMut {
     /// Parse a mutable relocation entry at the given RVA.
-    pub fn parse<P: PE>(pe: &'data mut P, rva: RVA) -> Result<Self, Error> {
-        let offset = pe.translate(PETranslation::Memory(rva))?;
-        let ptr = pe.offset_to_mut_ptr(offset)?;
-
-        unsafe { Self::parse_unsafe(pe, ptr) }
-    }
-
-    /// Parse a mutable relocation entry at the given pointer.
-    ///
-    /// The pointer is validated against the buffer's memory. You should probably use [RelocationEntryMut::parse](RelocationEntryMut::parse),
-    /// since it contains more rigorous address checking.
-    pub unsafe fn parse_unsafe<P: PE>(pe: &'data P, ptr: *mut u8) -> Result<Self, Error> {
+    pub fn parse<P: PE>(pe: &mut P, rva: RVA) -> Result<Self, Error> {
         let relocation_size = mem::size_of::<ImageBaseRelocation>();
-        let word_size = mem::size_of::<u16>();
 
-        if !pe.validate_ptr(ptr) {
-            return Err(Error::BadPointer(ptr));
-        }
+        let offset = pe.translate(PETranslation::Memory(rva))?;
+        let base_relocation = pe.read_val::<ImageBaseRelocation>(offset)?;
 
-        let base_relocation = &mut *(ptr as *mut ImageBaseRelocation);
-        let relocations_ptr = ptr.add(relocation_size);
-
-        if !pe.validate_ptr(relocations_ptr) {
-            return Err(Error::BadPointer(relocations_ptr));
-        }
-
-        let block_size = ( (base_relocation.size_of_block as usize) - relocation_size) / word_size;
-        let end = relocations_ptr.add((block_size * word_size) - 1);
-
-        if !pe.validate_ptr(end) {
-            return Err(Error::BadPointer(end));
-        }
-            
-        let relocations: &'data mut [Relocation] = slice::from_raw_parts_mut(relocations_ptr as *mut Relocation, block_size);
+        let block_addr = offset + relocation_size;
+        let block_size = base_relocation.relocations();
+        let relocations = pe.read_val_array::<Relocation>(block_addr, block_size)?;
 
         Ok(Self { base_relocation, relocations })
     }
+
     /// Create a `RelocationEntryMut` object at the given RVA.
-    pub fn create<P: PE>(pe: &'data mut P, rva: RVA, base_relocation: &ImageBaseRelocation, relocations: &[Relocation]) -> Result<Self, Error> {
+    pub fn create<P: PE>(pe: &mut P, rva: RVA, base_relocation: &ImageBaseRelocation, relocations: &[Relocation]) -> Result<Self, Error> {
         let mut offset = pe.translate(PETranslation::Memory(rva))?;
-        pe.write_ref(offset, base_relocation)?;
+        pe.write_val(offset, base_relocation).map_err(Error::from)?;
 
         offset += mem::size_of::<ImageBaseRelocation>();
-        pe.write_slice_ref(offset, relocations)?;
-        
+        let reloc_bytes = unsafe { std::slice::from_raw_parts(relocations.as_ptr() as *const u8, relocations.len() * mem::size_of::<Relocation>()) };
+        pe.write(offset, reloc_bytes)?;
+
         Self::parse(pe, rva)
     }
 
@@ -858,14 +822,14 @@ impl<'data> RelocationEntryMut<'data> {
 /// assert_eq!(rva, RVA(0x1008));
 /// assert_eq!(reloc, RelocationValue::Relocation32(0x02001059));
 /// ```
-pub struct RelocationDirectory<'data> {
-    pub entries: Vec<RelocationEntry<'data>>,
+pub struct RelocationDirectory {
+    pub entries: Vec<RelocationEntry>,
 }
-impl<'data> RelocationDirectory<'data> {
+impl RelocationDirectory {
     /// Parse the relocation directory.
-    pub fn parse<P: PE>(pe: &'data P) -> Result<Self, Error> {
+    pub fn parse<P: PE>(pe: &P) -> Result<Self, Error> {
         let dir = pe.get_data_directory(ImageDirectoryEntry::BaseReloc)?;
-        
+
         if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
             return Err(Error::InvalidRVA(dir.virtual_address));
         }
@@ -882,7 +846,7 @@ impl<'data> RelocationDirectory<'data> {
         while start_addr.0 < end_addr.0 {
             let entry = RelocationEntry::parse(pe, start_addr)?;
             let size = entry.block_size();
-            
+
             entries.push(entry);
             start_addr.0 += size as u32;
         }
@@ -893,17 +857,17 @@ impl<'data> RelocationDirectory<'data> {
     /// Get a vector of [`RVA`](RVA)-to-[`RelocationValue`](RelocationValue) tuples.
     ///
     /// Essentially performs the relocation without writing the values.
-    pub fn relocations<P: PE>(&self, pe: &'data P, new_base: u64) -> Result<Vec<(RVA, RelocationValue)>, Error> {
+    pub fn relocations<P: PE>(&self, pe: &P, new_base: u64) -> Result<Vec<(RVA, RelocationValue)>, Error> {
         let mut result = Vec::<(RVA, RelocationValue)>::new();
 
         for entry in &self.entries {
-            let base_rva = entry.base_relocation.virtual_address.clone();
+            let base_rva = entry.base_relocation.virtual_address;
             let len = entry.relocations.len();
 
             for i in 0..len {
                 let current = entry.relocations[i];
                 let mut next: Option<Relocation> = None;
-                
+
                 if (i+1) < len {
                     next = Some(entry.relocations[i+1]);
                 }
@@ -912,7 +876,7 @@ impl<'data> RelocationDirectory<'data> {
                     Ok(v) => v,
                     Err(e) => return Err(e),
                 };
-                
+
                 result.push((current.get_address(base_rva), value));
             }
         }
@@ -921,7 +885,7 @@ impl<'data> RelocationDirectory<'data> {
     }
     /// Grabs the relocation values from [`RelocationDirectory::relocations`](RelocationDirectory::relocations) and
     /// writes them to the PE buffer.
-    pub fn relocate<P: PE>(&self, pe: &'data mut P, new_base: u64) -> Result<(), Error> {
+    pub fn relocate<P: PE>(&self, pe: &mut P, new_base: u64) -> Result<(), Error> {
         let relocations = self.relocations(pe, new_base)?;
         let ptr = pe.as_mut_ptr();
 
@@ -947,10 +911,10 @@ impl<'data> RelocationDirectory<'data> {
     }
 
     /// Add a given [`RVA`](RVA) as a relocation entry.
-    pub fn add_relocation<P: PE>(&mut self, pe: &'data mut P, rva: RVA) -> Result<(), Error> {
+    pub fn add_relocation<P: PE>(&mut self, pe: &mut P, rva: RVA) -> Result<(), Error> {
         // error out immediately if we don't have a relocation directory
         let dir = pe.get_data_directory(ImageDirectoryEntry::BaseReloc)?;
-                
+
         if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
             return Err(Error::InvalidRVA(dir.virtual_address));
         }
@@ -958,7 +922,7 @@ impl<'data> RelocationDirectory<'data> {
         // first, turn all the relocations into owned objects
         let mut owned_data = self.entries
             .iter()
-            .map(|x| (x.base_relocation.clone(), x.relocations.to_vec()))
+            .map(|x| (x.base_relocation.clone(), x.relocations.clone()))
             .collect::<Vec::<(ImageBaseRelocation, Vec<Relocation>)>>();
 
         // search the owned objects for a suitable RVA to add the relocation to
@@ -975,7 +939,7 @@ impl<'data> RelocationDirectory<'data> {
 
         for reloc_pair in &mut owned_data {
             if reloc_pair.0.virtual_address != reloc_address { continue; }
-            
+
             reloc_pair.1.push(relocation);
             reloc_pair.0.size_of_block = ImageBaseRelocation::calculate_block_size(reloc_pair.1.len());
             found_entry = true;
@@ -993,26 +957,26 @@ impl<'data> RelocationDirectory<'data> {
         let base_addr = dir.virtual_address.clone();
         let dir_size = dir.size;
         let base_offset = pe.translate(PETranslation::Memory(base_addr))?;
-        
+
         // zero out the original relocation table
         pe.write(base_offset, &vec![0u8; dir_size as usize])?;
-        
+
         let mut write_addr = base_addr.clone();
 
         // create new RelocationEntry entries for all the owned data
-        let mut new_relocations = Vec::<RelocationEntry<'data>>::new();
+        let mut new_relocations = Vec::<RelocationEntry>::new();
 
         for (base_reloc, relocations) in owned_data {
-            let new_relocation = RelocationEntry::create(unsafe { &mut *(pe as *mut P) }, write_addr, &base_reloc, relocations.as_slice())?;
+            let new_relocation = RelocationEntry::create(pe, write_addr, &base_reloc, relocations.as_slice())?;
             write_addr.0 += base_reloc.size_of_block;
             new_relocations.push(new_relocation);
         }
 
         let new_size = write_addr.0 - base_addr.0;
-        
+
         self.entries = new_relocations;
 
-        let mut_dir = pe.get_mut_data_directory(ImageDirectoryEntry::BaseReloc)?;
+        let mut mut_dir = pe.get_mut_data_directory(ImageDirectoryEntry::BaseReloc)?;
         mut_dir.size = new_size;
 
         Ok(())
@@ -1020,12 +984,12 @@ impl<'data> RelocationDirectory<'data> {
 }
 
 /// Represents a mutable relocation directory.
-pub struct RelocationDirectoryMut<'data> {
-    pub entries: Vec<RelocationEntryMut<'data>>,
+pub struct RelocationDirectoryMut {
+    pub entries: Vec<RelocationEntry>,
 }
-impl<'data> RelocationDirectoryMut<'data> {
+impl RelocationDirectoryMut {
     /// Parse a mutable relocation table.
-    pub fn parse<P: PE>(pe: &'data mut P) -> Result<Self, Error> {
+    pub fn parse<P: PE>(pe: &mut P) -> Result<Self, Error> {
         let dir = pe.get_data_directory(ImageDirectoryEntry::BaseReloc)?;
         
         if dir.virtual_address.0 == 0 || !pe.validate_rva(dir.virtual_address) {
@@ -1041,17 +1005,14 @@ impl<'data> RelocationDirectoryMut<'data> {
 
         let start_offset = pe.translate(PETranslation::Memory(start_addr))?;
         let end_offset = pe.translate(PETranslation::Memory(end_addr))?;
-        let mut entries = Vec::<RelocationEntryMut>::new();
+        let mut entries = Vec::<RelocationEntry>::new();
+        let mut current_addr = start_addr;
 
-        unsafe {
-            let mut start_ptr = pe.offset_to_mut_ptr(start_offset)?;
-            let end_ptr = pe.offset_to_ptr(end_offset)?;
-            
-            while (start_ptr as usize) < (end_ptr as usize) {
-                let entry = RelocationEntryMut::parse_unsafe(pe, start_ptr)?;            
-                start_ptr = start_ptr.add(entry.block_size() as usize);
-                entries.push(entry);
-            }
+        while current_addr.0 < end_addr.0 {
+            let entry = RelocationEntry::parse(pe, current_addr)?;
+            let size = entry.block_size();
+            entries.push(entry);
+            current_addr.0 += size as u32;
         }
 
         Ok(Self { entries })
@@ -1060,17 +1021,17 @@ impl<'data> RelocationDirectoryMut<'data> {
     /// Get a vector of [`RVA`](RVA)-to-[`RelocationValue`](RelocationValue) tuples.
     ///
     /// Essentially performs the relocation without writing the values.
-    pub fn relocations<P: PE>(&self, pe: &'data P, new_base: u64) -> Result<Vec<(RVA, RelocationValue)>, Error> {
+    pub fn relocations<P: PE>(&self, pe: &P, new_base: u64) -> Result<Vec<(RVA, RelocationValue)>, Error> {
         let mut result = Vec::<(RVA, RelocationValue)>::new();
 
         for entry in &self.entries {
-            let base_rva = entry.base_relocation.virtual_address.clone();
+            let base_rva = entry.base_relocation.virtual_address;
             let len = entry.relocations.len();
 
             for i in 0..len {
                 let current = entry.relocations[i];
                 let mut next: Option<Relocation> = None;
-                
+
                 if (i+1) < len {
                     next = Some(entry.relocations[i+1]);
                 }
@@ -1079,7 +1040,7 @@ impl<'data> RelocationDirectoryMut<'data> {
                     Ok(v) => v,
                     Err(e) => return Err(e),
                 };
-                
+
                 result.push((current.get_address(base_rva), value));
             }
         }
@@ -1088,7 +1049,7 @@ impl<'data> RelocationDirectoryMut<'data> {
     }
     /// Grabs the relocation values from [`RelocationDirectoryMut::relocations`](RelocationDirectoryMut::relocations) and
     /// writes them to the PE buffer.
-    pub fn relocate<P: PE>(&self, pe: &'data mut P, new_base: u64) -> Result<(), Error> {
+    pub fn relocate<P: PE>(&self, pe: &mut P, new_base: u64) -> Result<(), Error> {
         let relocations = self.relocations(pe, new_base)?;
         let ptr = pe.as_mut_ptr();
 
@@ -1114,7 +1075,7 @@ impl<'data> RelocationDirectoryMut<'data> {
     }
 
     /// Add a given [`RVA`](RVA) as a relocation entry.
-    pub fn add_relocation<P: PE>(&mut self, pe: &'data mut P, rva: RVA) -> Result<(), Error> {
+    pub fn add_relocation<P: PE>(&mut self, pe: &mut P, rva: RVA) -> Result<(), Error> {
         // error out immediately if we don't have a relocation directory
         let dir = pe.get_data_directory(ImageDirectoryEntry::BaseReloc)?;
         
@@ -1125,7 +1086,7 @@ impl<'data> RelocationDirectoryMut<'data> {
         // first, turn all the relocations into owned objects
         let mut owned_data = self.entries
             .iter()
-            .map(|x| (x.base_relocation.clone(), x.relocations.to_vec()))
+            .map(|x| (x.base_relocation.clone(), x.relocations.clone()))
             .collect::<Vec::<(ImageBaseRelocation, Vec<Relocation>)>>();
 
         // search the owned objects for a suitable RVA to add the relocation to
@@ -1167,10 +1128,10 @@ impl<'data> RelocationDirectoryMut<'data> {
         let mut write_addr = base_addr.clone();
 
         // create new RelocationEntry entries for all the owned data
-        let mut new_relocations = Vec::<RelocationEntryMut<'data>>::new();
+        let mut new_relocations = Vec::<RelocationEntry>::new();
 
         for (base_reloc, relocations) in owned_data {
-            let new_relocation = RelocationEntryMut::create(unsafe { &mut *(pe as *mut P) }, write_addr, &base_reloc, relocations.as_slice())?;
+            let new_relocation = RelocationEntry::create(pe, write_addr, &base_reloc, relocations.as_slice())?;
             write_addr.0 += base_reloc.size_of_block;
             new_relocations.push(new_relocation);
         }
@@ -1192,7 +1153,7 @@ impl<'data> RelocationDirectoryMut<'data> {
 /// of another directory in the resources or data being pointed to. Rust doesn't have bitfields, so instead we just mask the
 /// significant bit in this object and present an interface to access the data.
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct FlaggedDword(pub u32);
 impl FlaggedDword {
     /// Get the flag represented by the object.
@@ -1212,7 +1173,7 @@ impl FlaggedDword {
 
 /// A [`u32`](u32) wrapper representing offsets into a resource directory.
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ResourceOffset(pub u32);
 impl ResourceOffset {
     /// Resolve this resource offset into an [`RVA`](RVA).
@@ -1355,7 +1316,7 @@ impl ResourceDirectoryData {
     /// [`ResourceNode`](ResourceNode) at the given offset. For [`Data`](ResourceDirectoryData::Data),
     /// this goes out and attempts to parse a [`ImageResourceDataEntry`](ImageResourceDataEntry) object
     /// at the given offset.
-    pub fn resolve<'data, P: PE>(&self, pe: &'data P) -> Result<ResolvedDirectoryData<'data>, Error> {
+    pub fn resolve<P: PE>(&self, pe: &P) -> Result<ResolvedDirectoryData, Error> {
         match *self {
             ResourceDirectoryData::Directory(dir_offset) => {
                 let result = ResourceNode::parse(pe, dir_offset)?;
@@ -1364,7 +1325,7 @@ impl ResourceDirectoryData {
             ResourceDirectoryData::Data(data_offset) => {
                 let resolved = data_offset.resolve(pe)?;
                 let offset = pe.translate(PETranslation::Memory(resolved))?;
-                let result = pe.get_ref::<ImageResourceDataEntry>(offset)?;
+                let result = pe.read_val::<ImageResourceDataEntry>(offset)?;
                 Ok(ResolvedDirectoryData::Data(result))
             },
         }
@@ -1372,7 +1333,7 @@ impl ResourceDirectoryData {
     /// Resolves the offsets into their expected mutable types.
     ///
     /// See [`resolve`](ResourceDirectoryData::resolve).
-    pub fn resolve_mut<'data, P: PE>(&self, pe: &'data mut P) -> Result<ResolvedDirectoryDataMut<'data>, Error> {
+    pub fn resolve_mut<P: PE>(&self, pe: &mut P) -> Result<ResolvedDirectoryDataMut, Error> {
         match *self {
             ResourceDirectoryData::Directory(dir_offset) => {
                 let result = ResourceNodeMut::parse(pe, dir_offset)?;
@@ -1381,7 +1342,7 @@ impl ResourceDirectoryData {
             ResourceDirectoryData::Data(data_offset) => {
                 let resolved = data_offset.resolve(pe)?;
                 let offset = pe.translate(PETranslation::Memory(resolved))?;
-                let result = pe.get_mut_ref::<ImageResourceDataEntry>(offset)?;
+                let result = pe.read_val::<ImageResourceDataEntry>(offset)?;
                 Ok(ResolvedDirectoryDataMut::Data(result))
             },
         }
@@ -1390,44 +1351,45 @@ impl ResourceDirectoryData {
 
 /// Represents a [`ResourceDirectoryData`](ResourceDirectoryData) that has been resolved.
 #[derive(Clone)]
-pub enum ResolvedDirectoryData<'data> {
-    Directory(ResourceNode<'data>),
-    Data(&'data ImageResourceDataEntry),
+pub enum ResolvedDirectoryData {
+    Directory(ResourceNode),
+    Data(ImageResourceDataEntry),
 }
 
 /// Represents a [`ResourceDirectoryData`](ResourceDirectoryData) that has been resolved with mutable references.
-pub enum ResolvedDirectoryDataMut<'data> {
-    Directory(ResourceNodeMut<'data>),
-    Data(&'data mut ImageResourceDataEntry),
+pub enum ResolvedDirectoryDataMut {
+    Directory(ResourceNodeMut),
+    Data(ImageResourceDataEntry),
 }
 
 /// Represents a directory node in the greater resource directory.
 #[derive(Clone)]
-pub struct ResourceNode<'data> {
-    pub directory: &'data ImageResourceDirectory,
-    pub entries: &'data [ImageResourceDirectoryEntry],
+pub struct ResourceNode {
+    pub directory: ImageResourceDirectory,
+    pub entries: Vec<ImageResourceDirectoryEntry>,
 }
-impl<'data> ResourceNode<'data> {
+impl ResourceNode {
     /// Parse a resource directory node with the given [`ResourceOffset`](ResourceOffset).
     ///
     /// If the offset goes outside the bounds of the directory, a [`Error::OutOfBounds`](Error::OutOfBounds) error
     /// is returned.
-    pub fn parse<P: PE>(pe: &'data P, offset: ResourceOffset) -> Result<ResourceNode<'data>, Error> {
+    pub fn parse<P: PE>(pe: &P, offset: ResourceOffset) -> Result<Self, Error> {
         let resolved_offset = offset.resolve(pe)?;
         let mut image_offset = pe.translate(PETranslation::Memory(resolved_offset))?;
-        let directory = pe.get_ref::<ImageResourceDirectory>(image_offset)?;
+        let directory = pe.read_val::<ImageResourceDirectory>(image_offset)?;
         image_offset += mem::size_of::<ImageResourceDirectory>();
-        
-        let entries = pe.get_slice_ref::<ImageResourceDirectoryEntry>(image_offset, directory.entries())?;
-        
+
+        let entries_count = directory.entries();
+        let entries = pe.read_val_array::<ImageResourceDirectoryEntry>(image_offset, entries_count)?;
+
         Ok(Self { directory, entries })
     }
     /// Get the [`ResourceDirectoryData`](ResourceDirectoryData) pointed to by the underlying
     /// [`ImageResourceDirectoryEntry`](ImageResourceDirectoryEntry) with the given ID.
     ///
     /// Returns [`Error::ResourceNotFound`](Error::ResourceNotFound) when the ID is not found.
-    pub fn entry_by_id<P: PE>(&self, pe: &'data P, id: &ResolvedDirectoryID) -> Result<ResourceDirectoryData, Error> {
-        for entry in self.entries {
+    pub fn entry_by_id<P: PE>(&self, pe: &P, id: &ResolvedDirectoryID) -> Result<ResourceDirectoryData, Error> {
+        for entry in &self.entries {
             let resolved_id = entry.get_id().resolve(pe)?;
 
             if resolved_id != *id { continue; }
@@ -1444,42 +1406,23 @@ impl<'data> ResourceNode<'data> {
 }
 
 /// Represents a mutable directory node in the greater resource directory.
-pub struct ResourceNodeMut<'data> {
-    pub directory: &'data mut ImageResourceDirectory,
-    pub entries: &'data mut [ImageResourceDirectoryEntry],
+pub struct ResourceNodeMut {
+    pub directory: ImageResourceDirectory,
+    pub entries: Vec<ImageResourceDirectoryEntry>,
 }
-impl<'data> ResourceNodeMut<'data> {
+impl ResourceNodeMut {
     /// Parse a mutable resource directory node with the given [`ResourceOffset`](ResourceOffset).
     ///
     /// If the offset goes outside the bounds of the directory, a [`Error::OutOfBounds`](Error::OutOfBounds) error
     /// is returned.
-    pub fn parse<P: PE>(pe: &'data mut P, offset: ResourceOffset) -> Result<Self, Error> {
+    pub fn parse<P: PE>(pe: &mut P, offset: ResourceOffset) -> Result<Self, Error> {
         let resolved_offset = offset.resolve(pe)?;
         let image_offset = pe.translate(PETranslation::Memory(resolved_offset))?;
-        
-        unsafe {
-            let ptr = pe.offset_to_mut_ptr(image_offset)?;
-            Self::parse_unsafe(pe, ptr)
-        }
-    }
-    /// Parse a mutable resource node at the given pointer.
-    ///
-    /// The pointer is verified against the buffer before parsing. You should probably use [`ResourceNodeMut::parse`](ResourceNodeMut::parse)
-    /// unless you really need to use a pointer, as that function has more rigorous address checking.
-    pub unsafe fn parse_unsafe<P: PE>(pe: &'data P, mut ptr: *mut u8) -> Result<Self, Error> {
-        if !pe.validate_ptr(ptr) {
-            return Err(Error::BadPointer(ptr));
-        }
-            
-        let directory = &mut *(ptr as *mut ImageResourceDirectory);
-            
-        ptr = ptr.add(mem::size_of::<ImageResourceDirectory>());
-            
-        if !pe.validate_ptr(ptr as *const u8) {
-            return Err(Error::BadPointer(ptr as *const u8));
-        }
-        
-        let entries = slice::from_raw_parts_mut(ptr as *mut ImageResourceDirectoryEntry, directory.entries());
+
+        let directory = pe.read_val::<ImageResourceDirectory>(image_offset)?;
+        image_offset += mem::size_of::<ImageResourceDirectory>();
+        let entries_count = directory.entries();
+        let entries = pe.read_val_array::<ImageResourceDirectoryEntry>(image_offset, entries_count)?;
 
         Ok(Self { directory, entries })
     }
@@ -1487,8 +1430,8 @@ impl<'data> ResourceNodeMut<'data> {
     /// [`ImageResourceDirectoryEntry`](ImageResourceDirectoryEntry) with the given ID.
     ///
     /// Returns [`Error::ResourceNotFound`](Error::ResourceNotFound) when the ID is not found.
-    pub fn entry_by_id<P: PE>(&self, pe: &'data P, id: &ResolvedDirectoryID) -> Result<ResourceDirectoryData, Error> {
-        for entry in self.entries.iter() {
+    pub fn entry_by_id<P: PE>(&self, pe: &P, id: &ResolvedDirectoryID) -> Result<ResourceDirectoryData, Error> {
+        for entry in &self.entries {
             let resolved_id = entry.get_id().resolve(pe)?;
 
             if resolved_id != *id { continue; }
@@ -1518,23 +1461,23 @@ pub struct FlattenedResourceDataEntry {
 }
 impl FlattenedResourceDataEntry {
     /// Get the data entry pointed to by the ```data``` offset.
-    pub fn get_data_entry<'data, P: PE>(&self, pe: &'data P) -> Result<&'data ImageResourceDataEntry, Error> {
+    pub fn get_data_entry<P: PE>(&self, pe: &P) -> Result<ImageResourceDataEntry, Error> {
         let rva = self.data.resolve(pe)?;
         let offset = pe.translate(PETranslation::Memory(rva))?;
-        let result = pe.get_ref::<ImageResourceDataEntry>(offset)?;
+        let result = pe.read_val::<ImageResourceDataEntry>(offset)?;
         Ok(result)
     }
     /// Get a mutable data entry pointed to by the ```data``` offset.
-    pub fn get_mut_data_entry<'data, P: PE>(&self, pe: &'data mut P) -> Result<&'data mut ImageResourceDataEntry, Error> {
+    pub fn get_mut_data_entry<P: PE>(&self, pe: &mut P) -> Result<ImageResourceDataEntry, Error> {
         let rva = self.data.resolve(pe)?;
         let offset = pe.translate(PETranslation::Memory(rva))?;
-        let result = pe.get_mut_ref::<ImageResourceDataEntry>(offset)?;
+        let result = pe.read_val::<ImageResourceDataEntry>(offset)?;
         Ok(result)
     }
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 /// Represents an entry in the directory of an icon file.
 pub struct IconDirEntry {
     pub width: u8,
@@ -1549,21 +1492,21 @@ pub struct IconDirEntry {
 
 #[derive(Clone)]
 /// Represents a non-mutable icon file directory.
-pub struct IconDir<'data> {
-    pub reserved: &'data u16,
-    pub icon_type: &'data u16,
-    pub count: &'data u16,
-    pub entries: &'data [IconDirEntry],
+pub struct IconDir {
+    pub reserved: u16,
+    pub icon_type: u16,
+    pub count: u16,
+    pub entries: Vec<IconDirEntry>,
 }
-impl<'data> IconDir<'data> {
+impl IconDir {
     /// Parse an icon file directory from the given buffer-like object.
     ///
     /// The buffer is not a PE file-- it is a [`Buffer`](Buffer) object, like [`VecBuffer`](VecBuffer).
-    pub fn parse<B: Buffer>(buf: &'data B) -> Result<Self, Error> {
-        let reserved = buf.get_ref::<u16>(0)?;
-        let icon_type = buf.get_ref::<u16>(2)?;
-        let count = buf.get_ref::<u16>(4)?;
-        let entries = buf.get_slice_ref::<IconDirEntry>(6, *count as usize)?;
+    pub fn parse<B: Buffer>(buf: &B) -> Result<Self, Error> {
+        let reserved = buf.read_val::<u16>(0).map_err(Error::from)?;
+        let icon_type = buf.read_val::<u16>(2).map_err(Error::from)?;
+        let count = buf.read_val::<u16>(4).map_err(Error::from)?;
+        let entries = buf.read_val_array::<IconDirEntry>(6, count as usize).map_err(Error::from)?;
 
         Ok(Self { reserved, icon_type, count, entries })
     }
@@ -1572,41 +1515,33 @@ impl<'data> IconDir<'data> {
     /// This essentially prepares the header for an icon file for appending icon data to a file.
     pub fn to_vec_buffer(&self) -> Result<VecBuffer, Error> {
         let mut result = VecBuffer::new();
-        result.append_ref::<u16>(self.reserved)?;
-        result.append_ref::<u16>(self.icon_type)?;
-        result.append_ref::<u16>(self.count)?;
-        result.append_slice_ref::<IconDirEntry>(self.entries)?;
+        result.append_val::<u16>(&self.reserved);
+        result.append_val::<u16>(&self.icon_type);
+        result.append_val::<u16>(&self.count);
+        result.append_slice_val::<IconDirEntry>(self.entries.as_slice());
 
         Ok(result)
     }
 }
 
 /// Represents a mutable icon file directory.
-pub struct IconDirMut<'data> {
-    pub reserved: &'data mut u16,
-    pub icon_type: &'data mut u16,
-    pub count: &'data mut u16,
-    pub entries: &'data mut [IconDirEntry],
+pub struct IconDirMut {
+    pub reserved: u16,
+    pub icon_type: u16,
+    pub count: u16,
+    pub entries: Vec<IconDirEntry>,
 }
-impl<'data> IconDirMut<'data> {
+impl IconDirMut {
     /// Parse a mutable icon file directory from the given buffer-like object.
     ///
     /// The buffer is not a PE file-- it is a [`Buffer`](Buffer) object, like [`VecBuffer`](VecBuffer).
-    pub fn parse<B: Buffer>(buf: &'data mut B) -> Result<Self, Error> {
-        unsafe {
-            let mut ptr = buf.offset_to_mut_ptr(0)?;
-            let reserved = &mut *(ptr as *mut u16);
+    pub fn parse<B: Buffer>(buf: &mut B) -> Result<Self, Error> {
+        let reserved = buf.read_val::<u16>(0).map_err(Error::from)?;
+        let icon_type = buf.read_val::<u16>(2).map_err(Error::from)?;
+        let count = buf.read_val::<u16>(4).map_err(Error::from)?;
+        let entries = buf.read_val_array::<IconDirEntry>(6, count as usize).map_err(Error::from)?;
 
-            ptr = buf.offset_to_mut_ptr(2)?;
-            let icon_type = &mut *(ptr as *mut u16);
-
-            ptr = buf.offset_to_mut_ptr(4)?;
-            let count = &mut *(ptr as *mut u16);
-
-            let entries = buf.get_mut_slice_ref_unaligned::<IconDirEntry>(6, *count as usize)?;
-
-            Ok(Self { reserved, icon_type, count, entries })
-        }
+        Ok(Self { reserved, icon_type, count, entries })
     }
 }
 
@@ -1622,28 +1557,28 @@ impl IconDirVec {
     /// Convert this `IconDirVec` object into a [`VecBuffer`](VecBuffer).
     pub fn to_vec_buffer(&self) -> Result<VecBuffer, Error> {
         let mut result = VecBuffer::new();
-        result.append_ref::<u16>(&self.reserved)?;
-        result.append_ref::<u16>(&self.icon_type)?;
-        result.append_ref::<u16>(&self.count)?;
-        result.append_slice_ref::<IconDirEntry>(self.entries.as_slice())?;
+        result.append_val::<u16>(&self.reserved);
+        result.append_val::<u16>(&self.icon_type);
+        result.append_val::<u16>(&self.count);
+        result.append_slice_val::<IconDirEntry>(self.entries.as_slice());
 
         Ok(result)
     }
 }
 
 /// Represents a resource directory, containing flattened resources and the root node of the resource tree.
-pub struct ResourceDirectory<'data> {
-    pub root_node: ResourceNode<'data>,
+pub struct ResourceDirectory {
+    pub root_node: ResourceNode,
     pub resources: Vec<FlattenedResourceDataEntry>,
 }
-impl<'data> ResourceDirectory<'data> {
+impl ResourceDirectory {
     /// Parse the resource directory in the given PE file.
-    pub fn parse<P: PE>(pe: &'data P) -> Result<Self, Error> {
+    pub fn parse<P: PE>(pe: &P) -> Result<Self, Error> {
         let mut resources = Vec::<FlattenedResourceDataEntry>::new();
-        
+
         let root_node = ResourceNode::parse(pe, ResourceOffset(0))?;
-        
-        for type_entry in root_node.entries {
+
+        for type_entry in &root_node.entries {
             let id_offset = match type_entry.get_data() {
                 ResourceDirectoryData::Data(_) => return Err(Error::CorruptDataDirectory),
                 ResourceDirectoryData::Directory(d) => d,
@@ -1651,7 +1586,7 @@ impl<'data> ResourceDirectory<'data> {
 
             let id_node = ResourceNode::parse(pe, id_offset)?;
 
-            for id_entry in id_node.entries {
+            for id_entry in &id_node.entries {
                 let lang_offset = match id_entry.get_data() {
                     ResourceDirectoryData::Data(_) => return Err(Error::CorruptDataDirectory),
                     ResourceDirectoryData::Directory(d) => d,
@@ -1659,7 +1594,7 @@ impl<'data> ResourceDirectory<'data> {
 
                 let lang_node = ResourceNode::parse(pe, lang_offset)?;
 
-                for lang_entry in lang_node.entries {
+                for lang_entry in &lang_node.entries {
                     let data_offset = match lang_entry.get_data() {
                         ResourceDirectoryData::Directory(_) => return Err(Error::CorruptDataDirectory),
                         ResourceDirectoryData::Data(d) => d,
@@ -1724,7 +1659,7 @@ impl<'data> ResourceDirectory<'data> {
         resources
     }
     /// Get the icon groups in this resource directory, if any.
-    pub fn icon_groups<P: PE>(&self, pe: &'data P) -> Result<HashMap<ResolvedDirectoryID, GrpIconDir>, Error> {
+    pub fn icon_groups<P: PE>(&self, pe: &P) -> Result<HashMap<ResolvedDirectoryID, GrpIconDir>, Error> {
         let groups = self.filter(Some(ResolvedDirectoryID::ID(ResourceID::GroupIcon as u32)), None, None);
         let mut result = HashMap::<ResolvedDirectoryID, GrpIconDir>::new();
 
@@ -1740,13 +1675,13 @@ impl<'data> ResourceDirectory<'data> {
 }
 
 /// Represents a mutable resource directory, containing flattened resources and the root node of the resource tree.
-pub struct ResourceDirectoryMut<'data> {
-    pub root_node: ResourceNodeMut<'data>,
+pub struct ResourceDirectoryMut {
+    pub root_node: ResourceNodeMut,
     pub resources: Vec<FlattenedResourceDataEntry>,
 }
-impl<'data> ResourceDirectoryMut<'data> {
+impl ResourceDirectoryMut {
     /// Parse a mutable resource directory in the given PE file.
-    pub fn parse<P: PE>(pe: &'data mut P) -> Result<Self, Error> {
+    pub fn parse<P: PE>(pe: &mut P) -> Result<Self, Error> {
         let mut resources = Vec::<FlattenedResourceDataEntry>::new();
 
         let dir_size = match pe.get_data_directory(ImageDirectoryEntry::Resource) {
@@ -1755,72 +1690,53 @@ impl<'data> ResourceDirectoryMut<'data> {
         };
 
         let rva = ResourceOffset(0).resolve(pe)?;
-        let offset = pe.translate(PETranslation::Memory(rva))?;
-        
-        unsafe {
-            let ptr = pe.offset_to_mut_ptr(offset)?;
-        
-            let root_node = ResourceNodeMut::parse_unsafe(pe, ptr)?;
+        let root_node = ResourceNodeMut::parse(pe, ResourceOffset(0))?;
 
-            // call iter() specifically to prevent an implicit call to into_iter()
-            for type_entry in root_node.entries.iter() {
-                let id_offset = match type_entry.get_data() {
+        for type_entry in &root_node.entries {
+            let id_offset = match type_entry.get_data() {
+                ResourceDirectoryData::Data(_) => return Err(Error::CorruptDataDirectory),
+                ResourceDirectoryData::Directory(d) => d,
+            };
+
+            if id_offset.0 > dir_size {
+                return Err(Error::OutOfBounds(dir_size as usize, id_offset.0 as usize));
+            }
+
+            let id_node = ResourceNodeMut::parse(pe, id_offset)?;
+
+            for id_entry in &id_node.entries {
+                let lang_offset = match id_entry.get_data() {
                     ResourceDirectoryData::Data(_) => return Err(Error::CorruptDataDirectory),
                     ResourceDirectoryData::Directory(d) => d,
                 };
 
-                if id_offset.0 > dir_size {
-                    return Err(Error::OutOfBounds(dir_size as usize, id_offset.0 as usize));
+                if lang_offset.0 > dir_size {
+                    return Err(Error::OutOfBounds(dir_size as usize, lang_offset.0 as usize));
                 }
 
-                let id_ptr = ptr.add(id_offset.0 as usize);
+                let lang_node = ResourceNodeMut::parse(pe, lang_offset)?;
 
-                if !pe.validate_ptr(id_ptr as *const u8) {
-                    return Err(Error::BadPointer(id_ptr as *const u8));
-                }
-            
-                let id_node = ResourceNodeMut::parse_unsafe(pe, id_ptr)?;
-                
-                for id_entry in id_node.entries {
-                    let lang_offset = match id_entry.get_data() {
-                        ResourceDirectoryData::Data(_) => return Err(Error::CorruptDataDirectory),
-                        ResourceDirectoryData::Directory(d) => d,
+                for lang_entry in &lang_node.entries {
+                    let data_offset = match lang_entry.get_data() {
+                        ResourceDirectoryData::Directory(_) => return Err(Error::CorruptDataDirectory),
+                        ResourceDirectoryData::Data(d) => d,
                     };
 
-                    if lang_offset.0 > dir_size {
-                        return Err(Error::OutOfBounds(dir_size as usize, lang_offset.0 as usize));
-                    }
+                    let type_resolved = type_entry.get_id().resolve(pe)?;
+                    let rsrc_resolved = id_entry.get_id().resolve(pe)?;
+                    let lang_resolved = lang_entry.get_id().resolve(pe)?;
 
-                    let lang_ptr = ptr.add(lang_offset.0 as usize);
-
-                    if !pe.validate_ptr(lang_ptr as *const u8) {
-                        return Err(Error::BadPointer(lang_ptr as *const u8));
-                    }
-
-                    let lang_node = ResourceNodeMut::parse_unsafe(pe, lang_ptr)?;
-                    
-                    for lang_entry in lang_node.entries {
-                        let data_offset = match lang_entry.get_data() {
-                            ResourceDirectoryData::Directory(_) => return Err(Error::CorruptDataDirectory),
-                            ResourceDirectoryData::Data(d) => d,
-                        };
-
-                        let type_resolved = type_entry.get_id().resolve(pe)?;
-                        let rsrc_resolved = id_entry.get_id().resolve(pe)?;
-                        let lang_resolved = lang_entry.get_id().resolve(pe)?;
-
-                        resources.push(FlattenedResourceDataEntry {
-                            type_id: type_resolved,
-                            rsrc_id: rsrc_resolved,
-                            lang_id: lang_resolved,
-                            data: data_offset,
-                        });
-                    }
+                    resources.push(FlattenedResourceDataEntry {
+                        type_id: type_resolved,
+                        rsrc_id: rsrc_resolved,
+                        lang_id: lang_resolved,
+                        data: data_offset,
+                    });
                 }
             }
-
-            Ok(Self { root_node, resources })
         }
+
+        Ok(Self { root_node, resources })
     }
     /// Filter the parsed resources by the given identifiers.
     ///
@@ -1865,7 +1781,7 @@ impl<'data> ResourceDirectoryMut<'data> {
         resources
     }
     /// Get the icon groups in this resource directory, if any.
-    pub fn icon_groups<P: PE>(&self, pe: &'data P) -> Result<HashMap<ResolvedDirectoryID, GrpIconDir>, Error> {
+    pub fn icon_groups<P: PE>(&self, pe: &P) -> Result<HashMap<ResolvedDirectoryID, GrpIconDir>, Error> {
         let groups = self.filter(Some(ResolvedDirectoryID::ID(ResourceID::GroupIcon as u32)), None, None);
         let mut result = HashMap::<ResolvedDirectoryID, GrpIconDir>::new();
 
@@ -1883,14 +1799,14 @@ impl<'data> ResourceDirectoryMut<'data> {
 pub type DebugDirectory = ImageDebugDirectory;
 
 /// Represents either a 32-bit or a 64-bit TLS directory.
-pub enum TLSDirectory<'data> {
-    TLS32(&'data ImageTLSDirectory32),
-    TLS64(&'data ImageTLSDirectory64),
+pub enum TLSDirectory {
+    TLS32(ImageTLSDirectory32),
+    TLS64(ImageTLSDirectory64),
 }
-impl<'data> TLSDirectory<'data> {
-    pub fn parse<P: PE>(pe: &'data P) -> Result<Self, Error> {
+impl TLSDirectory {
+    pub fn parse<P: PE>(pe: &P) -> Result<Self, Error> {
         let arch = pe.get_arch()?;
-        
+
         match arch {
             Arch::X86 => match ImageTLSDirectory32::parse(pe) {
                 Ok(tls32) => Ok(TLSDirectory::TLS32(tls32)),
@@ -1905,12 +1821,12 @@ impl<'data> TLSDirectory<'data> {
 }
 
 /// Represents a mutable 32-bit or a 64-bit TLS directory.
-pub enum TLSDirectoryMut<'data> {
-    TLS32(&'data mut ImageTLSDirectory32),
-    TLS64(&'data mut ImageTLSDirectory64),
+pub enum TLSDirectoryMut {
+    TLS32(ImageTLSDirectory32),
+    TLS64(ImageTLSDirectory64),
 }
-impl<'data> TLSDirectoryMut<'data> {
-    pub fn parse<P: PE>(pe: &'data mut P) -> Result<Self, Error> {
+impl TLSDirectoryMut {
+    pub fn parse<P: PE>(pe: &mut P) -> Result<Self, Error> {
         let arch = pe.get_arch()?;
 
         match arch {
@@ -1939,7 +1855,6 @@ bitflags! {
         const SPECIALBUILD = 0x00000020;
     }
 }
-unsafe impl Castable for VSFileFlags {}
 
 /// An enum representing the OS flags for the [`VS_FIXEDFILEINFO`](https://docs.microsoft.com/en-us/windows/win32/api/verrsrc/ns-verrsrc-vs_fixedfileinfo)
 /// structure.
@@ -2065,7 +1980,7 @@ impl VSFileSubtypeFont {
 
 /// Represents a [`VS_FIXEDFILEINFO`](https://docs.microsoft.com/en-us/windows/win32/api/verrsrc/ns-verrsrc-vs_fixedfileinfo) structure.
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct VSFixedFileInfo {
     pub signature: u32,
     pub struct_version: u32,
@@ -2086,82 +2001,82 @@ pub struct VSFixedFileInfo {
 ///
 /// This is not an officially documented header, but rather is added to make parsing these aspects of the structures
 /// a little bit easier.
-pub struct VSHeader<'data> {
-    pub length: &'data u16,
-    pub value_length: &'data u16,
-    pub type_: &'data u16,
-    pub key: &'data [WChar],
+pub struct VSHeader {
+    pub length: u16,
+    pub value_length: u16,
+    pub type_: u16,
+    pub key: Vec<WChar>,
 }
-impl<'data> VSHeader<'data> {
-    pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<(usize, Self), Error> {
+impl VSHeader {
+    pub fn parse<P: PE>(pe: &P, rva: RVA) -> Result<(usize, Self), Error> {
         let mut consumed = 0usize;
         let mut offset = pe.translate(PETranslation::Memory(rva))?;
-        let length = pe.get_ref::<u16>(offset)?;
-        
-        consumed += mem::size_of::<u16>();
-        offset += mem::size_of::<u16>();
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+        let length = pe.read_val::<u16>(offset)?;
 
-        let value_length = pe.get_ref::<u16>(offset)?;
-                
         consumed += mem::size_of::<u16>();
         offset += mem::size_of::<u16>();
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+        if consumed > length as usize { return Err(Error::CorruptDataDirectory); }
 
-        let type_value = pe.get_ref::<u16>(offset)?;
-        
+        let value_length = pe.read_val::<u16>(offset)?;
+
         consumed += mem::size_of::<u16>();
         offset += mem::size_of::<u16>();
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+        if consumed > length as usize { return Err(Error::CorruptDataDirectory); }
+
+        let type_value = pe.read_val::<u16>(offset)?;
+
+        consumed += mem::size_of::<u16>();
+        offset += mem::size_of::<u16>();
+        if consumed > length as usize { return Err(Error::CorruptDataDirectory); }
 
         let key = pe.get_widestring(offset, None)?;
         let key_size = key.len() * mem::size_of::<WChar>();
         consumed += key_size;
         offset += key_size;
-        if consumed > *length as usize { return Err(Error::CorruptDataDirectory); }
+        if consumed > length as usize { return Err(Error::CorruptDataDirectory); }
 
         Ok((offset, VSHeader {
             length,
             value_length,
             type_: type_value,
-            key
+            key: key.to_vec(),
         }))
     }
 }
 
 /// Represents a [`String`](https://docs.microsoft.com/en-us/windows/win32/menurc/string-str) structure.
-pub struct VSString<'data> {
-    pub header: VSHeader<'data>,
-    pub value: &'data [WChar],
+pub struct VSString {
+    pub header: VSHeader,
+    pub value: Vec<WChar>,
 }
-impl<'data> VSString<'data> {
+impl VSString {
     /// Parse a `VSString` object at the given [`RVA`](RVA).
-    pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
+    pub fn parse<P: PE>(pe: &P, rva: RVA) -> Result<Self, Error> {
         let base_offset = pe.translate(PETranslation::Memory(rva))?;
         let (mut offset, header) = VSHeader::parse(pe, rva)?;
         let mut consumed = offset - base_offset;
         offset = align(offset, 4);
-        
+
         let value = pe.get_widestring(offset.into(), None)?;
         let value_size = value.len() * mem::size_of::<WChar>();
         consumed += value_size;
-        if consumed > *header.length as usize { return Err(Error::CorruptDataDirectory); }
+        if consumed > header.length as usize { return Err(Error::CorruptDataDirectory); }
 
         Ok(Self {
             header,
-            value,
+            value: value.to_vec(),
         })
     }
 }
 
 /// Represents a [`StringTable`](https://docs.microsoft.com/en-us/windows/win32/menurc/stringtable) structure.
-pub struct VSStringTable<'data> {
-    pub header: VSHeader<'data>,
-    pub children: Vec<VSString<'data>>,
+pub struct VSStringTable {
+    pub header: VSHeader,
+    pub children: Vec<VSString>,
 }
-impl<'data> VSStringTable<'data> {
+impl VSStringTable {
     /// Parse a `VSStringTable` structure at the given RVA.
-    pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
+    pub fn parse<P: PE>(pe: &P, rva: RVA) -> Result<Self, Error> {
         let base_offset = pe.translate(PETranslation::Memory(rva))?;
         let (mut offset, header) = VSHeader::parse(pe, rva)?;
         let mut consumed = offset - base_offset;
@@ -2169,20 +2084,20 @@ impl<'data> VSStringTable<'data> {
 
         let mut children = Vec::<VSString>::new();
 
-        while consumed < (*header.length as usize) {
+        while consumed < (header.length as usize) {
             let rva = match pe.get_type() {
                 PEType::Disk => Offset(offset as u32).as_rva(pe)?,
                 PEType::Memory => RVA(offset as u32),
             };
 
             let child = VSString::parse(pe, rva)?;
-            
-            offset += *child.header.length as usize;
+
+            offset += child.header.length as usize;
             offset = align(offset, 4);
             consumed = offset - base_offset;
             children.push(child);
         }
-        
+
         Ok(Self {
             header,
             children,
@@ -2223,7 +2138,7 @@ impl<'data> VSStringTable<'data> {
         for entry in &self.children {
             let entry_key = entry.header.key.as_u16_str()?;
             let entry_value = entry.value.as_u16_str()?;
-            
+
             result.insert(entry_key.as_ustr().to_string_lossy(), entry_value.as_ustr().to_string_lossy());
         }
 
@@ -2232,13 +2147,13 @@ impl<'data> VSStringTable<'data> {
 }
 
 /// Represents a [`StringFileInfo`](https://docs.microsoft.com/en-us/windows/win32/menurc/stringfileinfo) structure.
-pub struct VSStringFileInfo<'data> {
-    pub header: VSHeader<'data>,
-    pub children: Vec<VSStringTable<'data>>,
+pub struct VSStringFileInfo {
+    pub header: VSHeader,
+    pub children: Vec<VSStringTable>,
 }
-impl<'data> VSStringFileInfo<'data> {
+impl VSStringFileInfo {
     /// Parse a `VSStringFileInfo` structure at the given [`RVA`](RVA).
-    pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
+    pub fn parse<P: PE>(pe: &P, rva: RVA) -> Result<Self, Error> {
         let base_offset = pe.translate(PETranslation::Memory(rva))?;
         let (mut offset, header) = VSHeader::parse(pe, rva)?;
         let mut consumed = offset - base_offset;
@@ -2246,7 +2161,7 @@ impl<'data> VSStringFileInfo<'data> {
 
         let mut children = Vec::<VSStringTable>::new();
 
-        while consumed < (*header.length as usize) {
+        while consumed < (header.length as usize) {
             let rva = match pe.get_type() {
                 PEType::Disk => Offset(offset as u32).as_rva(pe)?,
                 PEType::Memory => RVA(offset as u32),
@@ -2254,7 +2169,7 @@ impl<'data> VSStringFileInfo<'data> {
 
             let child = VSStringTable::parse(pe, rva)?;
 
-            offset += *child.header.length as usize;
+            offset += child.header.length as usize;
             offset = align(offset, 4);
             consumed = offset - base_offset;
             children.push(child);
@@ -2269,36 +2184,36 @@ impl<'data> VSStringFileInfo<'data> {
 
 /// Represents a DWORD in the [`VSVar`](VSVar) structure which contains a language ID and a language codepage.
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq, Castable, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct VarDword {
     lang_id: u16,
     codepage: u16,
 }
 
 /// Represents a [`Var`](https://docs.microsoft.com/en-us/windows/win32/menurc/var-str) structure.
-pub struct VSVar<'data> {
-    pub header: VSHeader<'data>,
-    pub children: Vec<&'data VarDword>,
+pub struct VSVar {
+    pub header: VSHeader,
+    pub children: Vec<VarDword>,
 }
-impl<'data> VSVar<'data> {
+impl VSVar {
     /// Parse a `VSVar` structure at the given [`RVA`](RVA).
-    pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
+    pub fn parse<P: PE>(pe: &P, rva: RVA) -> Result<Self, Error> {
         let base_offset = pe.translate(PETranslation::Memory(rva))?;
         let (mut offset, header) = VSHeader::parse(pe, rva)?;
         let mut consumed = offset;
         offset = align(offset, 4);
 
-        let mut children = Vec::<&'data VarDword>::new();
+        let mut children = Vec::<VarDword>::new();
 
-        while consumed < (*header.length as usize) {
-            let child = pe.get_ref::<VarDword>(offset.into())?;
+        while consumed < (header.length as usize) {
+            let child = pe.read_val::<VarDword>(offset.into())?;
 
             offset += mem::size_of::<VarDword>();
             offset = align(offset, 4);
             consumed = offset - base_offset;
             children.push(child);
         }
-        
+
         Ok(Self {
             header,
             children,
@@ -2307,13 +2222,13 @@ impl<'data> VSVar<'data> {
 }
 
 /// Represents a [`VarFileInfo`](https://docs.microsoft.com/en-us/windows/win32/menurc/varfileinfo) structure.
-pub struct VSVarFileInfo<'data> {
-    pub header: VSHeader<'data>,
-    pub children: Vec<VSVar<'data>>,
+pub struct VSVarFileInfo {
+    pub header: VSHeader,
+    pub children: Vec<VSVar>,
 }
-impl<'data> VSVarFileInfo<'data> {
+impl VSVarFileInfo {
     /// Parse a `VSVarFileInfo` structure at the given [`RVA`](RVA).
-    pub fn parse<P: PE>(pe: &'data P, rva: RVA) -> Result<Self, Error> {
+    pub fn parse<P: PE>(pe: &P, rva: RVA) -> Result<Self, Error> {
         let base_offset = pe.translate(PETranslation::Memory(rva))?;
         let (mut offset, header) = VSHeader::parse(pe, rva)?;
         let mut consumed = offset;
@@ -2321,20 +2236,20 @@ impl<'data> VSVarFileInfo<'data> {
 
         let mut children = Vec::<VSVar>::new();
 
-        while consumed < (*header.length as usize) {
+        while consumed < (header.length as usize) {
             let rva = match pe.get_type() {
                 PEType::Disk => Offset(offset as u32).as_rva(pe)?,
                 PEType::Memory => RVA(offset as u32),
             };
-            
+
             let child = VSVar::parse(pe, rva)?;
 
-            offset += *child.header.length as usize;
+            offset += child.header.length as usize;
             offset = align(offset, 4);
             consumed = offset - base_offset;
             children.push(child);
         }
-        
+
         Ok(Self {
             header,
             children,
@@ -2343,52 +2258,52 @@ impl<'data> VSVarFileInfo<'data> {
 }
 
 /// Represents a [`VS_VERSIONINFO`](https://docs.microsoft.com/en-us/windows/win32/menurc/vs-versioninfo) structure.
-pub struct VSVersionInfo<'data> {
-    pub header: VSHeader<'data>,
-    pub value: Option<&'data VSFixedFileInfo>,
-    pub string_file_info: Option<VSStringFileInfo<'data>>,
-    pub var_file_info: Option<VSVarFileInfo<'data>>,
+pub struct VSVersionInfo {
+    pub header: VSHeader,
+    pub value: Option<VSFixedFileInfo>,
+    pub string_file_info: Option<VSStringFileInfo>,
+    pub var_file_info: Option<VSVarFileInfo>,
 }
-impl<'data> VSVersionInfo<'data> {
+impl VSVersionInfo {
     /// Parse a `VSVersionInfo` structure from the given [`PE`](PE)'s resource directory.
     ///
     /// This will return [`Error::CorruptDataDirectory`](Error::CorruptDataDirectory) if it can't
     /// find the [`Version`](ResourceID::Version) resource.
-    pub fn parse<P: PE>(pe: &'data P) -> Result<Self, Error> {
+    pub fn parse<P: PE>(pe: &P) -> Result<Self, Error> {
         let resource_dir = ResourceDirectory::parse(pe)?;
-        
+
         let version_rsrc = resource_dir.filter(Some(ResolvedDirectoryID::ID(ResourceID::Version as u32)), None, None);
         if version_rsrc.len() == 0 { return Err(Error::ResourceNotFound); }
 
-        let rsrc_node = version_rsrc[0].get_data_entry(pe)?;        
+        let rsrc_node = version_rsrc[0].get_data_entry(pe)?;
         let base_offset = pe.translate(PETranslation::Memory(rsrc_node.offset_to_data))?;
         let (mut offset, header) = VSHeader::parse(pe, rsrc_node.offset_to_data)?;
         let mut consumed = offset;
         offset = align(offset, 4);
 
         let value;
-        
-        if *header.value_length == 0 {
+
+        if header.value_length == 0 {
             value = None;
         }
         else
         {
-            value = match pe.get_ref::<VSFixedFileInfo>(offset) {
+            value = match pe.read_val::<VSFixedFileInfo>(offset) {
                 Ok(v) => Some(v),
                 Err(e) => return Err(Error::from(e)),
             };
-            
+
             let struct_size = mem::size_of::<VSFixedFileInfo>();
             offset += struct_size;
             consumed = offset - base_offset;
-            if consumed > *header.length as usize { return Err(Error::CorruptDataDirectory); }
+            if consumed > header.length as usize { return Err(Error::CorruptDataDirectory); }
         }
 
         offset = align(offset, 4);
         let mut string_file_info = None;
         let mut var_file_info = None;
 
-        if consumed < *header.length as usize {
+        if consumed < header.length as usize {
             let rva = match pe.get_type() { // compensate for potentially translated offset
                 PEType::Disk => Offset(offset as u32).as_rva(pe)?,
                 PEType::Memory => RVA(offset as u32),
@@ -2401,18 +2316,18 @@ impl<'data> VSVersionInfo<'data> {
             if header_str == "StringFileInfo" {
                 let string_file_info_tmp = VSStringFileInfo::parse(pe, rva)?;
 
-                offset += *string_file_info_tmp.header.length as usize;
+                offset += string_file_info_tmp.header.length as usize;
                 consumed = offset - base_offset;
-                if consumed > *header.length as usize { return Err(Error::CorruptDataDirectory); }
+                if consumed > header.length as usize { return Err(Error::CorruptDataDirectory); }
 
                 string_file_info = Some(string_file_info_tmp);
             }
             else if header_str == "VarFileInfo" {
                 let var_file_info_tmp = VSVarFileInfo::parse(pe, rva)?;
 
-                offset += *var_file_info_tmp.header.length as usize;
+                offset += var_file_info_tmp.header.length as usize;
                 consumed = offset - base_offset;
-                if consumed > *header.length as usize { return Err(Error::CorruptDataDirectory); }
+                if consumed > header.length as usize { return Err(Error::CorruptDataDirectory); }
 
                 var_file_info = Some(var_file_info_tmp);
             }
@@ -2421,7 +2336,7 @@ impl<'data> VSVersionInfo<'data> {
 
         offset = align(offset, 4);
 
-        if consumed < *header.length as usize {
+        if consumed < header.length as usize {
             let rva = match pe.get_type() { // compensate for potentially translated offset
                 PEType::Disk => Offset(offset as u32).as_rva(pe)?,
                 PEType::Memory => RVA(offset as u32),
@@ -2434,24 +2349,24 @@ impl<'data> VSVersionInfo<'data> {
             if header_str == "StringFileInfo" {
                 let string_file_info_tmp = VSStringFileInfo::parse(pe, rva)?;
 
-                offset += *string_file_info_tmp.header.length as usize;
+                offset += string_file_info_tmp.header.length as usize;
                 consumed = offset - base_offset;
-                if consumed > *header.length as usize { return Err(Error::CorruptDataDirectory); }
+                if consumed > header.length as usize { return Err(Error::CorruptDataDirectory); }
 
                 string_file_info = Some(string_file_info_tmp);
             }
             else if header_str == "VarFileInfo" {
                 let var_file_info_tmp = VSVarFileInfo::parse(pe, rva)?;
 
-                offset += *var_file_info_tmp.header.length as usize;
+                offset += var_file_info_tmp.header.length as usize;
                 consumed = offset - base_offset;
-                if consumed > *header.length as usize { return Err(Error::CorruptDataDirectory); }
+                if consumed > header.length as usize { return Err(Error::CorruptDataDirectory); }
 
                 var_file_info = Some(var_file_info_tmp);
             }
             else { panic!("Unknown VS_VERSIONINFO structure header, please report this bug to github.com/frank2/exe-rs with the offending binary."); }
         }
-        
+
         Ok(Self {
             header,
             value,
