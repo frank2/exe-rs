@@ -907,7 +907,7 @@ impl ImageImportDescriptor {
 
         Ok(thunks)
     }
-    fn parse_thunk_array<'data, P: PE>(&self, pe: &'data P, rva: RVA) -> Result<Vec<Thunk<'data>>, Error> {
+    fn parse_thunk_array<P: PE>(&self, pe: &P, rva: RVA) -> Result<Vec<Thunk>, Error> {
         if rva.0 == 0 {
             return Err(Error::InvalidRVA(rva));
         }
@@ -915,19 +915,19 @@ impl ImageImportDescriptor {
         let arch = pe.get_arch()?;
         let thunks = self.parse_thunk_array_size(pe, rva)?;
         let offset = pe.translate(PETranslation::Memory(rva))?;
-        
+
         match arch {
-            Arch::X86 => match unsafe { pe.read_val_array::<Thunk32>(offset, thunks) } {
-                Ok(s) => Ok(s.iter().map(|x| Thunk::Thunk32(x)).collect()),
+            Arch::X86 => match pe.read_val_array::<Thunk32>(offset, thunks) {
+                Ok(s) => Ok(s.into_iter().map(|x| Thunk::Thunk32(x)).collect()),
                 Err(e) => Err(Error::from(e)),
             },
-            Arch::X64 => match unsafe { pe.read_val_array::<Thunk64>(offset, thunks) } {
-                Ok(s) => Ok(s.iter().map(|x| Thunk::Thunk64(x)).collect()),
+            Arch::X64 => match pe.read_val_array::<Thunk64>(offset, thunks) {
+                Ok(s) => Ok(s.into_iter().map(|x| Thunk::Thunk64(x)).collect()),
                 Err(e) => Err(Error::from(e)),
             },
         }
     }
-    fn parse_mut_thunk_array<'data, P: PE>(&self, pe: &'data mut P, rva: RVA) -> Result<Vec<ThunkMut<'data>>, Error> {
+    fn parse_mut_thunk_array<P: PE>(&self, pe: &mut P, rva: RVA) -> Result<Vec<ThunkMut>, Error> {
         if rva.0 == 0 {
             return Err(Error::InvalidRVA(rva));
         }
@@ -937,23 +937,23 @@ impl ImageImportDescriptor {
         let offset = pe.translate(PETranslation::Memory(rva))?;
 
         match arch {
-            Arch::X86 => match unsafe { pe.read_val_array::<Thunk32>(offset, thunks) } {
-                Ok(s) => Ok(s.iter_mut().map(|x| ThunkMut::Thunk32(x)).collect()),
+            Arch::X86 => match pe.read_val_array::<Thunk32>(offset, thunks) {
+                Ok(s) => Ok(s.into_iter().map(|x| ThunkMut::Thunk32(x)).collect()),
                 Err(e) => Err(Error::from(e)),
             },
-            Arch::X64 => match unsafe { pe.read_val_array::<Thunk64>(offset, thunks) } {
-                Ok(s) => Ok(s.iter_mut().map(|x| ThunkMut::Thunk64(x)).collect()),
+            Arch::X64 => match pe.read_val_array::<Thunk64>(offset, thunks) {
+                Ok(s) => Ok(s.into_iter().map(|x| ThunkMut::Thunk64(x)).collect()),
                 Err(e) => Err(Error::from(e)),
             },
         }
     }
 
     /// Get the thunk array pointed to by the ```original_first_thunk``` field.
-    pub fn get_original_first_thunk<'data, P: PE>(&self, pe: &'data P) -> Result<Vec<Thunk<'data>>, Error> {
+    pub fn get_original_first_thunk<P: PE>(&self, pe: &P) -> Result<Vec<Thunk>, Error> {
         self.parse_thunk_array(pe, self.original_first_thunk)
     }
     /// Get the mutable thunk array pointed to by the ```original_first_thunk``` field.
-    pub fn get_mut_original_first_thunk<'data, P: PE>(&self, pe: &'data mut P) -> Result<Vec<ThunkMut<'data>>, Error> {
+    pub fn get_mut_original_first_thunk<P: PE>(&self, pe: &mut P) -> Result<Vec<ThunkMut>, Error> {
         self.parse_mut_thunk_array(pe, self.original_first_thunk)
     }
 
@@ -973,23 +973,23 @@ impl ImageImportDescriptor {
     /// Get the first thunk array.
     ///
     /// This array typically represents where in memory imports get resolved to.
-    pub fn get_first_thunk<'data, P: PE>(&self, pe: &'data P) -> Result<Vec<Thunk<'data>>, Error> {
+    pub fn get_first_thunk<P: PE>(&self, pe: &P) -> Result<Vec<Thunk>, Error> {
         self.parse_thunk_array(pe, self.first_thunk)
     }
     /// Get the mutable first thunk array.
-    pub fn get_mut_first_thunk<'data, P: PE>(&self, pe: &'data mut P) -> Result<Vec<ThunkMut<'data>>, Error> {
+    pub fn get_mut_first_thunk<P: PE>(&self, pe: &mut P) -> Result<Vec<ThunkMut>, Error> {
         self.parse_mut_thunk_array(pe, self.first_thunk)
     }
 
     /// Get the thunk array that represents the imports, also known as the "import lookup table."
     ///
     /// This thunk array can either come from the `original_first_thunk` value or the `first_thunk` value.
-    pub fn get_lookup_thunks<'data, P: PE>(&self, pe: &'data P) -> Result<Vec<Thunk<'data>>, Error> {
+    pub fn get_lookup_thunks<P: PE>(&self, pe: &P) -> Result<Vec<Thunk>, Error> {
         match self.get_original_first_thunk(pe) {
             Ok(t) => Ok(t),
             Err(e) => {
                 if let Error::InvalidRVA(_) = e { () } else { return Err(e) }
-                
+
                 self.get_first_thunk(pe)
             },
         }
@@ -998,10 +998,10 @@ impl ImageImportDescriptor {
     /// Get the imports represented by this import descriptor.
     ///
     /// This resolves the import table and returns a vector of [`ImportData`](ImportData) objects.
-    pub fn get_imports<'data, P: PE>(&self, pe: &'data P) -> Result<Vec<ImportData<'data>>, Error> {
-        let mut results = Vec::<ImportData<'data>>::new();
+    pub fn get_imports<P: PE>(&self, pe: &P) -> Result<Vec<ImportData>, Error> {
+        let mut results = Vec::<ImportData>::new();
         let thunks = self.get_lookup_thunks(pe)?;
-        
+
         for thunk in thunks {
             let thunk_data = match thunk {
                 Thunk::Thunk32(t32) => t32.parse_import(),
@@ -1013,7 +1013,7 @@ impl ImageImportDescriptor {
                 ThunkData::ImportByName(rva) => {
                     let import = ImageImportByName::parse(pe, rva)?;
                     let s = import.name.as_str()?;
-                    results.push(ImportData::ImportByName(s));
+                    results.push(ImportData::ImportByName(s.to_string()));
                 },
                 _ => (),
             }
@@ -1082,12 +1082,12 @@ impl ImageImportDescriptor {
         }
 
         for i in 0..address_table.len() {
-            let lookup_entry = &lookup_results[i];
+            let lookup_entry = lookup_results[i];
             let address_entry = &mut address_table[i];
-                
+
             match address_entry {
-                ThunkMut::Thunk32(ref mut t32) => **t32 = Thunk32(*lookup_entry as u32),
-                ThunkMut::Thunk64(ref mut t64) => **t64 = Thunk64(*lookup_entry as u64),
+                ThunkMut::Thunk32(mut t32) => *t32 = Thunk32(lookup_entry as u32),
+                ThunkMut::Thunk64(mut t64) => *t64 = Thunk64(lookup_entry as u64),
             }
         }
 
@@ -1257,7 +1257,7 @@ impl ImageResourceDirStringMut {
         let offset = pe.translate(PETranslation::Memory(rva))?;
         let length = pe.read_val::<u16>(offset)?;
         let name = pe.get_slice_ref::<CChar>(offset + mem::size_of::<u16>(), length as usize)?;
-        let name_vec = name.iter_mut().map(|c| *c).collect();
+        let name_vec = name.iter().copied().collect();
 
         Ok(Self { length, name: name_vec })
     }
@@ -1298,7 +1298,7 @@ impl ImageResourceDirStringUMut {
         let offset = pe.translate(PETranslation::Memory(rva))?;
         let length = pe.read_val::<u16>(offset)?;
         let name = pe.get_slice_ref::<WChar>(offset + mem::size_of::<u16>(), length as usize)?;
-        let name_vec = name.iter_mut().map(|c| *c).collect();
+        let name_vec = name.iter().copied().collect();
 
         Ok(Self { length, name: name_vec })
     }
@@ -1669,9 +1669,9 @@ impl GrpIconDir {
         let reserved = pe.read_val::<u16>(offset)?;
         let icon_type = pe.read_val::<u16>(offset+2)?;
         let count = pe.read_val::<u16>(offset+4)?;
-        let entries = pe.get_slice_ref::<GrpIconDirEntry>(offset+6, count as usize)?;
+        let entries = pe.read_val_array::<GrpIconDirEntry>(offset+6, count as usize)?;
 
-        Ok(Self { reserved, icon_type, count, entries: entries.to_vec() })
+        Ok(Self { reserved, icon_type, count, entries })
     }
     /// Convert this resource icon into a file icon.
     ///
@@ -1697,7 +1697,7 @@ impl GrpIconDir {
             let data = entry.read(pe)?;
 
             icon_buf.append_slice_val::<u8>(data);
-            let vec_dir = IconDirMut::parse(&mut icon_buf)?;
+            let mut vec_dir = IconDirMut::parse(&mut icon_buf)?;
             vec_dir.entries[index].image_offset = offset as u32;
         }
 
@@ -1722,9 +1722,9 @@ impl GrpIconDirMut {
         let reserved = pe.read_val::<u16>(offset)?;
         let icon_type = pe.read_val::<u16>(offset+2)?;
         let count = pe.read_val::<u16>(offset+4)?;
-        let entries = pe.get_slice_ref::<GrpIconDirEntry>(offset+6, count as usize)?;
+        let entries = pe.read_val_array::<GrpIconDirEntry>(offset+6, count as usize)?;
 
-        Ok(Self { reserved, icon_type, count, entries: entries.to_vec() })
+        Ok(Self { reserved, icon_type, count, entries })
     }
     /// Convert this resource icon into a file icon.
     ///
@@ -1750,7 +1750,7 @@ impl GrpIconDirMut {
             let data = entry.read(pe)?;
 
             icon_buf.append_slice_val::<u8>(data);
-            let vec_dir = IconDirMut::parse(&mut icon_buf)?;
+            let mut vec_dir = IconDirMut::parse(&mut icon_buf)?;
             vec_dir.entries[index].image_offset = offset as u32;
         }
 

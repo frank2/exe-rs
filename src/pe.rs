@@ -719,7 +719,7 @@ pub trait PE: Buffer + Sized {
 
         for section in section_table {
             if section.has_offset(offset) {
-                return Ok(section);
+                return Ok(section.clone());
             }
         }
 
@@ -733,7 +733,7 @@ pub trait PE: Buffer + Sized {
 
         for section in section_table {
             if section.has_offset(offset) {
-                return Ok(section);
+                return Ok(section.clone());
             }
         }
 
@@ -747,7 +747,7 @@ pub trait PE: Buffer + Sized {
 
         for section in section_table {
             if section.has_rva(rva) {
-                return Ok(section);
+                return Ok(section.clone());
             }
         }
 
@@ -761,7 +761,7 @@ pub trait PE: Buffer + Sized {
 
         for section in section_table {
             if section.has_rva(rva) {
-                return Ok(section);
+                return Ok(section.clone());
             }
         }
 
@@ -778,7 +778,7 @@ pub trait PE: Buffer + Sized {
             let name = section.name.as_str()?;
 
             if name == s {
-                return Ok(section);
+                return Ok(section.clone());
             }
         }
 
@@ -795,7 +795,7 @@ pub trait PE: Buffer + Sized {
             let name = section.name.as_str()?;
 
             if name == s {
-                return Ok(section);
+                return Ok(section.clone());
             }
         }
 

@@ -48,7 +48,7 @@ fn test_compiled() {
 
     let e_lfanew = e_lfanew_check.unwrap();
 
-    let search = pefile.search_ref(&NT_SIGNATURE);
+    let search = pefile.search(&NT_SIGNATURE.to_le_bytes());
     assert!(search.is_ok());
     assert_eq!(search.unwrap().collect::<Vec<usize>>(), vec![e_lfanew.into()]);
 
@@ -91,14 +91,14 @@ fn test_compiled() {
 
     let kernel32_thunks = kernel32_thunks_result.unwrap();
     if let Thunk::Thunk32(kernel32_thunk) = kernel32_thunks[0] {
-        assert_eq!(*kernel32_thunk, Thunk32(0x2060));
+        assert_eq!(kernel32_thunk, Thunk32(0x2060));
     }
     else {
         panic!("bad thunk");
     }
         
     let kernel32_imports = import_directory.descriptors[0].get_imports(&pefile);
-    let kernel32_expected = vec![ImportData::ImportByName("ExitProcess")];
+    let kernel32_expected = vec![ImportData::ImportByName("ExitProcess".to_string())];
     assert!(kernel32_imports.is_ok());
     assert_eq!(kernel32_imports.unwrap(), kernel32_expected);
 
@@ -107,7 +107,7 @@ fn test_compiled() {
     assert_eq!(name_1.unwrap().as_str().unwrap(), "msvcrt.dll");
 
     let msvcrt_imports = import_directory.descriptors[1].get_imports(&pefile);
-    let msvcrt_expected = vec![ImportData::ImportByName("printf")];
+    let msvcrt_expected = vec![ImportData::ImportByName("printf".to_string())];
     assert!(msvcrt_imports.is_ok());
     assert_eq!(msvcrt_imports.unwrap(), msvcrt_expected);
 
@@ -181,14 +181,14 @@ fn test_compiled_dumped() {
 
     let kernel32_thunks = kernel32_thunks_result.unwrap();
     if let Thunk::Thunk32(kernel32_thunk) = kernel32_thunks[0] {
-        assert_eq!(*kernel32_thunk, Thunk32(0x2060));
+        assert_eq!(kernel32_thunk, Thunk32(0x2060));
     }
     else {
         panic!("bad thunk");
     }
         
     let kernel32_imports = import_directory.descriptors[0].get_imports(&pefile);
-    let kernel32_expected = vec![ImportData::ImportByName("ExitProcess")];
+    let kernel32_expected = vec![ImportData::ImportByName("ExitProcess".to_string())];
     assert!(kernel32_imports.is_ok());
     assert_eq!(kernel32_imports.unwrap(), kernel32_expected);
 
@@ -197,7 +197,7 @@ fn test_compiled_dumped() {
     assert_eq!(name_1.unwrap().as_str().unwrap(), "msvcrt.dll");
 
     let msvcrt_imports = import_directory.descriptors[1].get_imports(&pefile);
-    let msvcrt_expected = vec![ImportData::ImportByName("printf")];
+    let msvcrt_expected = vec![ImportData::ImportByName("printf".to_string())];
     assert!(msvcrt_imports.is_ok());
     assert_eq!(msvcrt_imports.unwrap(), msvcrt_expected);
 
@@ -292,7 +292,7 @@ fn test_imports_nothunk() {
 
     let kernel32_imports = import_table.descriptors[0].get_imports(&pefile);
     assert!(kernel32_imports.is_ok());
-    assert_eq!(kernel32_imports.unwrap(), [ImportData::ImportByName("ExitProcess")]);
+    assert_eq!(kernel32_imports.unwrap(), [ImportData::ImportByName("ExitProcess".to_string())]);
 
     let blank_imports = import_table.descriptors[1].get_imports(&pefile);
     assert!(blank_imports.is_ok());
@@ -300,7 +300,7 @@ fn test_imports_nothunk() {
 
     let msvcrt_imports = import_table.descriptors[2].get_imports(&pefile);
     assert!(msvcrt_imports.is_ok());
-    assert_eq!(msvcrt_imports.unwrap(), [ImportData::ImportByName("printf")]);
+    assert_eq!(msvcrt_imports.unwrap(), [ImportData::ImportByName("printf".to_string())]);
 }
 
 #[test]
@@ -437,14 +437,14 @@ fn test_creation() {
     // simply add `created_file.save_as("my_file.exe")` to the end of the function to see for yourself
     let mut created_file = VecPE::new_disk(0x400);
 
-    let dos_result = created_file.write_ref(0, &ImageDOSHeader::default());
+    let dos_result = created_file.write_val(0, &ImageDOSHeader::default());
     assert!(dos_result.is_ok());
 
     let e_lfanew = created_file.e_lfanew();
     assert!(e_lfanew.is_ok());
     assert_eq!(e_lfanew.unwrap(), Offset(0xE0));
 
-    let nt_result = created_file.write_ref(created_file.e_lfanew().unwrap().into(), &ImageNTHeaders64::default());
+    let nt_result = created_file.write_val(created_file.e_lfanew().unwrap().into(), &ImageNTHeaders64::default());
     assert!(nt_result.is_ok());
 
     let nt_headers = created_file.get_valid_nt_headers();
@@ -465,7 +465,7 @@ fn test_creation() {
     let created_section_check = created_file.append_section(&new_section);
     assert!(created_section_check.is_ok());
 
-    let created_section = created_section_check.unwrap();
+    let mut created_section = created_section_check.unwrap();
     assert_eq!(created_section.pointer_to_raw_data, Offset(0x400));
     assert_eq!(created_section.virtual_address, RVA(0x1000));
 
@@ -485,7 +485,7 @@ fn test_creation() {
     let nt_headers = created_file.get_valid_mut_nt_headers();
     assert!(nt_headers.is_ok());
 
-    if let NTHeadersMut::NTHeaders64(nt_headers_64) = nt_headers.unwrap() {
+    if let NTHeadersMut::NTHeaders64(mut nt_headers_64) = nt_headers.unwrap() {
         assert_eq!(nt_headers_64.file_header.number_of_sections, 1);
         nt_headers_64.optional_header.address_of_entry_point = RVA(0x1000);
         nt_headers_64.optional_header.size_of_headers = 0x200;
@@ -540,6 +540,7 @@ fn test_add_relocation() {
     assert_eq!(relocations[0], (RVA(0x11C0), RelocationValue::Relocation32(0x01000000)));
 }
 
+#[cfg(feature = "win32")]
 #[test]
 fn test_load_flareon() {
     let flareon = VecPE::from_disk_file("test/flareon.noaslr.exe").unwrap();

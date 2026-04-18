@@ -434,24 +434,24 @@ impl ThunkFunctions for Thunk64 {
 }
 
 /// Abstractly represents a thunk object.
-pub enum Thunk<'data> {
-    Thunk32(&'data Thunk32),
-    Thunk64(&'data Thunk64),
+pub enum Thunk {
+    Thunk32(Thunk32),
+    Thunk64(Thunk64),
 }
 
 /// Abstractly represents a mutable thunk object.
-pub enum ThunkMut<'data> {
-    Thunk32(&'data mut Thunk32),
-    Thunk64(&'data mut Thunk64),
+pub enum ThunkMut {
+    Thunk32(Thunk32),
+    Thunk64(Thunk64),
 }
 
 pub type ExportDirectory = ImageExportDirectory;
 
 /// An enum representing resolved import data from thunk data.
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub enum ImportData<'data> {
+pub enum ImportData {
     Ordinal(u32),
-    ImportByName(&'data str),
+    ImportByName(String),
 }
 
 /// Represents the import directory in the PE file.
@@ -497,13 +497,13 @@ impl<'data> ImportDirectory<'data> {
         Ok(Self { descriptors } )
     }
     /// Gets a map of DLL names to function names/ordinals in the import directory.
-    pub fn get_import_map<P: PE>(&self, pe: &'data P) -> Result<HashMap<&'data str, Vec<ImportData<'data>>>, Error> {
-        let mut results = HashMap::<&'data str, Vec<ImportData<'data>>>::new();
+    pub fn get_import_map<P: PE>(&self, pe: &P) -> Result<HashMap<String, Vec<ImportData>>, Error> {
+        let mut results = HashMap::<String, Vec<ImportData>>::new();
 
         for import in self.descriptors {
             let name = match import.get_name(pe) {
                 Ok(n) => match n.as_str() {
-                    Ok(s) => s,
+                    Ok(s) => s.to_string(),
                     Err(e) => return Err(e),
                 },
                 Err(e) => return Err(e),
@@ -550,20 +550,20 @@ impl<'data> ImportDirectoryMut<'data> {
         Ok(Self { descriptors } )
     }
     /// Gets a map of DLL names to function names/ordinals in the import directory.
-    pub fn get_import_map<P: PE>(&self, pe: &'data P) -> Result<HashMap<&'data str, Vec<ImportData<'data>>>, Error> {
-        let mut results = HashMap::<&'data str, Vec<ImportData<'data>>>::new();
+    pub fn get_import_map<P: PE>(&self, pe: &P) -> Result<HashMap<String, Vec<ImportData>>, Error> {
+        let mut results = HashMap::<String, Vec<ImportData>>::new();
 
         for import in self.descriptors.iter() {
             let name = match import.get_name(pe) {
                 Ok(n) => match n.as_str() {
-                    Ok(s) => s,
+                    Ok(s) => s.to_string(),
                     Err(e) => return Err(e),
                 },
                 Err(e) => return Err(e),
             };
 
             let imports = import.get_imports(pe)?;
-            
+
             results.insert(name, imports);
         }
 
@@ -1140,7 +1140,7 @@ impl RelocationDirectoryMut {
         
         self.entries = new_relocations;
 
-        let mut_dir = pe.get_mut_data_directory(ImageDirectoryEntry::BaseReloc)?;
+        let mut mut_dir = pe.get_mut_data_directory(ImageDirectoryEntry::BaseReloc)?;
         mut_dir.size = new_size;
 
         Ok(())
@@ -1417,7 +1417,7 @@ impl ResourceNodeMut {
     /// is returned.
     pub fn parse<P: PE>(pe: &mut P, offset: ResourceOffset) -> Result<Self, Error> {
         let resolved_offset = offset.resolve(pe)?;
-        let image_offset = pe.translate(PETranslation::Memory(resolved_offset))?;
+        let mut image_offset = pe.translate(PETranslation::Memory(resolved_offset))?;
 
         let directory = pe.read_val::<ImageResourceDirectory>(image_offset)?;
         image_offset += mem::size_of::<ImageResourceDirectory>();

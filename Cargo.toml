@@ -19,7 +19,7 @@ byteorder = "1.1.0"
 chrono = { version = "0.4", features = ["clock", "std", "wasmbind"], default-features = false }
 hex = "0.4.3"
 num-traits = "0.2.14"
-pkbuffer = "=0.4.2"
+pkbuffer = "0.6"
 md-5 = "0.9.1"
 sha-1 = "0.9.6"
 sha2 = "0.9.5"
@@ -33,3 +33,6 @@ win32 = ["winapi"]
 [package.metadata.docs.rs]
 features = ["win32"]
 default-target = "x86_64-pc-windows-msvc"
+
+[patch.crates-io]
+pkbuffer = { path = "/home/purple/local/doc/git/github/frank2/pkbuffer" }
