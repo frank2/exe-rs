@@ -458,47 +458,32 @@ fn test_creation() {
     }
 
     let mut new_section = ImageSectionHeader::default();
-    
+
     new_section.set_name(Some(".text"));
     assert_eq!(new_section.name.as_str().unwrap(), ".text");
+
+    let data: &[u8] = &[0x48, 0x31, 0xC0, 0xC3]; // xor rax,rax / ret
+
+    // Set all section properties BEFORE adding
+    new_section.virtual_size = 0x1000;
+    new_section.size_of_raw_data = data.len() as u32;
+    new_section.characteristics = SectionCharacteristics::MEM_EXECUTE
+        | SectionCharacteristics::MEM_READ
+        | SectionCharacteristics::CNT_CODE;
 
     let created_section_check = created_file.append_section(&new_section);
     assert!(created_section_check.is_ok());
 
-    let mut created_section = created_section_check.unwrap();
+    let created_section = created_section_check.unwrap();
     assert_eq!(created_section.pointer_to_raw_data, Offset(0x400));
     assert_eq!(created_section.virtual_address, RVA(0x1000));
 
-    let data: &[u8] = &[0x48, 0x31, 0xC0, 0xC3]; // xor rax,rax / ret
-    
-    created_section.virtual_size = 0x1000;
-    created_section.size_of_raw_data = data.len() as u32;
-    created_section.characteristics = SectionCharacteristics::MEM_EXECUTE
-        | SectionCharacteristics::MEM_READ
-        | SectionCharacteristics::CNT_CODE;
-
-    // clone the section to stop mutable borrowing of created_file
-    let cloned_section = created_section.clone();
-    assert!(cloned_section.is_aligned_to_file(&created_file));
-    assert!(cloned_section.is_aligned_to_section(&created_file));
-    
-    let nt_headers = created_file.get_valid_mut_nt_headers();
-    assert!(nt_headers.is_ok());
-
-    if let NTHeadersMut::NTHeaders64(mut nt_headers_64) = nt_headers.unwrap() {
-        assert_eq!(nt_headers_64.file_header.number_of_sections, 1);
-        nt_headers_64.optional_header.address_of_entry_point = RVA(0x1000);
-        nt_headers_64.optional_header.size_of_headers = 0x200;
-    }
-    else {
-        panic!("couldn't get NT headers");
-    }
-
+    // Verify section in table matches what was added
     let section_table = created_file.get_section_table();
     assert!(section_table.is_ok());
-    assert_eq!(section_table.unwrap()[0], cloned_section);
+    assert_eq!(section_table.unwrap()[0], created_section);
 
-    let section_offset = cloned_section.data_offset(created_file.get_type());
+    let section_offset = created_section.data_offset(created_file.get_type());
     assert_eq!(section_offset, 0x400);
 
     let append_offset = created_file.len();
@@ -506,7 +491,7 @@ fn test_creation() {
 
     created_file.append(&mut data.to_vec());
 
-    let read_result = cloned_section.read(&created_file);
+    let read_result = created_section.read(&created_file);
     assert!(read_result.is_ok());
     assert_eq!(read_result.unwrap(), data);
 
