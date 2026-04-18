@@ -482,13 +482,13 @@ pub trait PE: Buffer + Sized {
         let magic = self.get_nt_magic()?;
         let e_lfanew = self.e_lfanew()?;
 
-        // Checksum is at a fixed offset within the optional header
-        // For PE32: e_lfanew + 4 (signature) + 0x58 (sizeof(ImageFileHeader) + offset in optional)
-        // For PE64: e_lfanew + 4 (signature) + 0x64
+        // Checksum is at a fixed file offset from e_lfanew
+        // For PE32: e_lfanew + 0x58
+        // For PE32+: e_lfanew + 0x64
         let checksum_offset = if magic == HDR32_MAGIC {
-            e_lfanew.0 as usize + 4 + 0x58
+            e_lfanew.0 as usize + 0x58
         } else {
-            e_lfanew.0 as usize + 4 + 0x64
+            e_lfanew.0 as usize + 0x64
         };
 
         let eof = self.len();
@@ -804,19 +804,46 @@ pub trait PE: Buffer + Sized {
     /// Add a given section header to the section table. Returns a mutable reference to the section header as it exists
     /// in the section table.
     fn add_section(&mut self, section: &ImageSectionHeader) -> Result<ImageSectionHeader, Error> {
-        match self.get_valid_mut_nt_headers() {
-            Ok(ref mut h) => match h {
-                NTHeadersMut::NTHeaders32(ref mut h32) => h32.file_header.number_of_sections += 1,
-                NTHeadersMut::NTHeaders64(ref mut h64) => h64.file_header.number_of_sections += 1,
+        // Get e_lfanew for writing NT headers back
+        let e_lfanew = self.e_lfanew()?;
+
+        // Get the current section count BEFORE incrementing
+        let sections_before = match self.get_valid_nt_headers() {
+            Ok(ref h) => match h {
+                NTHeaders::NTHeaders32(h32) => h32.file_header.number_of_sections,
+                NTHeaders::NTHeaders64(h64) => h64.file_header.number_of_sections,
             },
             Err(e) => return Err(e),
+        };
+
+        // Get mutable headers and increment section count
+        let mut nt_headers = match self.get_valid_mut_nt_headers() {
+            Ok(h) => h,
+            Err(e) => return Err(e),
+        };
+
+        match nt_headers {
+            NTHeadersMut::NTHeaders32(ref mut h32) => h32.file_header.number_of_sections += 1,
+            NTHeadersMut::NTHeaders64(ref mut h64) => h64.file_header.number_of_sections += 1,
         }
 
+        // Write the updated NT headers to persist the incremented section count
+        match nt_headers {
+            NTHeadersMut::NTHeaders32(h32) => self.write_val(e_lfanew.0 as usize, &h32)?,
+            NTHeadersMut::NTHeaders64(h64) => self.write_val(e_lfanew.0 as usize, &h64)?,
+        }
+        // nt_headers is now dropped, releasing the mutable borrow
+
+        // Get section table offset and write the new section
+        let section_table_offset = self.get_section_table_offset()?;
+        let section_size = std::mem::size_of::<ImageSectionHeader>();
+        let write_offset = section_table_offset.0 as usize + (sections_before as usize) * section_size;
+
+        self.write_val(write_offset, section)?;
+
+        // Return the section we just added by reading it back
         let mut section_table = self.get_mut_section_table()?;
-
-        section_table[section_table.len()-1].clone_from(section);
-
-        Ok(section_table[section_table.len()-1])
+        Ok(section_table[sections_before as usize])
     }
     /// Append a given section header to the end of the PE sections. This function differs from [`add_section`](PE::add_section) by setting the
     /// new section's [`pointer_to_raw_data`](ImageSectionHeader::pointer_to_raw_data) and [`virtual_address`](ImageSectionHeader::virtual_address)
@@ -849,12 +876,14 @@ pub trait PE: Buffer + Sized {
 
         let next_offset = self.align_to_file(Offset(last_offset.0 + last_section_file_size))?;
         let next_rva = self.align_to_section(RVA(last_rva.0 + last_section_virtual_size))?;
-        let mut added_section = self.add_section(section)?;
 
-        added_section.pointer_to_raw_data = next_offset;
-        added_section.virtual_address = next_rva;
+        // Create a modified section with the correct offsets
+        let mut modified_section = *section;
+        modified_section.pointer_to_raw_data = next_offset;
+        modified_section.virtual_address = next_rva;
 
-        Ok(added_section)
+        // Use add_section to add the modified section
+        self.add_section(&modified_section)
     }
 
     /// Verify that the given offset is a valid offset.
