@@ -1696,9 +1696,11 @@ impl GrpIconDir {
             let offset = icon_buf.len();
             let data = entry.read(pe)?;
 
-            icon_buf.append_slice_val::<u8>(data);
-            let mut vec_dir = IconDirMut::parse(&mut icon_buf)?;
-            vec_dir.entries[index].image_offset = offset as u32;
+            icon_buf.append(&data);
+
+            // Write the updated image_offset back to the buffer
+            let entry_offset = 6 + index * 16 + 12; // offset to image_offset field in ICONDIRENTRY
+            icon_buf.write_val::<u32>(entry_offset, &(offset as u32))?;
         }
 
         Ok(icon_buf)
@@ -1749,9 +1751,11 @@ impl GrpIconDirMut {
             let offset = icon_buf.len();
             let data = entry.read(pe)?;
 
-            icon_buf.append_slice_val::<u8>(data);
-            let mut vec_dir = IconDirMut::parse(&mut icon_buf)?;
-            vec_dir.entries[index].image_offset = offset as u32;
+            icon_buf.append(&data);
+
+            // Write the updated image_offset back to the buffer
+            let entry_offset = 6 + index * 16 + 12; // offset to image_offset field in ICONDIRENTRY
+            icon_buf.write_val::<u32>(entry_offset, &(offset as u32))?;
         }
 
         Ok(icon_buf)
