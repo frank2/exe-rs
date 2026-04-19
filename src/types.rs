@@ -6,7 +6,6 @@ use pkbuffer::{Buffer, VecBuffer};
 
 use std::collections::HashMap;
 use std::mem;
-use std::slice;
 
 use widestring::utfstr::Utf16Str;
 use widestring::utfstring::Utf16String;
@@ -1003,8 +1002,8 @@ impl RelocationDirectoryMut {
             return Err(Error::InvalidRVA(end_addr));
         }
 
-        let start_offset = pe.translate(PETranslation::Memory(start_addr))?;
-        let end_offset = pe.translate(PETranslation::Memory(end_addr))?;
+        let _start_offset = pe.translate(PETranslation::Memory(start_addr))?;
+        let _end_offset = pe.translate(PETranslation::Memory(end_addr))?;
         let mut entries = Vec::<RelocationEntry>::new();
         let mut current_addr = start_addr;
 
@@ -1689,7 +1688,7 @@ impl ResourceDirectoryMut {
             Err(e) => return Err(e),
         };
 
-        let rva = ResourceOffset(0).resolve(pe)?;
+        let _rva = ResourceOffset(0).resolve(pe)?;
         let root_node = ResourceNodeMut::parse(pe, ResourceOffset(0))?;
 
         for type_entry in &root_node.entries {

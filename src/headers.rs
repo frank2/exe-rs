@@ -17,7 +17,6 @@ use std::cmp;
 use std::collections::HashMap;
 use std::default::Default;
 use std::mem;
-use std::slice;
 
 #[cfg(feature="win32")] use winapi::shared::minwindef::FARPROC;
 #[cfg(feature="win32")] use winapi::um::errhandlingapi::GetLastError;

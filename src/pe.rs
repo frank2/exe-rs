@@ -669,7 +669,7 @@ pub trait PE: Buffer + Sized {
     }
     /// Get the mutable data directory reference represented by the [`ImageDirectoryEntry`](crate::headers::ImageDirectoryEntry) enum.
     fn get_mut_data_directory(&mut self, dir: ImageDirectoryEntry) -> Result<ImageDataDirectory, Error> {
-        let mut directory_table = self.get_mut_data_directory_table()?;
+        let directory_table = self.get_mut_data_directory_table()?;
         let index = dir as usize;
 
         if index >= directory_table.len() {
@@ -769,7 +769,7 @@ pub trait PE: Buffer + Sized {
     /// Get a mutable reference to a section in the PE file by a given offset. Yields a
     /// [`Error::SectionNotFound`](Error::SectionNotFound) error if the offset wasn't found to be in a section.
     fn get_mut_section_by_offset(&mut self, offset: Offset) -> Result<ImageSectionHeader, Error> {
-        let mut section_table = self.get_mut_section_table()?;
+        let section_table = self.get_mut_section_table()?;
 
         for section in section_table {
             if section.has_offset(offset) {
@@ -797,7 +797,7 @@ pub trait PE: Buffer + Sized {
     /// Get a mutable reference to a section in the PE file by a given RVA. Yields a
     /// [`Error::SectionNotFound`](Error::SectionNotFound) error if the RVA wasn't found to be in a section.
     fn get_mut_section_by_rva(&mut self, rva: RVA) -> Result<ImageSectionHeader, Error> {
-        let mut section_table = self.get_mut_section_table()?;
+        let section_table = self.get_mut_section_table()?;
 
         for section in section_table {
             if section.has_rva(rva) {
@@ -828,7 +828,7 @@ pub trait PE: Buffer + Sized {
     /// Get a mutable reference to a section in the PE file by its name. Yields a
     /// [`Error::SectionNotFound`](Error::SectionNotFound) error if the name wasn't found in the section table.
     fn get_mut_section_by_name(&mut self, name: String) -> Result<ImageSectionHeader, Error> {
-        let mut sections = self.get_mut_section_table()?;
+        let sections = self.get_mut_section_table()?;
         let s = name.as_str();
 
         for section in sections {
@@ -882,7 +882,7 @@ pub trait PE: Buffer + Sized {
         self.write_val(write_offset, section)?;
 
         // Return the section we just added by reading it back
-        let mut section_table = self.get_mut_section_table()?;
+        let section_table = self.get_mut_section_table()?;
         Ok(section_table[sections_before as usize])
     }
     /// Append a given section header to the end of the PE sections. This function differs from [`add_section`](PE::add_section) by setting the
