@@ -1098,8 +1098,8 @@ impl ImageImportDescriptor {
             let address_entry = &mut address_table[i];
 
             match address_entry {
-                ThunkMut::Thunk32(mut t32) => *t32 = Thunk32(lookup_entry as u32),
-                ThunkMut::Thunk64(mut t64) => *t64 = Thunk64(lookup_entry as u64),
+                ThunkMut::Thunk32(ref mut t32) => *t32 = Thunk32(lookup_entry as u32),
+                ThunkMut::Thunk64(ref mut t64) => *t64 = Thunk64(lookup_entry as u64),
             }
         }
 
