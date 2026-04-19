@@ -526,7 +526,7 @@ fn test_load_flareon() {
 
                     for callback in callbacks {
                         // Attempt to call the TLS callback
-                        let func: extern "C" fn() = std::mem::transmute(callback.0);
+                        let func: extern "C" fn() = unsafe { std::mem::transmute(callback.0) };
                         func();
                     }
                 },
@@ -536,7 +536,7 @@ fn test_load_flareon() {
                     let callbacks = callbacks.unwrap();
 
                     for callback in callbacks {
-                        let func: extern "C" fn() = std::mem::transmute(callback.0 as usize);
+                        let func: extern "C" fn() = unsafe { std::mem::transmute(callback.0 as usize) };
                         func();
                     }
                 },
