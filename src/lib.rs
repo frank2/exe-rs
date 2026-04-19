@@ -226,6 +226,9 @@ pub enum Error {
     /// Only shows up on Windows. The memory region pointed to by the [`VallocBuffer`](VallocBuffer) is no longer available.
     #[cfg(feature="win32")]
     BufferNotAvailable,
+    /// Only shows up on Windows. The PE could not be loaded at its preferred base address and has no relocation table to fix up the address.
+    #[cfg(feature="win32")]
+    ImageBaseNotAvailable,
 }
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -286,6 +289,8 @@ impl std::fmt::Display for Error {
             Error::BadSectionCharacteristics(chars) => write!(f, "Bad section characteristics: {:#x}", chars.bits()),
             #[cfg(feature="win32")]
             Error::BufferNotAvailable => write!(f, "The buffer is no longer available"),
+            #[cfg(feature="win32")]
+            Error::ImageBaseNotAvailable => write!(f, "The PE could not be loaded at its preferred base address and has no relocation table"),
         }
     }
 }

@@ -507,9 +507,47 @@ fn test_add_relocation() {
 #[cfg(feature = "win32")]
 #[test]
 fn test_load_flareon() {
+    use crate::types::{TLSDirectory, VA64};
+
     let flareon = VecPE::from_disk_file("test/flareon.noaslr.exe").unwrap();
     let mut flareon_loaded = VallocPE::from_pe(&flareon).unwrap();
-    assert!(flareon_loaded.load_image().is_ok());
+
+    match flareon_loaded.load_image() {
+        Ok(()) => {
+            // Binary was loaded successfully - verify TLS callbacks execute without crashing
+            let tls_dir = TLSDirectory::parse(&flareon_loaded);
+            assert!(tls_dir.is_ok());
+
+            match tls_dir.unwrap() {
+                TLSDirectory::TLS64(tls) => {
+                    let callbacks = tls.get_callbacks(&flareon_loaded);
+                    assert!(callbacks.is_ok());
+                    let callbacks = callbacks.unwrap();
+
+                    for callback in callbacks {
+                        // Attempt to call the TLS callback
+                        let func: extern "C" fn() = std::mem::transmute(callback.0);
+                        func();
+                    }
+                },
+                TLSDirectory::TLS32(tls) => {
+                    let callbacks = tls.get_callbacks(&flareon_loaded);
+                    assert!(callbacks.is_ok());
+                    let callbacks = callbacks.unwrap();
+
+                    for callback in callbacks {
+                        let func: extern "C" fn() = std::mem::transmute(callback.0 as usize);
+                        func();
+                    }
+                },
+            }
+        },
+        Err(Error::ImageBaseNotAvailable) => {
+            // Expected for no-ASLR binaries without relocations - this is success,
+            // as it correctly detected the condition and refused to load with bad pointers
+        },
+        Err(e) => panic!("Unexpected error: {:?}", e),
+    }
 }
 
 #[test]

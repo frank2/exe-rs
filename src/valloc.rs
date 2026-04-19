@@ -287,6 +287,13 @@ impl VallocPE {
         )?;
 
         alloc_address = reservation.as_ptr();
+
+        if !aslr && alloc_address != image_base as *const u8 {
+            if !pe.has_data_directory(ImageDirectoryEntry::BaseReloc) {
+                return Err(Error::ImageBaseNotAvailable);
+            }
+        }
+
         let alloc_base = alloc_address;
 
         let section_table = pe.get_section_table()?;
