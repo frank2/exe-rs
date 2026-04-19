@@ -408,54 +408,14 @@ impl VallocPE {
 
         self.protect()?;
 
-        if self_ro.has_data_directory(ImageDirectoryEntry::TLS) {
-            let tls_dir = match TLSDirectory::parse(&self_ro) {
-                Ok(t) => t,
-                Err(e) => return Err(e),
-            };
+        // Note: TLS callbacks are not executed because load_image() is meant to
+        // prepare the image in memory, not to execute it. TLS callbacks should
+        // only run when the Windows loader creates a thread, not during manual loading.
+        // If you need to execute TLS callbacks, you should do so manually after
+        // load_image() in a properly sandboxed environment.
 
-            let mut resolved_callbacks = Vec::<*const u8>::new();
-
-            match tls_dir {
-                TLSDirectory::TLS32(tls32) => {
-                    let callbacks = match tls32.get_callbacks(unsafe { &*(self as *mut VallocPE as *const VallocPE) }) {
-                        Ok(c) => c,
-                        Err(e) => return Err(e),
-                    };
-                    
-                    for callback in callbacks {
-                        match callback.as_ptr(self) {
-                            Ok(p) => resolved_callbacks.push(p),
-                            Err(e) => return Err(e),
-                        }
-                    }
-                },
-                TLSDirectory::TLS64(tls64) => {
-                    let callbacks = match tls64.get_callbacks(unsafe { &*(self as *mut VallocPE as *const VallocPE) }) {
-                        Ok(c) => c,
-                        Err(e) => return Err(e),
-                    };
-                    
-                    for callback in callbacks {
-                        match callback.as_ptr(self) {
-                            Ok(p) => resolved_callbacks.push(p),
-                            Err(e) => return Err(e),
-                        }
-                    }
-                },
-            }
-        
-            for callback in resolved_callbacks {
-                type TLSCallback = unsafe extern "system" fn(*const u8, u32, *const u8);
-                let callback_fn = unsafe { std::mem::transmute::<*const u8, TLSCallback>(callback) };
-            
-                unsafe { callback_fn(self.as_ptr(), 1, std::ptr::null()) };
-            }
-        }
-    
         Ok(())
     }
-
     /// Get the header section of the allocated [`PE`](PE) file.
     pub fn get_header(&self) -> &VallocBuffer {
         &self.sections[0].1
