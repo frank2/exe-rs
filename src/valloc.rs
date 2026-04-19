@@ -407,15 +407,18 @@ impl VallocPE {
         }
 
         self.protect()?;
-
-        // Note: TLS callbacks are not executed because load_image() is meant to
-        // prepare the image in memory, not to execute it. TLS callbacks should
-        // only run when the Windows loader creates a thread, not during manual loading.
-        // If you need to execute TLS callbacks, you should do so manually after
-        // load_image() in a properly sandboxed environment.
-
+        // Note: TLS callbacks are intentionally not executed. The load_image function
+        // is meant to prepare the PE image in memory, similar to what the Windows PE
+        // loader does - but the loader does NOT execute TLS callbacks. TLS callbacks
+        // are executed by the Windows loader ONLY when a new thread starts, not during
+        // initial image loading. Additionally, executing arbitrary code during PE loading
+        // is dangerous and can cause crashes (as seen with the flareon sample).
+        // If you need to execute TLS callbacks, do so manually after load_image() in a
+        // properly sandboxed environment.
+    
         Ok(())
     }
+
     /// Get the header section of the allocated [`PE`](PE) file.
     pub fn get_header(&self) -> &VallocBuffer {
         &self.sections[0].1
