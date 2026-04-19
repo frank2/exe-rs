@@ -52,7 +52,7 @@ use sha2::Sha256;
 
 use num_traits;
 
-use pkbuffer::Error as PKError;
+pub use pkbuffer::Error as PKError;
 
 use std::collections::HashMap;
 use std::io::Error as IoError;

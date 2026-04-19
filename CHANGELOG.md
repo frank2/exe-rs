@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.7
+### Features
+* Added aligned reference methods to the `PE` trait for direct header access:
+  * `get_dos_header_ref(&self) -> Result<&ImageDOSHeader, Error>`
+  * `get_mut_dos_header_ref(&mut self) -> Result<&mut ImageDOSHeader, Error>`
+  * `get_nt_headers_32_ref(&self) -> Result<&ImageNTHeaders32, Error>`
+  * `get_mut_nt_headers_32_ref(&mut self) -> Result<&mut ImageNTHeaders32, Error>`
+  * `get_nt_headers_64_ref(&self) -> Result<&ImageNTHeaders64, Error>`
+  * `get_mut_nt_headers_64_ref(&mut self) -> Result<&mut ImageNTHeaders64, Error>`
+* Thunk parsing now uses aligned reference methods with fallback to byte-copy reads for malformed PE files
+* Exported `PKError` publicly for external error pattern matching
+
+### Example
+```rust
+let pefile = VecPE::from_disk_file("test.exe")?;
+// Direct reference access to headers
+let dos: &ImageDOSHeader = pefile.get_dos_header_ref()?;
+let nt: &ImageNTHeaders32 = pefile.get_nt_headers_32_ref()?;
+// Mutable reference for in-place modification
+let mut pefile = VecPE::from_disk_file("test.exe")?;
+let dos: &mut ImageDOSHeader = pefile.get_mut_dos_header_ref()?;
+dos.e_csum = 0xDEADBEEF;  // writes directly to buffer
+```
+
 ## 0.5.6
 ### Features
 * Resources got refactored a bit.

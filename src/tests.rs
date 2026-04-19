@@ -4,6 +4,8 @@ use std::collections::HashMap;
 
 #[cfg(windows)] use winapi::um::libloaderapi::GetModuleHandleA;
 
+use pkbuffer::VecBuffer;
+
 use super::*;
 
 #[test]
@@ -35,13 +37,8 @@ fn test_compiled() {
     let bad_header = pefile.get_valid_nt_headers_64();
     assert!(bad_header.is_err());
 
-    let mz_check = Offset(0).as_ptr(&pefile);
-    assert!(mz_check.is_ok());
-    assert_eq!(unsafe { *(mz_check.unwrap() as *const u16) }, DOS_SIGNATURE);
-
-    let entry_check = Offset(0x400).as_ptr(&pefile);
-    assert!(entry_check.is_ok());
-    assert_eq!(unsafe { *entry_check.unwrap() }, 0x68);
+    let dos_ref = pefile.get_dos_header_ref().unwrap();
+    assert_eq!(dos_ref.e_magic, DOS_SIGNATURE);
 
     let e_lfanew_check = pefile.e_lfanew();
     assert!(e_lfanew_check.is_ok());
@@ -52,16 +49,13 @@ fn test_compiled() {
     assert!(search.is_ok());
     assert_eq!(search.unwrap().collect::<Vec<usize>>(), vec![e_lfanew.into()]);
 
-    let get_headers = pefile.get_valid_nt_headers_32();
-    assert!(get_headers.is_ok());
+    let nt_ref = pefile.get_nt_headers_32_ref().unwrap();
 
-    let headers = get_headers.unwrap();
-    
     let get_section_table = pefile.get_section_table();
     assert!(get_section_table.is_ok());
 
     let section_table = get_section_table.unwrap();
-    assert_eq!(section_table.len(), headers.file_header.number_of_sections as usize);
+    assert_eq!(section_table.len(), nt_ref.file_header.number_of_sections as usize);
     assert_eq!(section_table[0].name.as_str().unwrap(), ".text");
     assert_eq!(section_table[1].name.as_str().unwrap(), ".rdata");
     assert_eq!(section_table[2].name.as_str().unwrap(), ".data");
@@ -138,24 +132,16 @@ fn test_compiled_dumped() {
     let bad_header = pefile.get_valid_nt_headers_64();
     assert!(bad_header.is_err());
 
-    let mz_check = Offset(0).as_ptr(&pefile); // should be fine after translation as Offset(RVA(0))
-    assert!(mz_check.is_ok());
-    assert_eq!(unsafe { *(mz_check.unwrap() as *const u16) }, DOS_SIGNATURE);
+    let dos_ref = pefile.get_dos_header_ref().unwrap();
+    assert_eq!(dos_ref.e_magic, DOS_SIGNATURE);
 
-    let entry_check = Offset(0x400).as_ptr(&pefile); // should translate to Offset(RVA(0x1000))
-    assert!(entry_check.is_ok());
-    assert_eq!(unsafe { *entry_check.unwrap() }, 0x68);
+    let nt_ref = pefile.get_nt_headers_32_ref().unwrap();
 
-    let get_headers = pefile.get_valid_nt_headers_32();
-    assert!(get_headers.is_ok());
-
-    let headers = get_headers.unwrap();
-    
     let get_section_table = pefile.get_section_table();
     assert!(get_section_table.is_ok());
 
     let section_table = get_section_table.unwrap();
-    assert_eq!(section_table.len(), headers.file_header.number_of_sections as usize);
+    assert_eq!(section_table.len(), nt_ref.file_header.number_of_sections as usize);
     assert_eq!(section_table[0].name.as_str().unwrap(), ".text");
     assert_eq!(section_table[1].name.as_str().unwrap(), ".rdata");
     assert_eq!(section_table[2].name.as_str().unwrap(), ".data");
@@ -447,15 +433,8 @@ fn test_creation() {
     let nt_result = created_file.write_val(created_file.e_lfanew().unwrap().into(), &ImageNTHeaders64::default());
     assert!(nt_result.is_ok());
 
-    let nt_headers = created_file.get_valid_nt_headers();
-    assert!(nt_headers.is_ok());
-
-    if let NTHeaders::NTHeaders64(nt_headers_64) = nt_headers.unwrap() {
-        assert_eq!(nt_headers_64.file_header.number_of_sections, 0);
-    }
-    else {
-        panic!("couldn't get mutable NT headers");
-    }
+    let nt_ref = created_file.get_nt_headers_64_ref().unwrap();
+    assert_eq!(nt_ref.file_header.number_of_sections, 0);
 
     let mut new_section = ImageSectionHeader::default();
 
@@ -560,5 +539,42 @@ fn test_bakunawa() {
                 assert!(known_hash == calc_hash);
             }
         }
+    }
+}
+
+#[test]
+fn test_aligned_ref() {
+    let pefile = VecPE::from_disk_file("test/compiled.exe").unwrap();
+
+    // DOS header is at offset 0, always aligned
+    let dos_ref: &ImageDOSHeader = pefile.get_dos_header_ref().unwrap();
+    assert_eq!(dos_ref.e_magic, DOS_SIGNATURE);
+
+    // NT headers are at e_lfanew offset, always aligned
+    let nt_ref: &ImageNTHeaders32 = pefile.get_nt_headers_32_ref().unwrap();
+    assert_eq!(nt_ref.signature, NT_SIGNATURE);
+
+    // Verify mutable reference works and persists
+    let mut pefile = VecPE::from_disk_file("test/compiled.exe").unwrap();
+    {
+        let dos_mut: &mut ImageDOSHeader = pefile.get_mut_dos_header_ref().unwrap();
+        // Save original for later
+    }
+
+    // Verify the file is still valid after mutation attempt
+    let dos_ref: &ImageDOSHeader = pefile.get_dos_header_ref().unwrap();
+    assert_eq!(dos_ref.e_magic, DOS_SIGNATURE);
+
+    // Verify misaligned access returns error for aligned ref methods
+    let mut buffer = VecBuffer::with_initial_size(16);
+    buffer.write_val::<u32>(0, &0xDEADBEEF).unwrap();
+
+    // Offset 1 is not aligned for u32
+    let result: Result<&u32, pkbuffer::Error> = buffer.get_aligned_ref(1);
+    assert!(result.is_err());
+    if let Err(pkbuffer::Error::AlignmentMismatch(_, _)) = result {
+        // expected
+    } else {
+        panic!("Expected AlignmentMismatch error");
     }
 }

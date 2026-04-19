@@ -881,21 +881,33 @@ impl ImageImportDescriptor {
             return Err(Error::InvalidRVA(rva));
         }
 
-        let arch = pe.get_arch()?;        
+        let arch = pe.get_arch()?;
         let mut thunks = 0usize;
         let mut indexer = pe.translate(PETranslation::Memory(rva))?;
 
         loop {
             match arch {
-                // sometimes this can be unaligned... thanks Microsoft
-                Arch::X86 => match unsafe { pe.read_val::<Thunk32>(indexer) } {
-                    Ok(r) => { if r.0 == 0 { break; } },
-                    Err(e) => return Err(Error::from(e)),
-                },
-                Arch::X64 => match unsafe { pe.read_val::<Thunk64>(indexer) } {
-                    Ok(r) => { if r.0 == 0 { break; } },
-                    Err(e) => return Err(Error::from(e)),
-                },
+                Arch::X86 => {
+                    // Try aligned ref first, fall back to read_val on alignment error
+                    let thunk_val = match pe.get_aligned_ref::<Thunk32>(indexer) {
+                        Ok(r) => r.0,
+                        Err(crate::PKError::AlignmentMismatch(_, _)) => {
+                            pe.read_val::<Thunk32>(indexer).map_err(Error::from)?.0
+                        }
+                        Err(e) => return Err(Error::from(e)),
+                    };
+                    if thunk_val == 0 { break; }
+                }
+                Arch::X64 => {
+                    let thunk_val = match pe.get_aligned_ref::<Thunk64>(indexer) {
+                        Ok(r) => r.0,
+                        Err(crate::PKError::AlignmentMismatch(_, _)) => {
+                            pe.read_val::<Thunk64>(indexer).map_err(Error::from)?.0
+                        }
+                        Err(e) => return Err(Error::from(e)),
+                    };
+                    if thunk_val == 0 { break; }
+                }
             };
 
             thunks += 1;

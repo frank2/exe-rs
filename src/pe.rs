@@ -250,16 +250,36 @@ pub trait PE: Buffer + Sized {
 
         Ok(dos_header)
     }
-    /// Get a mutable DOS header and verify it's a valid DOS header.
-    fn get_valid_mut_dos_header(&mut self) -> Result<ImageDOSHeader, Error> {
-        let dos_header = self.get_mut_dos_header()?;
-
-        if dos_header.e_magic != DOS_SIGNATURE {
-            return Err(Error::InvalidDOSSignature(dos_header.e_magic));
-        }
-
-        Ok(dos_header)
+    /// Get a reference to the DOS header without verifying its contents.
+    fn get_dos_header_ref(&self) -> Result<&ImageDOSHeader, Error> {
+        self.get_aligned_ref::<ImageDOSHeader>(0).map_err(Error::from)
     }
+    /// Get a mutable reference to the DOS header without verifying its contents.
+    fn get_mut_dos_header_ref(&mut self) -> Result<&mut ImageDOSHeader, Error> {
+        self.get_aligned_mut::<ImageDOSHeader>(0).map_err(Error::from)
+    }
+    /// Get a valid reference to the DOS header.
+    fn get_valid_dos_header_ref(&self) -> Result<&ImageDOSHeader, Error> {
+        let dos_ref = self.get_aligned_ref::<ImageDOSHeader>(0).map_err(Error::from)?;
+
+        if dos_ref.e_magic != DOS_SIGNATURE {
+            return Err(Error::InvalidDOSSignature(dos_ref.e_magic));
+        };
+
+        Ok(dos_ref)
+    }
+    /// Get a mutable reference to the DOS header without verifying its contents.
+
+    fn get_valid_mut_dos_header_ref(&mut self) -> Result<&mut ImageDOSHeader, Error> {
+        let dos_ref = self.get_aligned_mut::<ImageDOSHeader>(0).map_err(Error::from)?;
+
+        if dos_ref.e_magic != DOS_SIGNATURE {
+            return Err(Error::InvalidDOSSignature(dos_ref.e_magic));
+        };
+
+        Ok(dos_ref)
+    }
+
     /// Get the offset to the PE headers.
     fn e_lfanew(&self) -> Result<Offset, Error> {
         let header = self.get_valid_dos_header()?;
@@ -341,6 +361,26 @@ pub trait PE: Buffer + Sized {
     fn get_mut_nt_headers_64(&mut self) -> Result<ImageNTHeaders64, Error> {
         let e_lfanew = self.e_lfanew()?;
         self.read_val::<ImageNTHeaders64>(e_lfanew.into()).map_err(Error::from)
+    }
+    /// Get a reference to 32-bit NT headers without verifying its contents.
+    fn get_nt_headers_32_ref(&self) -> Result<&ImageNTHeaders32, Error> {
+        let e_lfanew = self.e_lfanew()?;
+        self.get_aligned_ref::<ImageNTHeaders32>(e_lfanew.into()).map_err(Error::from)
+    }
+    /// Get a mutable reference to 32-bit NT headers without verifying its contents.
+    fn get_mut_nt_headers_32_ref(&mut self) -> Result<&mut ImageNTHeaders32, Error> {
+        let e_lfanew = self.e_lfanew()?;
+        self.get_aligned_mut::<ImageNTHeaders32>(e_lfanew.into()).map_err(Error::from)
+    }
+    /// Get a reference to 64-bit NT headers without verifying its contents.
+    fn get_nt_headers_64_ref(&self) -> Result<&ImageNTHeaders64, Error> {
+        let e_lfanew = self.e_lfanew()?;
+        self.get_aligned_ref::<ImageNTHeaders64>(e_lfanew.into()).map_err(Error::from)
+    }
+    /// Get a mutable reference to 64-bit NT headers without verifying its contents.
+    fn get_mut_nt_headers_64_ref(&mut self) -> Result<&mut ImageNTHeaders64, Error> {
+        let e_lfanew = self.e_lfanew()?;
+        self.get_aligned_mut::<ImageNTHeaders64>(e_lfanew.into()).map_err(Error::from)
     }
     /// Get 64-bit NT headers and verify that they're 64-bit NT headers.
     fn get_valid_nt_headers_64(&self) -> Result<ImageNTHeaders64, Error> {

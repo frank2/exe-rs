@@ -2,7 +2,7 @@
 name = "exe"
 description = "A PE (Portable Executable) library!"
 repository = "https://github.com/frank2/exe-rs"
-version = "0.5.6"
+version = "0.5.7"
 authors = ["frank2@dc949.org"]
 edition = "2018"
 license = "GPL-3.0"
@@ -19,7 +19,7 @@ byteorder = "1.1.0"
 chrono = { version = "0.4", features = ["clock", "std", "wasmbind"], default-features = false }
 hex = "0.4.3"
 num-traits = "0.2.14"
-pkbuffer = "0.6"
+pkbuffer = "0.7"
 md-5 = "0.9.1"
 sha-1 = "0.9.6"
 sha2 = "0.9.5"
@@ -33,6 +33,3 @@ win32 = ["winapi"]
 [package.metadata.docs.rs]
 features = ["win32"]
 default-target = "x86_64-pc-windows-msvc"
-
-[patch.crates-io]
-pkbuffer = { path = "/home/purple/local/doc/git/github/frank2/pkbuffer" }
