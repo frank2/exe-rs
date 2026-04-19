@@ -12,6 +12,10 @@
 * Thunk parsing now uses aligned reference methods with fallback to byte-copy reads for malformed PE files
 * Exported `PKError` publicly for external error pattern matching
 
+### Bugfixes
+* Fixed `VallocPE::from_pe` to properly check if a non-ASLR PE can be loaded at its preferred base address. Previously, the loader would allocate memory at a different address but fail to apply relocations when the relocation table was missing, leading to execution with incorrect pointers. It now correctly returns `Error::ImageBaseNotAvailable` in this case.
+* Wrapped `std::mem::transmute` calls in `unsafe` blocks for TLS callback execution in tests (Rust 1.82+ compliance)
+
 ### Example
 ```rust
 let pefile = VecPE::from_disk_file("test.exe")?;
