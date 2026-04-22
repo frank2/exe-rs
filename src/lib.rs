@@ -85,9 +85,12 @@ pub fn align<V: num_traits::Num + num_traits::Unsigned + num_traits::Zero + core
 /// Find all embedded images within the given [`PE`](PE) file, rendering them as the given [`PEType`](PEType).
 pub fn find_embedded_images<P: PE>(pe: &P, pe_type: PEType) -> Result<Option<Vec<PtrPE>>, Error> {
     let mut results = Vec::<PtrPE>::new();
-    let mut index = 2usize; // skip the initial MZ header
+    let file_len = pe.len();
 
-    while index < pe.len() {
+    // Search for MZ signatures and validate each potential PE
+    let mut index = 2usize; // skip the initial MZ header at offset 0
+
+    while index < file_len {
         if index > (u32::MAX as usize) { break; }
 
         let mz = match pe.read_val::<u16>(index) {
@@ -96,26 +99,38 @@ pub fn find_embedded_images<P: PE>(pe: &P, pe_type: PEType) -> Result<Option<Vec
         };
         if mz != DOS_SIGNATURE { index += 1; continue; }
 
-        let dos_header = match pe.read_val::<ImageDOSHeader>(index) {
-            Ok(h) => h,
+        // Read e_lfanew from the DOS header
+        let e_lfanew_offset = index + 0x3C;
+        if e_lfanew_offset + 4 > file_len { index += 1; continue; }
+
+        let e_lfanew_raw: u32 = match pe.read_val(e_lfanew_offset) {
+            Ok(v) => v,
             Err(_) => { index += 1; continue; },
         };
 
-        let e_lfanew: usize = index + dos_header.e_lfanew.0 as usize;
-        eprintln!("DEBUG: MZ at {}, e_lfanew={}", index, e_lfanew);
+        // e_lfanew must be within the file and reasonable
+        let e_lfanew = index + e_lfanew_raw as usize;
+        if e_lfanew >= file_len || e_lfanew < 0x40 { index += 1; continue; }
 
+        // Read PE signature
         let nt_signature = match pe.read_val::<u32>(e_lfanew) {
             Ok(s) => s,
             Err(_) => { index += 1; continue; },
         };
-        eprintln!("DEBUG: nt_signature={:#x}", nt_signature);
-
         if nt_signature != NT_SIGNATURE { index += 1; continue; }
 
-        // we now have some kind of PE image. whether it's a valid PE image
-        // is yet to be determined. so read to the end of the buffer as a
-        // temporary image to start parsing out the proper image.
-        let eof = pe.len() - index;
+        // Validate the PE header looks reasonable
+        // Machine field should be 0x14c (i386) or 0x8664 (amd64)
+        let machine_offset = e_lfanew + 4;
+        if machine_offset + 2 > file_len { index += 1; continue; }
+        let machine: u16 = match pe.read_val(machine_offset) {
+            Ok(v) => v,
+            Err(_) => { index += 1; continue; },
+        };
+        if machine != 0x14c && machine != 0x8664 { index += 1; continue; }
+
+        // Try to calculate the disk/memory size
+        let eof = file_len - index;
         let pe_ptr = match pe.offset_to_ptr(index) {
             Ok(p) => p,
             Err(_) => { index += 1; continue; },
@@ -125,25 +140,32 @@ pub fn find_embedded_images<P: PE>(pe: &P, pe_type: PEType) -> Result<Option<Vec
         let image_size = match pe_type {
             PEType::Disk => match temp_pe.calculate_disk_size() {
                 Ok(s) => s,
-                Err(e) => { eprintln!("DEBUG: disk_size error: {:?}", e); index += 1; continue; },
+                Err(_) => { index += 1; continue; },
             },
             PEType::Memory => match temp_pe.calculate_memory_size() {
                 Ok(s) => s,
-                Err(e) => { eprintln!("DEBUG: mem_size error: {:?}", e); index += 1; continue; },
+                Err(_) => { index += 1; continue; },
             },
         };
 
-        eprintln!("DEBUG: image_size={}, total_len={}", image_size, pe.len());
-        let validate_size = index + image_size;
-        if validate_size > pe.len() { eprintln!("DEBUG: overflow"); index += 1; continue; }
+        // Validate size doesn't exceed file bounds
+        if index + image_size > file_len { index += 1; continue; }
+
+        // Validate we have at least some sections
+        let number_of_sections_offset = e_lfanew + 6;
+        if number_of_sections_offset + 2 > file_len { index += 1; continue; }
+        let number_of_sections: u16 = match pe.read_val(number_of_sections_offset) {
+            Ok(v) => v,
+            Err(_) => { index += 1; continue; },
+        };
+        if number_of_sections == 0 || number_of_sections > 96 { index += 1; continue; }
 
         let real_pe = PtrPE::new(pe_type, pe_ptr, image_size);
-
         results.push(real_pe);
         index += image_size;
     }
 
-    if results.len() == 0 { Ok(None) }
+    if results.is_empty() { Ok(None) }
     else { Ok(Some(results)) }
 }
 
