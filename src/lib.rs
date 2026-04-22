@@ -102,11 +102,13 @@ pub fn find_embedded_images<P: PE>(pe: &P, pe_type: PEType) -> Result<Option<Vec
         };
 
         let e_lfanew: usize = index + dos_header.e_lfanew.0 as usize;
+        eprintln!("DEBUG: MZ at {}, e_lfanew={}", index, e_lfanew);
 
         let nt_signature = match pe.read_val::<u32>(e_lfanew) {
             Ok(s) => s,
             Err(_) => { index += 1; continue; },
         };
+        eprintln!("DEBUG: nt_signature={:#x}", nt_signature);
 
         if nt_signature != NT_SIGNATURE { index += 1; continue; }
 
@@ -123,16 +125,17 @@ pub fn find_embedded_images<P: PE>(pe: &P, pe_type: PEType) -> Result<Option<Vec
         let image_size = match pe_type {
             PEType::Disk => match temp_pe.calculate_disk_size() {
                 Ok(s) => s,
-                Err(_) => { index += 1; continue; },
+                Err(e) => { eprintln!("DEBUG: disk_size error: {:?}", e); index += 1; continue; },
             },
             PEType::Memory => match temp_pe.calculate_memory_size() {
                 Ok(s) => s,
-                Err(_) => { index += 1; continue; },
+                Err(e) => { eprintln!("DEBUG: mem_size error: {:?}", e); index += 1; continue; },
             },
         };
 
+        eprintln!("DEBUG: image_size={}, total_len={}", image_size, pe.len());
         let validate_size = index + image_size;
-        if validate_size > pe.len() { index += 1; continue; }
+        if validate_size > pe.len() { eprintln!("DEBUG: overflow"); index += 1; continue; }
 
         let real_pe = PtrPE::new(pe_type, pe_ptr, image_size);
 
