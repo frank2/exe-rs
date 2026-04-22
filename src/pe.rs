@@ -668,7 +668,7 @@ pub trait PE: Buffer + Sized {
         Ok(directory_table[index])
     }
     /// Get the mutable data directory reference represented by the [`ImageDirectoryEntry`](crate::headers::ImageDirectoryEntry) enum.
-    fn get_mut_data_directory(&mut self, dir: ImageDirectoryEntry) -> Result<ImageDataDirectory, Error> {
+    fn get_mut_data_directory(&mut self, dir: ImageDirectoryEntry) -> Result<&mut ImageDataDirectory, Error> {
         let directory_table = self.get_mut_data_directory_table()?;
         let index = dir as usize;
 
@@ -676,7 +676,7 @@ pub trait PE: Buffer + Sized {
             return Err(Error::BadDirectory(dir));
         }
 
-        Ok(directory_table[index])
+        Ok(&mut directory_table[index])
     }
     /// Check whether or not this PE file has a given data directory.
     ///

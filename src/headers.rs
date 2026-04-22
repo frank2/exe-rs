@@ -1179,22 +1179,6 @@ impl ImageImportByName {
     }
 }
 
-/// Represents a mutable ```IMAGE_IMPORT_BY_NAME``` structure.
-pub struct ImageImportByNameMut {
-    pub hint: u16,
-    pub name: Vec<CChar>,
-}
-impl ImageImportByNameMut {
-    /// Get a mutable ```ImageImportByName``` object at the given RVA.
-    pub fn parse<P: PE>(pe: &mut P, rva: RVA) -> Result<Self, Error> {
-        let offset = pe.translate(PETranslation::Memory(rva))?;
-        let hint = pe.read_val::<u16>(offset)?;
-        let name = pe.get_cstring(offset + mem::size_of::<u16>(), true, None)?;
-
-        Ok(Self { hint, name: name.to_vec() })
-    }
-}
-
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 /// An enum containing relocation types.
 pub enum ImageRelBased {
@@ -1305,26 +1289,6 @@ impl ImageResourceDirString {
     }
 }
 
-/// Represents a mutable ```IMAGE_RESOURCE_DIR_STRING``` structure.
-///
-/// See [`ImageImportByName`](ImageImportByName) for an explanation as to why this structure
-/// is different from the others.
-pub struct ImageResourceDirStringMut {
-    pub length: u16,
-    pub name: Vec<CChar>,
-}
-impl ImageResourceDirStringMut {
-    /// Get a mutable ```ImageResourceDirString``` object at the given RVA.
-    pub fn parse<P: PE>(pe: &mut P, rva: RVA) -> Result<Self, Error> {
-        let offset = pe.translate(PETranslation::Memory(rva))?;
-        let length = pe.read_val::<u16>(offset)?;
-        let name = pe.get_slice_ref::<CChar>(offset + mem::size_of::<u16>(), length as usize)?;
-        let name_vec = name.iter().copied().collect();
-
-        Ok(Self { length, name: name_vec })
-    }
-}
-
 /// Represents an ```IMAGE_RESOURCE_DIR_STRING_U``` structure.
 ///
 /// See [`ImageImportByName`](ImageImportByName) for an explanation as to why this structure
@@ -1337,26 +1301,6 @@ pub struct ImageResourceDirStringU {
 impl ImageResourceDirStringU {
     /// Get a ```ImageResourceDirStringU``` object at the given RVA.
     pub fn parse<P: PE>(pe: &P, rva: RVA) -> Result<Self, Error> {
-        let offset = pe.translate(PETranslation::Memory(rva))?;
-        let length = pe.read_val::<u16>(offset)?;
-        let name = pe.get_slice_ref::<WChar>(offset + mem::size_of::<u16>(), length as usize)?;
-        let name_vec = name.iter().copied().collect();
-
-        Ok(Self { length, name: name_vec })
-    }
-}
-
-/// Represents a mutable ```IMAGE_RESOURCE_DIR_STRING_U``` structure.
-///
-/// See [`ImageImportByName`](ImageImportByName) for an explanation as to why this structure
-/// is different from the others.
-pub struct ImageResourceDirStringUMut {
-    pub length: u16,
-    pub name: Vec<WChar>,
-}
-impl ImageResourceDirStringUMut {
-    /// Get a mutable ```ImageResourceDirStringU``` object at the given RVA.
-    pub fn parse<P: PE>(pe: &mut P, rva: RVA) -> Result<Self, Error> {
         let offset = pe.translate(PETranslation::Memory(rva))?;
         let length = pe.read_val::<u16>(offset)?;
         let name = pe.get_slice_ref::<WChar>(offset + mem::size_of::<u16>(), length as usize)?;
@@ -1680,6 +1624,180 @@ impl ImageTLSDirectory64 {
     }
 }
 
+/// Windows load configuration directory (32-bit).
+///
+/// This structure contains security-related settings including SEH handler tables,
+/// GlobalFlag values, and Control Flow Guard metadata.
+///
+/// The actual size depends on the Windows version. The `size` field indicates
+/// which version is present. Windows XP expects size=64, Vista+ with CFG
+/// uses size=84 or larger.
+#[repr(C)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct ImageLoadConfigDirectory32 {
+    pub size: u32,
+    pub time_date_stamp: u32,
+    pub major_version: u16,
+    pub minor_version: u16,
+    pub global_flags_clear: u32,
+    pub global_flags_set: u32,
+    pub critical_section_default_timeout: u32,
+    pub decommit_free_block_threshold: u32,
+    pub decommit_total_free_threshold: u32,
+    pub lock_prefix_table: VA32,
+    pub maximum_allocation_size: u32,
+    pub virtual_memory_threshold: u32,
+    pub process_heap_flags: u32,
+    pub process_affinity_mask: u32,
+    pub csd_version: u16,
+    pub dependent_load_flags: u16,
+    pub edit_list: VA32,
+    pub security_cookie: VA32,
+    pub se_handler_table: VA32,
+    pub se_handler_count: u32,
+    pub guard_cf_check_function_pointer: VA32,
+    pub guard_cf_dispatch_function_pointer: VA32,
+    pub guard_cf_function_table: VA32,
+    pub guard_cf_function_count: u32,
+    pub guard_flags: GuardCFFlags,
+}
+impl ImageLoadConfigDirectory32 {
+    /// Get the load config directory from the [`PE`](PE) object.
+    pub fn parse<P: PE>(pe: &P) -> Result<Self, Error> {
+        pe.cast_directory::<Self>(ImageDirectoryEntry::LoadConfig)
+    }
+
+    /// Get a mutable load config directory from the [`PE`](PE) object.
+    pub fn parse_mut<P: PE>(pe: &mut P) -> Result<Self, Error> {
+        pe.cast_directory_mut::<Self>(ImageDirectoryEntry::LoadConfig)
+    }
+
+    /// Get the SEH handler table as an array of addresses.
+    pub fn get_se_handler_table<'data, P: PE>(&self, pe: &'data P) -> Result<&'data [VA32], Error> {
+        if self.se_handler_count == 0 {
+            return Ok(&[]);
+        }
+        let rva = self.se_handler_table.as_rva(pe)?;
+        let offset = pe.translate(PETranslation::Memory(rva))?;
+        Ok(pe.get_slice_ref::<VA32>(offset, self.se_handler_count as usize)?)
+    }
+
+    /// Get the CFG function table as an array of addresses.
+    pub fn get_cf_guard_function_table<'data, P: PE>(&self, pe: &'data P) -> Result<&'data [VA32], Error> {
+        if self.guard_cf_function_count == 0 {
+            return Ok(&[]);
+        }
+        let rva = self.guard_cf_function_table.as_rva(pe)?;
+        let offset = pe.translate(PETranslation::Memory(rva))?;
+        Ok(pe.get_slice_ref::<VA32>(offset, self.guard_cf_function_count as usize)?)
+    }
+}
+
+/// Windows load configuration directory (64-bit).
+///
+/// This structure contains security-related settings including SEH handler tables,
+/// GlobalFlag values, and Control Flow Guard metadata.
+///
+/// The actual size depends on the Windows version. The `size` field indicates
+/// which version is present.
+#[repr(C)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct ImageLoadConfigDirectory64 {
+    pub size: u32,
+    pub time_date_stamp: u32,
+    pub major_version: u16,
+    pub minor_version: u16,
+    pub global_flags_clear: u32,
+    pub global_flags_set: u32,
+    pub critical_section_default_timeout: u32,
+    pub decommit_free_block_threshold: u64,
+    pub decommit_total_free_threshold: u64,
+    pub lock_prefix_table: VA64,
+    pub maximum_allocation_size: u64,
+    pub virtual_memory_threshold: u64,
+    pub process_heap_flags: u32,
+    pub process_affinity_mask: u64,
+    pub csd_version: u16,
+    pub dependent_load_flags: u16,
+    pub edit_list: VA64,
+    pub security_cookie: VA64,
+    pub se_handler_table: VA64,
+    pub se_handler_count: u32,
+    pub guard_cf_check_function_pointer: VA64,
+    pub guard_cf_dispatch_function_pointer: VA64,
+    pub guard_cf_function_table: VA64,
+    pub guard_cf_function_count: u32,
+    pub guard_flags: GuardCFFlags,
+}
+impl ImageLoadConfigDirectory64 {
+    /// Get the load config directory from the [`PE`](PE) object.
+    pub fn parse<P: PE>(pe: &P) -> Result<Self, Error> {
+        pe.cast_directory::<Self>(ImageDirectoryEntry::LoadConfig)
+    }
+
+    /// Get a mutable load config directory from the [`PE`](PE) object.
+    pub fn parse_mut<P: PE>(pe: &mut P) -> Result<Self, Error> {
+        pe.cast_directory_mut::<Self>(ImageDirectoryEntry::LoadConfig)
+    }
+
+    /// Get the SEH handler table as an array of addresses.
+    pub fn get_se_handler_table<'data, P: PE>(&self, pe: &'data P) -> Result<&'data [VA64], Error> {
+        if self.se_handler_count == 0 {
+            return Ok(&[]);
+        }
+        let rva = self.se_handler_table.as_rva(pe)?;
+        let offset = pe.translate(PETranslation::Memory(rva))?;
+        Ok(pe.get_slice_ref::<VA64>(offset, self.se_handler_count as usize)?)
+    }
+
+    /// Get the CFG function table as an array of addresses.
+    pub fn get_cf_guard_function_table<'data, P: PE>(&self, pe: &'data P) -> Result<&'data [VA64], Error> {
+        if self.guard_cf_function_count == 0 {
+            return Ok(&[]);
+        }
+        let rva = self.guard_cf_function_table.as_rva(pe)?;
+        let offset = pe.translate(PETranslation::Memory(rva))?;
+        Ok(pe.get_slice_ref::<VA64>(offset, self.guard_cf_function_count as usize)?)
+    }
+}
+
+/// Guard CF (Control Flow Guard) flags stored in [`ImageLoadConfigDirectory`].
+///
+/// These flags indicate which CFG security checks are enabled.
+bitflags! {
+    #[repr(C)]
+    pub struct GuardCFFlags: u32 {
+        /// Function table contains valid CFG check function pointers
+        const CFG_FUNCTION_TABLE_VALID              = 0x00000001;
+        /// Export suppression is enabled for this image
+        const CFG_EXPORT_SUPPRESSION_ENABLED        = 0x00000004;
+        /// Import suppression is enabled for this image
+        const CFG_IMPORT_SUPPRESSION_ENABLED        = 0x00000008;
+        /// EH continuation targets are validated
+        const CFG_EH_CONTINUATION_TARGET_VALIDATED   = 0x00000010;
+        /// Invalid EHT targets are converted to valid fall-through targets
+        const CFG_EH_TARGET_VALIDATED                = 0x00000020;
+        /// CFG checks are enabled
+        const CFG_ENABLED                            = 0x00000100;
+        /// CFG is set to disallow invalid calls to be taken
+        const CFG_DISABLE_FORWARD_BOUNDARY_CALLS     = 0x00000400;
+        /// CFG export suppression is enforced
+        const CFG_ENABLE_EXPORT_SUPPRESSION          = 0x00000800;
+        /// CFG import suppression is enforced
+        const CFG_ENABLE_IMPORT_SUPPRESSION          = 0x00001000;
+        /// EH continuation target validation is enforced
+        const CFG_ENABLE_EH_TARGET_VALIDATION        = 0x00002000;
+        /// Calls to non-writable global entries are disallowed
+        const CFG_DISABLE_CF_INDIRECT_CALLS          = 0x00004000;
+        /// CFG instrumentation is enabled
+        const CFG_DISABLE_CF_INSTRUMENTATION         = 0x00008000;
+        /// Enable writing explicit CFG policy (XFG)
+        const CFG_ENABLE_XFG                         = 0x00010000;
+        /// Disable LTO preprocessing
+        const CFG_DISABLE_LTO                        = 0x00020000;
+    }
+}
+
 /// Represent an entry in a resource-encoded icon group.
 ///
 /// See [the Microsoft Icons article](https://learn.microsoft.com/en-us/previous-versions/ms997538(v=msdn.10)?redirectedfrom=MSDN)
@@ -1727,61 +1845,6 @@ pub struct GrpIconDir {
 impl GrpIconDir {
     /// Parse a resource icon at the given RVA.
     pub fn parse<P: PE>(pe: &P, rva: RVA) -> Result<Self, Error> {
-        let offset = pe.translate(PETranslation::Memory(rva))?;
-        let reserved = pe.read_val::<u16>(offset)?;
-        let icon_type = pe.read_val::<u16>(offset+2)?;
-        let count = pe.read_val::<u16>(offset+4)?;
-        let entries = pe.read_val_array::<GrpIconDirEntry>(offset+6, count as usize)?;
-
-        Ok(Self { reserved, icon_type, count, entries })
-    }
-    /// Convert this resource icon into a file icon.
-    ///
-    /// In other words, compile this group icon directory into an icon file.
-    pub fn to_icon_buffer<P: PE>(&self, pe: &P) -> Result<VecBuffer, Error> {
-        let icon_vec = IconDirVec {
-            reserved: self.reserved,
-            icon_type: self.icon_type,
-            count: self.count,
-            entries: self.entries.iter().map(|x| x.to_icon_dir_entry()).collect(),
-        };
-        let mut icon_buf = icon_vec.to_vec_buffer()?;
-        let resource_dir = ResourceDirectory::parse(pe)?;
-
-        for index in 0..self.entries.len() {
-            let entry = &self.entries[index];
-            let id = ResolvedDirectoryID::ID(entry.id as u32);
-            let search = resource_dir.filter(Some(ResolvedDirectoryID::ID(ResourceID::Icon as u32)), Some(id), None);
-            if search.len() == 0 { return Err(Error::ResourceNotFound); }
-
-            let entry = search[0].get_data_entry(pe)?;
-            let offset = icon_buf.len();
-            let data = entry.read(pe)?;
-
-            icon_buf.append(&data);
-
-            // Write the updated image_offset back to the buffer
-            let entry_offset = 6 + index * 16 + 12; // offset to image_offset field in ICONDIRENTRY
-            icon_buf.write_val::<u32>(entry_offset, &(offset as u32))?;
-        }
-
-        Ok(icon_buf)
-    }
-}
-
-/// Represent a mutable directory in a resource-encoded icon group.
-///
-/// See [the Microsoft Icons article](https://learn.microsoft.com/en-us/previous-versions/ms997538(v=msdn.10)?redirectedfrom=MSDN)
-/// for a thorough explanation.
-pub struct GrpIconDirMut {
-    pub reserved: u16,
-    pub icon_type: u16,
-    pub count: u16,
-    pub entries: Vec<GrpIconDirEntry>
-}
-impl GrpIconDirMut {
-    /// Parse a mutable resource icon at the given RVA.
-    pub fn parse<P: PE>(pe: &mut P, rva: RVA) -> Result<Self, Error> {
         let offset = pe.translate(PETranslation::Memory(rva))?;
         let reserved = pe.read_val::<u16>(offset)?;
         let icon_type = pe.read_val::<u16>(offset+2)?;
